@@ -1,82 +1,86 @@
-import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ArrowDown, ArrowUp, Clock } from "lucide-react";
+import { TrendingUp, Clock, AlertTriangle, ArrowUp, ArrowDown } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
 import { useEffect, useState } from "react";
 
 export const AlertPanel = () => {
-  const [countdown, setCountdown] = useState(180); // 3 minutes in seconds
-  const [alertType, setAlertType] = useState<"prepare" | "enter" | null>("prepare");
+  const { toast } = useToast();
+  const [balance, setBalance] = useState(10000);
 
-  useEffect(() => {
-    if (countdown <= 0) {
-      setAlertType("enter");
+  const alerts = [
+    {
+      type: "entry",
+      asset: "BTCUSDT",
+      direction: "buy",
+      message: "Entrada confirmada! CHoCH + LPSY em M15",
+      rr: "1:4.2",
+      session: "NY",
+      icon: TrendingUp,
+      color: "text-success border-success bg-success/10"
+    },
+    {
+      type: "prepare",
+      asset: "ETHUSDT",
+      direction: "sell",
+      message: "Prepare-se! Entrada estimada em 3m 15s",
+      rr: "1:3.8",
+      session: "Londres",
+      icon: Clock,
+      color: "text-warning border-warning bg-warning/10"
+    }
+  ];
+
+  const handleEntryClick = (alert: typeof alerts[0]) => {
+    if (balance <= 0) {
+      toast({
+        title: "Saldo Insuficiente",
+        description: "Você não tem saldo disponível para entrar nesta operação.",
+        variant: "destructive",
+      });
       return;
     }
 
-    const interval = setInterval(() => {
-      setCountdown((prev) => prev - 1);
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [countdown]);
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
+    toast({
+      title: `Entrando em ${alert.asset}`,
+      description: `Posição ${alert.direction === "buy" ? "COMPRADA" : "VENDIDA"} iniciada com R:R ${alert.rr}`,
+    });
   };
 
-  if (!alertType) return null;
-
   return (
-    <Alert className={`border-2 ${
-      alertType === "enter" 
-        ? "border-destructive bg-destructive/10" 
-        : "border-warning bg-warning/10"
-    }`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          {alertType === "enter" ? (
-            <>
-              <ArrowDown className="h-6 w-6 text-destructive animate-pulse" />
-              <div>
-                <AlertDescription className="text-base font-bold text-destructive">
-                  ENTRE AGORA - VENDA
-                </AlertDescription>
-                <p className="text-sm text-muted-foreground mt-1">
-                  BTCUSDT - CHoCH Micro confirmado | R:R 1:4.2 | Entry: $67,920
-                </p>
+    <div className="space-y-2">
+      {alerts.map((alert, index) => {
+        const Icon = alert.icon;
+        const DirectionIcon = alert.direction === "buy" ? ArrowUp : ArrowDown;
+        return (
+          <Alert 
+            key={index} 
+            className={`${alert.color} border-2 cursor-pointer hover:opacity-80 transition-opacity`}
+            onClick={() => alert.type === "entry" && handleEntryClick(alert)}
+          >
+            <Icon className="h-5 w-5" />
+            <AlertDescription className="ml-2 flex items-center gap-2 flex-wrap">
+              <span className="font-bold">{alert.asset}</span>
+              <div className={`flex items-center gap-1 ${alert.direction === "buy" ? "text-profit" : "text-loss"}`}>
+                <DirectionIcon className="h-4 w-4" />
+                <span className="text-xs font-medium uppercase">{alert.direction}</span>
               </div>
-            </>
-          ) : (
-            <>
-              <Clock className="h-6 w-6 text-warning animate-pulse" />
-              <div>
-                <AlertDescription className="text-base font-bold text-warning">
-                  PREPARE-SE PARA ENTRAR EM {formatTime(countdown)}
-                </AlertDescription>
-                <p className="text-sm text-muted-foreground mt-1">
-                  BTCUSDT - Zona de Valor mitigada | Aguardando CHoCH Micro
-                </p>
-              </div>
-            </>
-          )}
-        </div>
-        
-        <div className="flex items-center gap-6 text-sm">
-          <div>
-            <span className="text-muted-foreground">Direção:</span>
-            <span className="ml-2 font-bold text-destructive flex items-center gap-1">
-              <ArrowDown className="h-4 w-4" />
-              VENDA
-            </span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Sessão:</span>
-            <span className="ml-2 font-bold">Nova York</span>
-          </div>
-        </div>
-      </div>
-    </Alert>
+              <span>-</span>
+              <span>{alert.message}</span>
+              <Badge variant="outline" className="ml-auto">R:R {alert.rr}</Badge>
+              <Badge variant="secondary">{alert.session}</Badge>
+            </AlertDescription>
+          </Alert>
+        );
+      })}
+      {balance <= 0 && (
+        <Alert className="border-destructive bg-destructive/10">
+          <AlertTriangle className="h-5 w-5 text-destructive" />
+          <AlertDescription className="ml-2 font-medium text-destructive">
+            Saldo insuficiente para operar. Deposite fundos para continuar.
+          </AlertDescription>
+        </Alert>
+      )}
+    </div>
   );
 };
