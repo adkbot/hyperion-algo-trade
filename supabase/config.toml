@@ -1,1 +1,10 @@
 project_id = "zfefnlibzgkfbgdtagho"
+
+[functions.binance-websocket]
+verify_jwt = false
+
+[functions.binance-order]
+verify_jwt = false
+
+[functions.trading-orchestrator]
+verify_jwt = false
