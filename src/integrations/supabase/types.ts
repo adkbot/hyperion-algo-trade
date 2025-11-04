@@ -14,7 +14,213 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      active_positions: {
+        Row: {
+          agents: Json | null
+          asset: string
+          current_pnl: number | null
+          current_price: number | null
+          direction: string
+          entry_price: number
+          id: string
+          opened_at: string | null
+          projected_profit: number
+          risk_reward: number
+          session: string | null
+          stop_loss: number
+          take_profit: number
+          updated_at: string | null
+        }
+        Insert: {
+          agents?: Json | null
+          asset: string
+          current_pnl?: number | null
+          current_price?: number | null
+          direction: string
+          entry_price: number
+          id?: string
+          opened_at?: string | null
+          projected_profit: number
+          risk_reward: number
+          session?: string | null
+          stop_loss: number
+          take_profit: number
+          updated_at?: string | null
+        }
+        Update: {
+          agents?: Json | null
+          asset?: string
+          current_pnl?: number | null
+          current_price?: number | null
+          direction?: string
+          entry_price?: number
+          id?: string
+          opened_at?: string | null
+          projected_profit?: number
+          risk_reward?: number
+          session?: string | null
+          stop_loss?: number
+          take_profit?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      agent_logs: {
+        Row: {
+          agent_name: string
+          asset: string
+          created_at: string | null
+          data: Json | null
+          id: string
+          status: string
+        }
+        Insert: {
+          agent_name: string
+          asset: string
+          created_at?: string | null
+          data?: Json | null
+          id?: string
+          status: string
+        }
+        Update: {
+          agent_name?: string
+          asset?: string
+          created_at?: string | null
+          data?: Json | null
+          id?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      daily_goals: {
+        Row: {
+          completed: boolean | null
+          created_at: string | null
+          date: string
+          id: string
+          losses: number | null
+          max_losses: number | null
+          projected_completion_time: string | null
+          target_operations: number | null
+          total_operations: number | null
+          total_pnl: number | null
+          wins: number | null
+        }
+        Insert: {
+          completed?: boolean | null
+          created_at?: string | null
+          date: string
+          id?: string
+          losses?: number | null
+          max_losses?: number | null
+          projected_completion_time?: string | null
+          target_operations?: number | null
+          total_operations?: number | null
+          total_pnl?: number | null
+          wins?: number | null
+        }
+        Update: {
+          completed?: boolean | null
+          created_at?: string | null
+          date?: string
+          id?: string
+          losses?: number | null
+          max_losses?: number | null
+          projected_completion_time?: string | null
+          target_operations?: number | null
+          total_operations?: number | null
+          total_pnl?: number | null
+          wins?: number | null
+        }
+        Relationships: []
+      }
+      operations: {
+        Row: {
+          agents: Json | null
+          asset: string
+          created_at: string | null
+          direction: string
+          entry_price: number
+          entry_time: string | null
+          exit_price: number | null
+          exit_time: string | null
+          id: string
+          pnl: number | null
+          result: string | null
+          risk_reward: number
+          session: string | null
+          stop_loss: number
+          take_profit: number
+        }
+        Insert: {
+          agents?: Json | null
+          asset: string
+          created_at?: string | null
+          direction: string
+          entry_price: number
+          entry_time?: string | null
+          exit_price?: number | null
+          exit_time?: string | null
+          id?: string
+          pnl?: number | null
+          result?: string | null
+          risk_reward: number
+          session?: string | null
+          stop_loss: number
+          take_profit: number
+        }
+        Update: {
+          agents?: Json | null
+          asset?: string
+          created_at?: string | null
+          direction?: string
+          entry_price?: number
+          entry_time?: string | null
+          exit_price?: number | null
+          exit_time?: string | null
+          id?: string
+          pnl?: number | null
+          result?: string | null
+          risk_reward?: number
+          session?: string | null
+          stop_loss?: number
+          take_profit?: number
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          balance: number
+          bot_status: string | null
+          created_at: string | null
+          id: string
+          max_positions: number | null
+          paper_mode: boolean | null
+          risk_per_trade: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          balance?: number
+          bot_status?: string | null
+          created_at?: string | null
+          id?: string
+          max_positions?: number | null
+          paper_mode?: boolean | null
+          risk_per_trade?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          balance?: number
+          bot_status?: string | null
+          created_at?: string | null
+          id?: string
+          max_positions?: number | null
+          paper_mode?: boolean | null
+          risk_per_trade?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
