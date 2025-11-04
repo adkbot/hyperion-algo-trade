@@ -1,27 +1,22 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp, TrendingDown, DollarSign, Activity } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useUserSettings, useDailyGoals } from "@/hooks/useTradingData";
 
 export const StatsPanel = () => {
-  const [balance, setBalance] = useState(10000);
-  const [pnl, setPnl] = useState(0);
+  const { data: settings } = useUserSettings();
+  const { data: dailyGoals } = useDailyGoals();
 
-  useEffect(() => {
-    // Simulate real-time balance updates
-    const interval = setInterval(() => {
-      const change = (Math.random() - 0.5) * 10;
-      setPnl((prev) => prev + change);
-      setBalance((prev) => prev + change);
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, []);
+  const balance = settings?.balance || 0;
+  const pnl = dailyGoals?.total_pnl || 0;
+  const totalOps = dailyGoals?.total_operations || 0;
+  const wins = dailyGoals?.wins || 0;
+  const winRate = totalOps > 0 ? ((wins / totalOps) * 100).toFixed(0) : 0;
 
   const stats = [
     { label: "Saldo", value: `$${balance.toFixed(2)}`, icon: DollarSign, color: "text-foreground" },
     { label: "P&L Hoje", value: `$${pnl.toFixed(2)}`, icon: pnl >= 0 ? TrendingUp : TrendingDown, color: pnl >= 0 ? "text-profit" : "text-loss" },
-    { label: "Operações", value: "12", icon: Activity, color: "text-foreground" },
-    { label: "Win Rate", value: "75%", icon: TrendingUp, color: "text-profit" },
+    { label: "Operações", value: totalOps.toString(), icon: Activity, color: "text-foreground" },
+    { label: "Win Rate", value: `${winRate}%`, icon: TrendingUp, color: "text-profit" },
   ];
 
   return (

@@ -2,8 +2,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
-import { useToast } from "@/hooks/use-toast";
+import { Switch } from "@/components/ui/switch";
+import { useState, useEffect } from "react";
+import { useUserSettings, useUpdateSettings } from "@/hooks/useTradingData";
 
 interface SettingsModalProps {
   open: boolean;
@@ -11,29 +12,30 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
-  const { toast } = useToast();
-  const [apiKey, setApiKey] = useState("");
-  const [apiSecret, setApiSecret] = useState("");
+  const { data: settings } = useUserSettings();
+  const updateSettings = useUpdateSettings();
+  
+  const [balance, setBalance] = useState(10000);
+  const [maxPositions, setMaxPositions] = useState(3);
+  const [riskPerTrade, setRiskPerTrade] = useState(0.06);
+  const [paperMode, setPaperMode] = useState(true);
+
+  useEffect(() => {
+    if (settings) {
+      setBalance(settings.balance);
+      setMaxPositions(settings.max_positions);
+      setRiskPerTrade(settings.risk_per_trade);
+      setPaperMode(settings.paper_mode);
+    }
+  }, [settings]);
 
   const handleSave = () => {
-    if (!apiKey || !apiSecret) {
-      toast({
-        title: "Erro",
-        description: "Por favor, preencha todos os campos",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Save to localStorage or backend
-    localStorage.setItem("trading_api_key", apiKey);
-    localStorage.setItem("trading_api_secret", apiSecret);
-    
-    toast({
-      title: "Configurações salvas",
-      description: "Suas credenciais de API foram configuradas com sucesso",
+    updateSettings.mutate({
+      balance,
+      max_positions: maxPositions,
+      risk_per_trade: riskPerTrade,
+      paper_mode: paperMode,
     });
-    
     onOpenChange(false);
   };
 
@@ -45,27 +47,46 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="apiKey">API Key</Label>
+            <Label htmlFor="balance">Saldo Inicial ($)</Label>
             <Input
-              id="apiKey"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Digite sua API Key"
+              id="balance"
+              type="number"
+              value={balance}
+              onChange={(e) => setBalance(Number(e.target.value))}
+              placeholder="10000"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="apiSecret">API Secret</Label>
+            <Label htmlFor="maxPositions">Máximo de Posições</Label>
             <Input
-              id="apiSecret"
-              type="password"
-              value={apiSecret}
-              onChange={(e) => setApiSecret(e.target.value)}
-              placeholder="Digite seu API Secret"
+              id="maxPositions"
+              type="number"
+              value={maxPositions}
+              onChange={(e) => setMaxPositions(Number(e.target.value))}
+              placeholder="3"
             />
           </div>
-          <Button onClick={handleSave} className="w-full">
-            Salvar Configurações
+          <div className="space-y-2">
+            <Label htmlFor="risk">Risco por Trade (%)</Label>
+            <Input
+              id="risk"
+              type="number"
+              step="0.01"
+              value={riskPerTrade * 100}
+              onChange={(e) => setRiskPerTrade(Number(e.target.value) / 100)}
+              placeholder="6"
+            />
+          </div>
+          <div className="flex items-center justify-between space-x-2">
+            <Label htmlFor="paperMode">Modo Paper Trading</Label>
+            <Switch
+              id="paperMode"
+              checked={paperMode}
+              onCheckedChange={setPaperMode}
+            />
+          </div>
+          <Button onClick={handleSave} className="w-full" disabled={updateSettings.isPending}>
+            {updateSettings.isPending ? "Salvando..." : "Salvar Configurações"}
           </Button>
         </div>
       </DialogContent>

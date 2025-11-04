@@ -1,18 +1,24 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { useAgentLogs } from "@/hooks/useTradingData";
 
 export const AgentPanel = () => {
-  const agents = [
-    { name: "RiskManager", status: "active", lastAction: "Validou R:R 1:4.2" },
-    { name: "VolumeProfile", status: "active", lastAction: "POC marcado: $67,850" },
-    { name: "FibonacciOTE", status: "active", lastAction: "OTE 70.5% identificado" },
-    { name: "VWMAFilter", status: "active", lastAction: "VWMA alinhada (Sell)" },
-    { name: "CHoCHDetector", status: "waiting", lastAction: "Aguardando CHoCH Micro" },
-    { name: "SessionTracker", status: "active", lastAction: "Sessão: NY (Alta Volume)" },
-    { name: "Wyckoff", status: "active", lastAction: "LPSY detectado: $68,100" },
-    { name: "InvalidationChecker", status: "active", lastAction: "Sem notícias de alto impacto" },
-  ];
+  const { data: logs } = useAgentLogs();
+
+  // Group logs by agent and get the most recent one
+  const agentMap = new Map();
+  logs?.forEach((log) => {
+    if (!agentMap.has(log.agent_name)) {
+      agentMap.set(log.agent_name, {
+        name: log.agent_name,
+        status: log.status.toLowerCase(),
+        lastAction: `${log.asset}: ${JSON.stringify(log.data || {})}`,
+      });
+    }
+  });
+
+  const agents = Array.from(agentMap.values());
 
   const getStatusIcon = (status: string) => {
     switch (status) {

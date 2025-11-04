@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Play, Pause, Square, Settings } from "lucide-react";
 import { useState } from "react";
 import { SettingsModal } from "./SettingsModal";
+import { useUserSettings, useUpdateBotStatus } from "@/hooks/useTradingData";
 
 interface TradingHeaderProps {
   botStatus: "stopped" | "running" | "paused";
@@ -10,6 +11,13 @@ interface TradingHeaderProps {
 
 export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) => {
   const [showSettings, setShowSettings] = useState(false);
+  const { data: settings } = useUserSettings();
+  const updateBotStatus = useUpdateBotStatus();
+
+  const handleStatusChange = (status: "stopped" | "running" | "paused") => {
+    setBotStatus(status);
+    updateBotStatus.mutate(status);
+  };
 
   return (
     <>
@@ -35,7 +43,7 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
             <div className="flex items-center gap-2">
               {botStatus === "stopped" && (
                 <Button
-                  onClick={() => setBotStatus("running")}
+                  onClick={() => handleStatusChange("running")}
                   className="bg-success hover:bg-success/90"
                 >
                   <Play className="h-4 w-4 mr-2" />
@@ -46,14 +54,14 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
               {botStatus === "running" && (
                 <>
                   <Button
-                    onClick={() => setBotStatus("paused")}
+                    onClick={() => handleStatusChange("paused")}
                     variant="outline"
                   >
                     <Pause className="h-4 w-4 mr-2" />
                     Pausar
                   </Button>
                   <Button
-                    onClick={() => setBotStatus("stopped")}
+                    onClick={() => handleStatusChange("stopped")}
                     variant="destructive"
                   >
                     <Square className="h-4 w-4 mr-2" />
@@ -65,14 +73,14 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
               {botStatus === "paused" && (
                 <>
                   <Button
-                    onClick={() => setBotStatus("running")}
+                    onClick={() => handleStatusChange("running")}
                     className="bg-success hover:bg-success/90"
                   >
                     <Play className="h-4 w-4 mr-2" />
                     Retomar
                   </Button>
                   <Button
-                    onClick={() => setBotStatus("stopped")}
+                    onClick={() => handleStatusChange("stopped")}
                     variant="destructive"
                   >
                     <Square className="h-4 w-4 mr-2" />

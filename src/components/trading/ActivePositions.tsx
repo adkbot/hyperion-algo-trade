@@ -2,36 +2,50 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowDown, ArrowUp, TrendingUp } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { useActivePositions } from "@/hooks/useTradingData";
 
 export const ActivePositions = () => {
-  const activePositions = [
-    {
-      asset: "BTCUSDT",
-      type: "buy",
-      entry: 67500,
-      current: 67850,
-      target: 68500,
-      sl: 67300,
-      pnl: 105.00,
-      rr: "1:4.2",
-      projectedProfit: 300.50,
-      progressPercent: 35,
-      timeInPosition: "12m 34s"
-    },
-    {
-      asset: "ETHUSDT",
-      type: "sell",
-      entry: 3290,
-      current: 3260,
-      target: 3200,
-      sl: 3320,
-      pnl: 90.00,
-      rr: "1:3.8",
-      projectedProfit: 270.00,
-      progressPercent: 42,
-      timeInPosition: "8m 15s"
+  const { data: positions } = useActivePositions();
+
+  const calculateProgress = (entry: number, current: number, target: number, direction: string) => {
+    if (direction === 'BUY') {
+      return ((current - entry) / (target - entry)) * 100;
+    } else {
+      return ((entry - current) / (entry - target)) * 100;
     }
-  ];
+  };
+
+  const calculateTimeInPosition = (openedAt: string) => {
+    const now = new Date().getTime();
+    const opened = new Date(openedAt).getTime();
+    const diff = Math.floor((now - opened) / 1000);
+    const minutes = Math.floor(diff / 60);
+    const seconds = diff % 60;
+    return `${minutes}m ${seconds}s`;
+  };
+
+  const activePositions = positions?.map((pos) => {
+    const progressPercent = calculateProgress(
+      pos.entry_price,
+      pos.current_price || pos.entry_price,
+      pos.take_profit,
+      pos.direction
+    );
+
+    return {
+      asset: pos.asset,
+      type: pos.direction.toLowerCase(),
+      entry: pos.entry_price,
+      current: pos.current_price || pos.entry_price,
+      target: pos.take_profit,
+      sl: pos.stop_loss,
+      pnl: pos.current_pnl || 0,
+      rr: `1:${pos.risk_reward.toFixed(1)}`,
+      projectedProfit: pos.projected_profit,
+      progressPercent: Math.max(0, Math.min(100, progressPercent)),
+      timeInPosition: calculateTimeInPosition(pos.opened_at),
+    };
+  }) || [];
 
   return (
     <Card>

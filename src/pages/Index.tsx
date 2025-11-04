@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TradingHeader } from "@/components/trading/TradingHeader";
 import { TradingChart } from "@/components/trading/TradingChart";
 import { AgentPanel } from "@/components/trading/AgentPanel";
@@ -8,9 +8,17 @@ import { AlertPanel } from "@/components/trading/AlertPanel";
 import { ActivePositions } from "@/components/trading/ActivePositions";
 import { DailyGoals } from "@/components/trading/DailyGoals";
 import { DailyHistory } from "@/components/trading/DailyHistory";
+import { useUserSettings } from "@/hooks/useTradingData";
 
 const Index = () => {
+  const { data: settings } = useUserSettings();
   const [botStatus, setBotStatus] = useState<"stopped" | "running" | "paused">("stopped");
+
+  useEffect(() => {
+    if (settings) {
+      setBotStatus(settings.bot_status as "stopped" | "running" | "paused");
+    }
+  }, [settings]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">

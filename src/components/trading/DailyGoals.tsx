@@ -2,17 +2,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Target, TrendingUp, TrendingDown, Clock } from "lucide-react";
+import { useDailyGoals } from "@/hooks/useTradingData";
 
 export const DailyGoals = () => {
+  const { data: goals } = useDailyGoals();
+
   const dailyStats = {
-    targetOperations: 45,
-    completedOperations: 12,
-    wins: 9,
-    losses: 3,
-    maxLosses: 15,
-    projectedTime: "6h 30m",
-    currentTime: "2h 15m",
-    dailyProfit: 525.75
+    targetOperations: goals?.target_operations || 45,
+    completedOperations: goals?.total_operations || 0,
+    wins: goals?.wins || 0,
+    losses: goals?.losses || 0,
+    maxLosses: goals?.max_losses || 15,
+    projectedTime: goals?.projected_completion_time 
+      ? new Date(goals.projected_completion_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      : "--:--",
+    currentTime: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    dailyProfit: goals?.total_pnl || 0
   };
 
   const remaining = dailyStats.targetOperations - dailyStats.completedOperations;

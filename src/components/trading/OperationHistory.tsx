@@ -2,70 +2,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { ArrowDown, ArrowUp } from "lucide-react";
+import { useOperations } from "@/hooks/useTradingData";
 
 export const OperationHistory = () => {
-  const operations = [
-    {
-      id: 1,
-      time: "14:32:15",
-      asset: "BTCUSDT",
-      type: "sell",
-      entry: 68100,
-      exit: 67500,
-      pnl: 180.50,
-      rr: "1:4.2",
-      status: "win",
-      agents: ["VolumeProfile", "Wyckoff", "CHoCH"]
-    },
-    {
-      id: 2,
-      time: "13:45:22",
-      asset: "ETHUSDT",
-      type: "buy",
-      entry: 3250,
-      exit: 3280,
-      pnl: 90.00,
-      rr: "1:3.5",
-      status: "win",
-      agents: ["FibonacciOTE", "VWMA", "SessionTracker"]
-    },
-    {
-      id: 3,
-      time: "12:18:30",
-      asset: "BTCUSDT",
-      type: "buy",
-      entry: 67800,
-      exit: 67750,
-      pnl: -30.00,
-      rr: "1:3.0",
-      status: "loss",
-      agents: ["VolumeProfile", "RiskManager"]
-    },
-    {
-      id: 4,
-      time: "11:05:45",
-      asset: "ETHUSDT",
-      type: "sell",
-      entry: 3290,
-      exit: 3240,
-      pnl: 150.25,
-      rr: "1:3.8",
-      status: "win",
-      agents: ["Wyckoff", "CHoCH", "VWMA"]
-    },
-    {
-      id: 5,
-      time: "09:30:12",
-      asset: "BTCUSDT",
-      type: "buy",
-      entry: 67500,
-      exit: 67950,
-      pnl: 135.00,
-      rr: "1:3.2",
-      status: "win",
-      agents: ["SessionTracker", "FibonacciOTE", "VolumeProfile"]
-    },
-  ];
+  const { data: operationsData } = useOperations();
+
+  const operations = operationsData?.map((op) => ({
+    id: op.id,
+    time: new Date(op.entry_time).toLocaleTimeString('pt-BR'),
+    asset: op.asset,
+    type: op.direction.toLowerCase(),
+    entry: op.entry_price,
+    exit: op.exit_price || 0,
+    pnl: op.pnl || 0,
+    rr: `1:${op.risk_reward.toFixed(1)}`,
+    status: op.result?.toLowerCase() || 'open',
+    agents: op.agents ? Object.keys(op.agents as object) : [],
+  })).filter(op => op.status !== 'open') || [];
 
   const totalWins = operations.filter(op => op.status === "win").length;
   const totalLosses = operations.filter(op => op.status === "loss").length;
