@@ -89,46 +89,63 @@ serve(async (req) => {
       // Fetch candles from Binance
       const candles = await fetchCandlesFromBinance(asset);
       
-      // TODO: Call Windmill workflow when ready
-      // For now, just log
-      console.log(`Fetched ${candles.length} candles for ${asset}`);
+      // Analyze market data and generate trading signals
+      const signal = await analyzeMarketAndGenerateSignal(candles, asset, settings);
+      
+      await supabase.from('agent_logs').insert({
+        agent_name: 'Market Analyzer',
+        asset: asset,
+        status: signal ? 'active' : 'waiting',
+        data: { 
+          message: signal ? `Signal generated: ${signal.action}` : 'No signal - waiting for setup',
+          intervals: Object.keys(candles)
+        }
+      });
 
-      // Log agent activity
-      await supabase
-        .from('agent_logs')
-        .insert({
-          agent_name: 'TradingOrchestrator',
-          asset,
-          status: 'ANALYZING',
-          data: { candleCount: candles.length },
-        });
-
-      /* 
-      // This will be enabled in Phase 2 when Windmill agents are ready
-      if (WINDMILL_TOKEN && WINDMILL_URL) {
-        const windmillResult = await fetch(`${WINDMILL_URL}/api/w/trading-orchestrator/jobs/run/f/u/admin/trading-orchestrator`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${WINDMILL_TOKEN}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ 
-            asset, 
-            candles, 
-            balance: settings.balance 
+      // Create new position if signal is valid
+      if (signal && signal.action !== 'HOLD') {
+        const positionSize = (settings.balance * settings.risk_per_trade) / Math.abs(signal.entry_price - signal.stop_loss);
+        const projectedProfit = positionSize * Math.abs(signal.take_profit - signal.entry_price);
+        
+        const { data: newPosition, error: positionError } = await supabase
+          .from('active_positions')
+          .insert({
+            asset: asset,
+            direction: signal.action,
+            entry_price: signal.entry_price,
+            stop_loss: signal.stop_loss,
+            take_profit: signal.take_profit,
+            risk_reward: signal.risk_reward,
+            current_price: signal.entry_price,
+            current_pnl: 0,
+            projected_profit: projectedProfit,
+            agents: signal.agents,
+            session: 'auto'
           })
-        });
+          .select()
+          .single();
 
-        if (windmillResult.ok) {
-          const signal = await windmillResult.json();
+        if (positionError) {
+          console.error('Error creating position:', positionError);
+        } else {
+          console.log('New position opened:', newPosition);
           
-          if (signal.signal === 'ENTRY' && signal.rr >= 3) {
-            // Execute order via binance-order function
-            results.push({ asset, signal });
-          }
+          // Insert into operations table with 'OPEN' result
+          await supabase.from('operations').insert({
+            asset: asset,
+            direction: signal.action,
+            entry_price: signal.entry_price,
+            stop_loss: signal.stop_loss,
+            take_profit: signal.take_profit,
+            risk_reward: signal.risk_reward,
+            agents: signal.agents,
+            session: 'auto',
+            result: 'OPEN'
+          });
+
+          results.push({ asset, signal });
         }
       }
-      */
     }
 
     // 5. Monitor and update active positions
@@ -157,6 +174,106 @@ serve(async (req) => {
     );
   }
 });
+
+// Simple technical analysis function
+async function analyzeMarketAndGenerateSignal(candles: any, asset: string, settings: any) {
+  try {
+    const candles5m = candles['5m'];
+    const candles15m = candles['15m'];
+    const candles1h = candles['1h'];
+    
+    if (!candles5m || candles5m.length < 20 || !candles1h || candles1h.length < 10) {
+      return null;
+    }
+
+    const currentPrice = parseFloat(candles5m[candles5m.length - 1].close);
+    
+    // Calculate Simple Moving Averages
+    const sma20_5m = candles5m.slice(-20).reduce((sum: number, c: any) => sum + parseFloat(c.close), 0) / 20;
+    const sma50_5m = candles5m.slice(-50).reduce((sum: number, c: any) => sum + parseFloat(c.close), 0) / 50;
+    
+    // Calculate RSI (14 periods on 5m)
+    const rsi = calculateRSI(candles5m.slice(-15).map((c: any) => parseFloat(c.close)));
+    
+    // Check trend on higher timeframe
+    const trend1h = candles1h[candles1h.length - 1].close > candles1h[candles1h.length - 5].close ? 'UP' : 'DOWN';
+    
+    // Generate signal based on multiple conditions
+    let signal = null;
+    
+    // LONG setup: Price above SMA20, RSI oversold recovering, aligned with 1h trend
+    if (currentPrice > sma20_5m && rsi > 30 && rsi < 50 && trend1h === 'UP' && sma20_5m > sma50_5m) {
+      const stopLoss = currentPrice * 0.995; // 0.5% stop loss
+      const takeProfit = currentPrice * 1.015; // 1.5% take profit (1:3 R:R)
+      const riskReward = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
+      
+      signal = {
+        action: 'BUY',
+        entry_price: currentPrice,
+        stop_loss: stopLoss,
+        take_profit: takeProfit,
+        risk_reward: riskReward,
+        agents: {
+          'Trend Analyzer': 'Uptrend confirmed on 1h',
+          'RSI Agent': `RSI: ${rsi.toFixed(2)} - Oversold recovery`,
+          'MA Agent': 'Price above SMA20, bullish alignment'
+        }
+      };
+    }
+    
+    // SHORT setup: Price below SMA20, RSI overbought, aligned with 1h trend
+    if (currentPrice < sma20_5m && rsi > 50 && rsi < 70 && trend1h === 'DOWN' && sma20_5m < sma50_5m) {
+      const stopLoss = currentPrice * 1.005; // 0.5% stop loss
+      const takeProfit = currentPrice * 0.985; // 1.5% take profit (1:3 R:R)
+      const riskReward = Math.abs(currentPrice - takeProfit) / Math.abs(stopLoss - currentPrice);
+      
+      signal = {
+        action: 'SELL',
+        entry_price: currentPrice,
+        stop_loss: stopLoss,
+        take_profit: takeProfit,
+        risk_reward: riskReward,
+        agents: {
+          'Trend Analyzer': 'Downtrend confirmed on 1h',
+          'RSI Agent': `RSI: ${rsi.toFixed(2)} - Overbought correction`,
+          'MA Agent': 'Price below SMA20, bearish alignment'
+        }
+      };
+    }
+    
+    return signal;
+  } catch (error) {
+    console.error('Error analyzing market:', error);
+    return null;
+  }
+}
+
+// Calculate RSI (Relative Strength Index)
+function calculateRSI(prices: number[], period: number = 14): number {
+  if (prices.length < period + 1) return 50;
+  
+  let gains = 0;
+  let losses = 0;
+  
+  for (let i = 1; i <= period; i++) {
+    const change = prices[i] - prices[i - 1];
+    if (change > 0) {
+      gains += change;
+    } else {
+      losses += Math.abs(change);
+    }
+  }
+  
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  
+  if (avgLoss === 0) return 100;
+  
+  const rs = avgGain / avgLoss;
+  const rsi = 100 - (100 / (1 + rs));
+  
+  return rsi;
+}
 
 async function fetchCandlesFromBinance(symbol: string) {
   const intervals = ['1m', '5m', '15m', '1h', '4h'];
