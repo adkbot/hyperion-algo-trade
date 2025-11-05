@@ -9,10 +9,18 @@ import { ActivePositions } from "@/components/trading/ActivePositions";
 import { DailyGoals } from "@/components/trading/DailyGoals";
 import { DailyHistory } from "@/components/trading/DailyHistory";
 import { useUserSettings } from "@/hooks/useTradingData";
+import { useTradingOrchestrator } from "@/hooks/useTradingOrchestrator";
+import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 
 const Index = () => {
   const { data: settings } = useUserSettings();
   const [botStatus, setBotStatus] = useState<"stopped" | "running" | "paused">("stopped");
+
+  // Enable realtime updates for all tables
+  useRealtimeUpdates();
+
+  // Start orchestrator loop when bot is running
+  useTradingOrchestrator(botStatus);
 
   useEffect(() => {
     if (settings) {
