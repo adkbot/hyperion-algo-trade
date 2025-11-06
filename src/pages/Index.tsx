@@ -8,9 +8,11 @@ import { AlertPanel } from "@/components/trading/AlertPanel";
 import { ActivePositions } from "@/components/trading/ActivePositions";
 import { DailyGoals } from "@/components/trading/DailyGoals";
 import { DailyHistory } from "@/components/trading/DailyHistory";
+import { SessionCyclePanel } from "@/components/trading/SessionCyclePanel";
 import { useUserSettings } from "@/hooks/useTradingData";
 import { useTradingOrchestrator } from "@/hooks/useTradingOrchestrator";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
+import { useSessionHistory } from "@/hooks/useSessionHistory";
 
 const Index = () => {
   const { data: settings } = useUserSettings();
@@ -18,6 +20,9 @@ const Index = () => {
 
   // Enable realtime updates for all tables
   useRealtimeUpdates();
+  
+  // Subscribe to session history updates
+  useSessionHistory();
 
   // Start orchestrator loop when bot is running
   useTradingOrchestrator(botStatus);
@@ -44,10 +49,11 @@ const Index = () => {
             <ActivePositions />
           </div>
           
-          {/* Right Sidebar - Stats, Goals and Agents */}
+          {/* Right Sidebar - Stats, Goals, Agents and Session */}
           <div className="space-y-4">
             <StatsPanel />
             <DailyGoals />
+            <SessionCyclePanel />
             <AgentPanel />
           </div>
         </div>
