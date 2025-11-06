@@ -40,13 +40,18 @@ serve(async (req) => {
       );
     }
 
-    console.log('Bot is running - starting cycle analysis...');
-
+    console.log('='.repeat(80));
+    console.log('🤖 BOT IS RUNNING - Starting cycle analysis...');
+    
     // Detect current session and cycle phase
     const currentSession = detectCurrentSession();
     const cyclePhase = getCyclePhase(currentSession);
     
-    console.log(`Current Session: ${currentSession}, Phase: ${cyclePhase}`);
+    console.log(`📊 Current Session: ${currentSession}, Phase: ${cyclePhase}`);
+    console.log(`💰 Balance: $${settings.balance} | Risk per trade: ${(settings.risk_per_trade * 100).toFixed(1)}%`);
+    console.log(`📈 Max Positions: ${settings.max_positions}`);
+    console.log(`🔧 Windmill Integration: ${WINDMILL_WORKSPACE_URL && WINDMILL_TOKEN ? '✅ ENABLED' : '❌ DISABLED'}`);
+    console.log('='.repeat(80));
 
     // Check daily goals
     const { data: dailyGoal } = await supabase
@@ -176,11 +181,13 @@ serve(async (req) => {
               timestamp: new Date().toISOString(),
             }),
           });
-          console.log(`Windmill agente_feedback_analitico notified for ${asset} signal`);
+          console.log(`✅ Windmill agente_feedback_analitico notified for ${asset} signal`);
         } catch (windmillError) {
-          console.error('Windmill integration error:', windmillError);
+          console.error('❌ Windmill agente_feedback_analitico error:', windmillError);
           // Don't fail the main flow if Windmill is down
         }
+      } else if (!WINDMILL_WORKSPACE_URL || !WINDMILL_TOKEN) {
+        console.log('⚠️ Windmill not configured - skipping agente_feedback_analitico notification');
       }
 
       // Execute trade only in LONDON or NEW_YORK execution phase
@@ -659,9 +666,10 @@ async function fetchCandlesFromBinance(symbol: string) {
 async function executeTradeSignal(supabase: any, asset: string, analysis: any, settings: any) {
   if (!analysis.risk) return;
 
-  // Validate balance before executing trade
-  if (settings.balance <= 0) {
-    console.error('Insufficient balance - cannot execute trade');
+  // CRITICAL: Validate balance before executing trade
+  if (!settings.balance || settings.balance <= 0) {
+    console.error('❌ SALDO INSUFICIENTE - Cannot execute trade');
+    console.error(`Balance: $${settings.balance || 0}`);
     await supabase.from('agent_logs').insert({
       agent_name: 'Trade Executor',
       asset: asset,
@@ -669,6 +677,26 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
       data: {
         error: 'Saldo insuficiente',
         message: 'O saldo está zerado ou negativo. Não é possível executar trades.',
+        balance: settings.balance || 0,
+        required_minimum: 10,
+      }
+    });
+    return;
+  }
+
+  // Validate minimum balance of $10
+  if (settings.balance < 10) {
+    console.error('❌ SALDO MUITO BAIXO - Cannot execute trade');
+    console.error(`Balance: $${settings.balance} | Minimum required: $10`);
+    await supabase.from('agent_logs').insert({
+      agent_name: 'Trade Executor',
+      asset: asset,
+      status: 'error',
+      data: {
+        error: 'Saldo muito baixo',
+        message: 'O saldo mínimo para operar é de $10 USD.',
+        balance: settings.balance,
+        required_minimum: 10,
       }
     });
     return;
@@ -680,7 +708,8 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
 
   // Check if position size is valid
   if (positionSize <= 0 || !isFinite(positionSize)) {
-    console.error('Invalid position size calculated');
+    console.error('❌ INVALID POSITION SIZE');
+    console.error(`Position size: ${positionSize} | Balance: $${settings.balance} | Risk: ${settings.risk_per_trade}`);
     await supabase.from('agent_logs').insert({
       agent_name: 'Trade Executor',
       asset: asset,
@@ -689,10 +718,34 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
         error: 'Tamanho de posição inválido',
         balance: settings.balance,
         risk_per_trade: settings.risk_per_trade,
+        position_size: positionSize,
       }
     });
     return;
   }
+
+  // Final validation: ensure we have enough balance for the position
+  const minimumRequired = positionSize * 0.01; // At least 1% margin
+  if (settings.balance < minimumRequired) {
+    console.error('❌ SALDO INSUFICIENTE PARA POSIÇÃO');
+    console.error(`Balance: $${settings.balance} | Required: $${minimumRequired.toFixed(2)}`);
+    await supabase.from('agent_logs').insert({
+      agent_name: 'Trade Executor',
+      asset: asset,
+      status: 'error',
+      data: {
+        error: 'Saldo insuficiente para posição',
+        message: 'O saldo disponível não é suficiente para abrir esta posição com segurança.',
+        balance: settings.balance,
+        required: minimumRequired,
+        position_size: positionSize,
+      }
+    });
+    return;
+  }
+
+  console.log(`✅ VALIDAÇÃO DE SALDO OK - Balance: $${settings.balance} | Position Size: ${positionSize.toFixed(4)}`);
+
 
   console.log(`Executing ${analysis.signal} signal for ${asset}`);
 
@@ -749,10 +802,12 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
             timestamp: new Date().toISOString(),
           }),
         });
-        console.log(`Windmill agente_execucao_confluencia notified for ${asset}`);
+        console.log(`✅ Windmill agente_execucao_confluencia notified for ${asset}`);
       } catch (windmillError) {
-        console.error('Windmill trade notification error:', windmillError);
+        console.error('❌ Windmill agente_execucao_confluencia error:', windmillError);
       }
+    } else {
+      console.log('⚠️ Windmill not configured - skipping agente_execucao_confluencia notification');
     }
   }
 }
@@ -830,10 +885,12 @@ async function monitorActivePositions(supabase: any, positions: any[]) {
                 timestamp: new Date().toISOString(),
               }),
             });
-            console.log(`Windmill agente_gestao_risco notified for ${position.asset}`);
+            console.log(`✅ Windmill agente_gestao_risco notified for ${position.asset}`);
           } catch (windmillError) {
-            console.error('Windmill close notification error:', windmillError);
+            console.error('❌ Windmill agente_gestao_risco error:', windmillError);
           }
+        } else {
+          console.log('⚠️ Windmill not configured - skipping agente_gestao_risco notification');
         }
       }
       else if (rMultiple >= 1 && Math.abs(position.stop_loss - position.entry_price) > 0.01) {
