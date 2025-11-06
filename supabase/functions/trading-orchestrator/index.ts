@@ -572,9 +572,40 @@ async function fetchCandlesFromBinance(symbol: string) {
 async function executeTradeSignal(supabase: any, asset: string, analysis: any, settings: any) {
   if (!analysis.risk) return;
 
+  // Validate balance before executing trade
+  if (settings.balance <= 0) {
+    console.error('Insufficient balance - cannot execute trade');
+    await supabase.from('agent_logs').insert({
+      agent_name: 'Trade Executor',
+      asset: asset,
+      status: 'error',
+      data: {
+        error: 'Saldo insuficiente',
+        message: 'O saldo está zerado ou negativo. Não é possível executar trades.',
+      }
+    });
+    return;
+  }
+
   const { entry, stop, target, rr_ratio } = analysis.risk;
   const positionSize = (settings.balance * settings.risk_per_trade) / Math.abs(entry - stop);
   const projectedProfit = positionSize * Math.abs(target - entry);
+
+  // Check if position size is valid
+  if (positionSize <= 0 || !isFinite(positionSize)) {
+    console.error('Invalid position size calculated');
+    await supabase.from('agent_logs').insert({
+      agent_name: 'Trade Executor',
+      asset: asset,
+      status: 'error',
+      data: {
+        error: 'Tamanho de posição inválido',
+        balance: settings.balance,
+        risk_per_trade: settings.risk_per_trade,
+      }
+    });
+    return;
+  }
 
   console.log(`Executing ${analysis.signal} signal for ${asset}`);
 

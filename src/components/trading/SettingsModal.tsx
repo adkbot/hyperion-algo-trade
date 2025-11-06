@@ -36,6 +36,25 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
   }, [settings]);
 
   const handleSave = () => {
+    // Validate balance
+    if (balance <= 0) {
+      toast({
+        title: "Saldo Inválido",
+        description: "O saldo deve ser maior que zero para operar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (balance < 10) {
+      toast({
+        title: "Saldo Insuficiente",
+        description: "O saldo mínimo recomendado é de $10 USD para operar com segurança.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Validate API keys if switching to real mode
     if (!paperMode && (!apiKey || !apiSecret)) {
       toast({
