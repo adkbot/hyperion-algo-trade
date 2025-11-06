@@ -76,8 +76,20 @@ serve(async (req) => {
       );
     }
 
-    // Assets to analyze
-    const assets = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
+    // Scan market for valid trading pairs
+    console.log('Scanning market for valid trading pairs...');
+    const allAssets = await scanMarketForValidPairs();
+    
+    if (allAssets.length === 0) {
+      console.log('No valid assets found in market scan');
+      return new Response(
+        JSON.stringify({ message: 'No valid trading pairs found' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`Found ${allAssets.length} valid trading pairs: ${allAssets.join(', ')}`);
+    
     const sessionAnalysis: any[] = [];
 
     // Get last session data for C1 direction tracking
@@ -88,7 +100,7 @@ serve(async (req) => {
       .limit(1)
       .single();
 
-    for (const asset of assets) {
+    for (const asset of allAssets) {
       // Skip if already have position
       if (activePositions?.some(p => p.asset === asset)) {
         console.log(`Skipping ${asset} - already have position`);
@@ -172,8 +184,23 @@ serve(async (req) => {
       }
 
       // Execute trade only in LONDON or NEW_YORK execution phase
-      if ((currentSession === 'London' || currentSession === 'NewYork') && analysis.signal !== 'STAY_OUT' && analysis.confidence > 0.7) {
+      // CRITICAL: Only execute with confidence >= 80% (0.8)
+      if ((currentSession === 'London' || currentSession === 'NewYork') && analysis.signal !== 'STAY_OUT' && analysis.confidence >= 0.8) {
+        console.log(`High confidence signal (${(analysis.confidence * 100).toFixed(1)}%) - executing trade for ${asset}`);
         await executeTradeSignal(supabase, asset, analysis, settings);
+      } else if (analysis.signal !== 'STAY_OUT' && analysis.confidence < 0.8) {
+        console.log(`Signal detected but confidence too low (${(analysis.confidence * 100).toFixed(1)}%) - skipping ${asset}`);
+        await supabase.from('agent_logs').insert({
+          agent_name: 'Trade Filter',
+          asset: asset,
+          status: 'skipped',
+          data: {
+            reason: 'Confidence below 80%',
+            confidence: analysis.confidence,
+            signal: analysis.signal,
+            required_confidence: 0.8,
+          }
+        });
       }
 
       sessionAnalysis.push({ asset, analysis });
@@ -537,6 +564,66 @@ function calculateATR(candles: any[], period: number = 14): number {
   }
   
   return sum / (period - 1);
+}
+
+// Scan market for valid trading pairs with sufficient volume
+async function scanMarketForValidPairs(): Promise<string[]> {
+  try {
+    // Fetch all USDT perpetual contracts from Binance Futures
+    const response = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo');
+    
+    if (!response.ok) {
+      console.error('Failed to fetch exchange info');
+      return ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']; // Fallback to default pairs
+    }
+
+    const data = await response.json();
+    const symbols = data.symbols
+      .filter((s: any) => 
+        s.status === 'TRADING' && 
+        s.quoteAsset === 'USDT' && 
+        s.contractType === 'PERPETUAL'
+      )
+      .map((s: any) => s.symbol);
+
+    console.log(`Total USDT perpetual pairs available: ${symbols.length}`);
+
+    // Get 24h ticker data to filter by volume
+    const tickerResponse = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
+    
+    if (!tickerResponse.ok) {
+      console.error('Failed to fetch ticker data');
+      return symbols.slice(0, 10); // Return first 10 if ticker fails
+    }
+
+    const tickers = await tickerResponse.json();
+    
+    // Filter pairs with high volume (minimum $50M daily volume)
+    const MIN_VOLUME_USD = 50_000_000;
+    
+    const validPairs = tickers
+      .filter((t: any) => {
+        const volumeUSD = parseFloat(t.quoteVolume);
+        const priceChange = Math.abs(parseFloat(t.priceChangePercent));
+        
+        return (
+          symbols.includes(t.symbol) &&
+          volumeUSD >= MIN_VOLUME_USD &&
+          priceChange >= 0.5 && // At least 0.5% movement
+          priceChange <= 20 // Not more than 20% (avoid extreme volatility)
+        );
+      })
+      .sort((a: any, b: any) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume)) // Sort by volume
+      .slice(0, 15) // Top 15 pairs
+      .map((t: any) => t.symbol);
+
+    console.log(`Filtered to ${validPairs.length} high-quality pairs with volume >= $${MIN_VOLUME_USD.toLocaleString()}`);
+
+    return validPairs.length > 0 ? validPairs : ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
+  } catch (error) {
+    console.error('Error in market scan:', error);
+    return ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']; // Fallback
+  }
 }
 
 // Fetch candles from Binance
