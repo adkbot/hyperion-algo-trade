@@ -144,10 +144,10 @@ serve(async (req) => {
         }
       });
 
-      // Send analysis to Windmill for external processing/logging
+      // Send analysis to Windmill - Agente de Feedback Analítico
       if (WINDMILL_WORKSPACE_URL && WINDMILL_TOKEN && analysis.signal !== 'STAY_OUT') {
         try {
-          await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/main/jobs/run/f/trading/signal_processor`, {
+          await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/idbprdaniel/jobs/run/f/u/idbprdaniel/agente_feedback_analitico`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${WINDMILL_TOKEN}`,
@@ -164,7 +164,7 @@ serve(async (req) => {
               timestamp: new Date().toISOString(),
             }),
           });
-          console.log(`Windmill notification sent for ${asset} signal`);
+          console.log(`Windmill agente_feedback_analitico notified for ${asset} signal`);
         } catch (windmillError) {
           console.error('Windmill integration error:', windmillError);
           // Don't fail the main flow if Windmill is down
@@ -611,10 +611,10 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
 
     console.log(`Position opened successfully for ${asset}`);
 
-    // Notify Windmill about trade execution
+    // Notify Windmill - Agente de Execução e Confluência
     if (WINDMILL_WORKSPACE_URL && WINDMILL_TOKEN) {
       try {
-        await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/main/jobs/run/f/trading/trade_executor`, {
+        await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/idbprdaniel/jobs/run/f/u/idbprdaniel/agente_execucao_confluencia`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${WINDMILL_TOKEN}`,
@@ -631,7 +631,7 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
             timestamp: new Date().toISOString(),
           }),
         });
-        console.log(`Windmill trade notification sent for ${asset}`);
+        console.log(`Windmill agente_execucao_confluencia notified for ${asset}`);
       } catch (windmillError) {
         console.error('Windmill trade notification error:', windmillError);
       }
@@ -693,10 +693,10 @@ async function monitorActivePositions(supabase: any, positions: any[]) {
           }).eq('date', today);
         }
 
-        // Notify Windmill about trade closure
+        // Notify Windmill - Agente de Gestão de Risco
         if (WINDMILL_WORKSPACE_URL && WINDMILL_TOKEN) {
           try {
-            await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/main/jobs/run/f/trading/trade_closer`, {
+            await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/idbprdaniel/jobs/run/f/u/idbprdaniel/agente_gestao_risco`, {
               method: 'POST',
               headers: {
                 'Authorization': `Bearer ${WINDMILL_TOKEN}`,
@@ -712,7 +712,7 @@ async function monitorActivePositions(supabase: any, positions: any[]) {
                 timestamp: new Date().toISOString(),
               }),
             });
-            console.log(`Windmill close notification sent for ${position.asset}`);
+            console.log(`Windmill agente_gestao_risco notified for ${position.asset}`);
           } catch (windmillError) {
             console.error('Windmill close notification error:', windmillError);
           }
