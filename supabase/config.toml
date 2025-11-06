@@ -8,3 +8,12 @@ verify_jwt = false
 
 [functions.trading-orchestrator]
 verify_jwt = false
+
+[functions.agente-feedback-analitico]
+verify_jwt = false
+
+[functions.agente-execucao-confluencia]
+verify_jwt = false
+
+[functions.agente-gestao-risco]
+verify_jwt = false

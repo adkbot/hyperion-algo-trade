@@ -8,8 +8,11 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const WINDMILL_WORKSPACE_URL = Deno.env.get('WINDMILL_WORKSPACE_URL');
-const WINDMILL_TOKEN = Deno.env.get('WINDMILL_TOKEN');
+
+// Agent Functions URLs (Local Edge Functions)
+const AGENTE_FEEDBACK_URL = `${SUPABASE_URL}/functions/v1/agente-feedback-analitico`;
+const AGENTE_EXECUCAO_URL = `${SUPABASE_URL}/functions/v1/agente-execucao-confluencia`;
+const AGENTE_GESTAO_URL = `${SUPABASE_URL}/functions/v1/agente-gestao-risco`;
 
 // Session time ranges in UTC
 const SESSIONS = {
@@ -50,7 +53,7 @@ serve(async (req) => {
     console.log(`📊 Current Session: ${currentSession}, Phase: ${cyclePhase}`);
     console.log(`💰 Balance: $${settings.balance} | Risk per trade: ${(settings.risk_per_trade * 100).toFixed(1)}%`);
     console.log(`📈 Max Positions: ${settings.max_positions}`);
-    console.log(`🔧 Windmill Integration: ${WINDMILL_WORKSPACE_URL && WINDMILL_TOKEN ? '✅ ENABLED' : '❌ DISABLED'}`);
+    console.log(`🤖 AI Agents: ✅ ENABLED (3 agents active)`);
     console.log('='.repeat(80));
 
     // Check daily goals
@@ -161,13 +164,13 @@ serve(async (req) => {
         }
       });
 
-      // Send analysis to Windmill - Agente de Feedback Analítico
-      if (WINDMILL_WORKSPACE_URL && WINDMILL_TOKEN && analysis.signal !== 'STAY_OUT') {
+      // Send analysis to AI Agent - Agente de Feedback Analítico
+      if (analysis.signal !== 'STAY_OUT') {
         try {
-          await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/idbprdaniel/jobs/run/f/u/idbprdaniel/agente_feedback_analitico`, {
+          console.log(`🤖 Calling Agente Feedback Analítico for ${asset}...`);
+          const agentResponse = await fetch(AGENTE_FEEDBACK_URL, {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${WINDMILL_TOKEN}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
@@ -178,16 +181,25 @@ serve(async (req) => {
               confidence: analysis.confidence,
               direction: analysis.direction,
               risk: analysis.risk,
+              marketData: analysis.marketData,
               timestamp: new Date().toISOString(),
             }),
           });
-          console.log(`✅ Windmill agente_feedback_analitico notified for ${asset} signal`);
-        } catch (windmillError) {
-          console.error('❌ Windmill agente_feedback_analitico error:', windmillError);
-          // Don't fail the main flow if Windmill is down
+
+          if (agentResponse.ok) {
+            const agentData = await agentResponse.json();
+            console.log(`✅ Agent Feedback: Quality Score ${agentData.qualityScore}/100 | Recommendation: ${agentData.recommendation}`);
+            
+            // Update confidence based on AI analysis
+            if (agentData.adjustedConfidence) {
+              analysis.confidence = agentData.adjustedConfidence;
+              console.log(`📊 Confidence adjusted: ${(agentData.adjustedConfidence * 100).toFixed(1)}%`);
+            }
+          }
+        } catch (agentError) {
+          console.error('❌ Agente Feedback Analítico error:', agentError);
+          // Don't fail the main flow if agent is down
         }
-      } else if (!WINDMILL_WORKSPACE_URL || !WINDMILL_TOKEN) {
-        console.log('⚠️ Windmill not configured - skipping agente_feedback_analitico notification');
       }
 
       // Execute trade only in LONDON or NEW_YORK execution phase
@@ -782,32 +794,32 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
 
     console.log(`Position opened successfully for ${asset}`);
 
-    // Notify Windmill - Agente de Execução e Confluência
-    if (WINDMILL_WORKSPACE_URL && WINDMILL_TOKEN) {
-      try {
-        await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/idbprdaniel/jobs/run/f/u/idbprdaniel/agente_execucao_confluencia`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${WINDMILL_TOKEN}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            asset,
-            direction: analysis.signal,
-            entry_price: entry,
-            stop_loss: stop,
-            take_profit: target,
-            risk_reward: rr_ratio,
-            position_size: projectedProfit,
-            timestamp: new Date().toISOString(),
-          }),
-        });
-        console.log(`✅ Windmill agente_execucao_confluencia notified for ${asset}`);
-      } catch (windmillError) {
-        console.error('❌ Windmill agente_execucao_confluencia error:', windmillError);
+    // Notify AI Agent - Agente de Execução e Confluência
+    try {
+      console.log(`🤖 Calling Agente Execução e Confluência for ${asset}...`);
+      const agentResponse = await fetch(AGENTE_EXECUCAO_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          asset,
+          direction: analysis.signal,
+          entry_price: entry,
+          stop_loss: stop,
+          take_profit: target,
+          risk_reward: rr_ratio,
+          position_size: projectedProfit,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+
+      if (agentResponse.ok) {
+        const agentData = await agentResponse.json();
+        console.log(`✅ Agent Execução: ${agentData.decision} | Confluence: ${agentData.confluenceScore}/100`);
       }
-    } else {
-      console.log('⚠️ Windmill not configured - skipping agente_execucao_confluencia notification');
+    } catch (agentError) {
+      console.error('❌ Agente Execução e Confluência error:', agentError);
     }
   }
 }
@@ -866,31 +878,32 @@ async function monitorActivePositions(supabase: any, positions: any[]) {
           }).eq('date', today);
         }
 
-        // Notify Windmill - Agente de Gestão de Risco
-        if (WINDMILL_WORKSPACE_URL && WINDMILL_TOKEN) {
-          try {
-            await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/idbprdaniel/jobs/run/f/u/idbprdaniel/agente_gestao_risco`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${WINDMILL_TOKEN}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                asset: position.asset,
-                result,
-                entry_price: position.entry_price,
-                exit_price: currentPrice,
-                pnl: currentPnl,
-                direction: position.direction,
-                timestamp: new Date().toISOString(),
-              }),
-            });
-            console.log(`✅ Windmill agente_gestao_risco notified for ${position.asset}`);
-          } catch (windmillError) {
-            console.error('❌ Windmill agente_gestao_risco error:', windmillError);
+        // Notify AI Agent - Agente de Gestão de Risco
+        try {
+          console.log(`🤖 Calling Agente Gestão de Risco for ${position.asset}...`);
+          const agentResponse = await fetch(AGENTE_GESTAO_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              asset: position.asset,
+              result,
+              entry_price: position.entry_price,
+              exit_price: currentPrice,
+              pnl: currentPnl,
+              direction: position.direction,
+              position_data: position,
+              timestamp: new Date().toISOString(),
+            }),
+          });
+
+          if (agentResponse.ok) {
+            const agentData = await agentResponse.json();
+            console.log(`✅ Agent Gestão de Risco: Score ${agentData.riskManagementScore}/100 | Lessons: ${agentData.lessons}`);
           }
-        } else {
-          console.log('⚠️ Windmill not configured - skipping agente_gestao_risco notification');
+        } catch (agentError) {
+          console.error('❌ Agente Gestão de Risco error:', agentError);
         }
       }
       else if (rMultiple >= 1 && Math.abs(position.stop_loss - position.entry_price) > 0.01) {
