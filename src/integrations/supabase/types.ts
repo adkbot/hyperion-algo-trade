@@ -250,6 +250,8 @@ export type Database = {
       }
       user_settings: {
         Row: {
+          api_key: string | null
+          api_secret: string | null
           balance: number
           bot_status: string | null
           created_at: string | null
@@ -260,6 +262,8 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          api_key?: string | null
+          api_secret?: string | null
           balance?: number
           bot_status?: string | null
           created_at?: string | null
@@ -270,6 +274,8 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          api_key?: string | null
+          api_secret?: string | null
           balance?: number
           bot_status?: string | null
           created_at?: string | null

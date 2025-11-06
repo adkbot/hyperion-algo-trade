@@ -19,6 +19,8 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
   const [maxPositions, setMaxPositions] = useState(3);
   const [riskPerTrade, setRiskPerTrade] = useState(0.06);
   const [paperMode, setPaperMode] = useState(true);
+  const [apiKey, setApiKey] = useState("");
+  const [apiSecret, setApiSecret] = useState("");
 
   useEffect(() => {
     if (settings) {
@@ -26,6 +28,8 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
       setMaxPositions(settings.max_positions);
       setRiskPerTrade(settings.risk_per_trade);
       setPaperMode(settings.paper_mode);
+      setApiKey(settings.api_key || "");
+      setApiSecret(settings.api_secret || "");
     }
   }, [settings]);
 
@@ -35,6 +39,8 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
       max_positions: maxPositions,
       risk_per_trade: riskPerTrade,
       paper_mode: paperMode,
+      api_key: apiKey,
+      api_secret: apiSecret,
     });
     onOpenChange(false);
   };
@@ -46,6 +52,26 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
           <DialogTitle>Configurações da API</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label htmlFor="apiKey">Binance API Key</Label>
+            <Input
+              id="apiKey"
+              type="text"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Sua API Key da Binance"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="apiSecret">Binance API Secret</Label>
+            <Input
+              id="apiSecret"
+              type="password"
+              value={apiSecret}
+              onChange={(e) => setApiSecret(e.target.value)}
+              placeholder="Seu API Secret da Binance"
+            />
+          </div>
           <div className="space-y-2">
             <Label htmlFor="balance">Saldo Inicial ($)</Label>
             <Input

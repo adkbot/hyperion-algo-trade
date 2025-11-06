@@ -138,7 +138,7 @@ export const useUpdateSettings = () => {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (settings: { balance?: number; max_positions?: number; risk_per_trade?: number; paper_mode?: boolean }) => {
+    mutationFn: async (settings: { balance?: number; max_positions?: number; risk_per_trade?: number; paper_mode?: boolean; api_key?: string; api_secret?: string }) => {
       const { data, error } = await supabase
         .from("user_settings")
         .update(settings)

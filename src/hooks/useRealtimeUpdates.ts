@@ -53,6 +53,7 @@ export const useRealtimeUpdates = () => {
         () => {
           console.log('Daily goals updated');
           queryClient.invalidateQueries({ queryKey: ["daily-goals"] });
+          queryClient.invalidateQueries({ queryKey: ["daily-history"] });
         }
       )
       .subscribe();
