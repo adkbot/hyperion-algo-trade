@@ -2,37 +2,66 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { TrendingUp, Clock, AlertTriangle, ArrowUp, ArrowDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 export const AlertPanel = () => {
   const { toast } = useToast();
-  const [balance, setBalance] = useState(10000);
 
-  const alerts = [
-    {
-      type: "entry",
-      asset: "BTCUSDT",
-      direction: "buy",
-      message: "Entrada confirmada! CHoCH + LPSY em M15",
-      rr: "1:4.2",
-      session: "NY",
-      icon: TrendingUp,
-      color: "text-success border-success bg-success/10"
+  // Fetch real-time signals from session_history
+  const { data: signals } = useQuery({
+    queryKey: ['active-signals'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('session_history')
+        .select('*')
+        .neq('signal', 'STAY_OUT')
+        .gte('confidence_score', 0.7)
+        .order('timestamp', { ascending: false })
+        .limit(5);
+      
+      if (error) throw error;
+      return data || [];
     },
-    {
-      type: "prepare",
-      asset: "ETHUSDT",
-      direction: "sell",
-      message: "Prepare-se! Entrada estimada em 3m 15s",
-      rr: "1:3.8",
-      session: "Londres",
-      icon: Clock,
-      color: "text-warning border-warning bg-warning/10"
-    }
-  ];
+    refetchInterval: 3000, // Refresh every 3 seconds
+  });
 
-  const handleEntryClick = (alert: typeof alerts[0]) => {
-    if (balance <= 0) {
+  // Fetch user settings for balance check
+  const { data: settings } = useQuery({
+    queryKey: ['user-settings-alert'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('user_settings')
+        .select('balance')
+        .single();
+      return data;
+    },
+  });
+
+  const alerts = signals?.map(signal => {
+    const isLong = signal.signal === 'LONG';
+    const isEntry = signal.confidence_score && signal.confidence_score >= 0.8;
+    const risk = signal.risk as any;
+    
+    return {
+      type: isEntry ? "entry" : "prepare",
+      asset: signal.pair,
+      direction: isLong ? "buy" : "sell",
+      message: isEntry 
+        ? `Entrada confirmada! ${signal.confirmation}` 
+        : `Prepare-se! ${signal.notes}`,
+      rr: risk?.rr_ratio ? `1:${risk.rr_ratio.toFixed(1)}` : "N/A",
+      session: signal.session,
+      icon: isEntry ? TrendingUp : Clock,
+      color: isEntry 
+        ? "text-success border-success bg-success/10"
+        : "text-warning border-warning bg-warning/10",
+      confidence: signal.confidence_score || 0,
+    };
+  }) || [];
+
+  const handleEntryClick = (alert: any) => {
+    if (!settings || settings.balance <= 0) {
       toast({
         title: "Saldo Insuficiente",
         description: "Você não tem saldo disponível para entrar nesta operação.",
@@ -42,38 +71,47 @@ export const AlertPanel = () => {
     }
 
     toast({
-      title: `Entrando em ${alert.asset}`,
-      description: `Posição ${alert.direction === "buy" ? "COMPRADA" : "VENDIDA"} iniciada com R:R ${alert.rr}`,
+      title: `Sinal em ${alert.asset}`,
+      description: `${alert.direction === "buy" ? "COMPRA" : "VENDA"} | Confiança: ${(alert.confidence * 100).toFixed(0)}% | R:R ${alert.rr}`,
     });
   };
 
   return (
     <div className="space-y-2">
-      {alerts.map((alert, index) => {
-        const Icon = alert.icon;
-        const DirectionIcon = alert.direction === "buy" ? ArrowUp : ArrowDown;
-        return (
-          <Alert 
-            key={index} 
-            className={`${alert.color} border-2 cursor-pointer hover:opacity-80 transition-opacity`}
-            onClick={() => alert.type === "entry" && handleEntryClick(alert)}
-          >
-            <Icon className="h-5 w-5" />
-            <AlertDescription className="ml-2 flex items-center gap-2 flex-wrap">
-              <span className="font-bold">{alert.asset}</span>
-              <div className={`flex items-center gap-1 ${alert.direction === "buy" ? "text-profit" : "text-loss"}`}>
-                <DirectionIcon className="h-4 w-4" />
-                <span className="text-xs font-medium uppercase">{alert.direction}</span>
-              </div>
-              <span>-</span>
-              <span>{alert.message}</span>
-              <Badge variant="outline" className="ml-auto">R:R {alert.rr}</Badge>
-              <Badge variant="secondary">{alert.session}</Badge>
-            </AlertDescription>
-          </Alert>
-        );
-      })}
-      {balance <= 0 && (
+      {alerts.length === 0 ? (
+        <Alert className="border-muted">
+          <Clock className="h-5 w-5" />
+          <AlertDescription className="ml-2">
+            Aguardando sinais do Orchestrator... Nenhum sinal ativo no momento.
+          </AlertDescription>
+        </Alert>
+      ) : (
+        alerts.map((alert, index) => {
+          const Icon = alert.icon;
+          const DirectionIcon = alert.direction === "buy" ? ArrowUp : ArrowDown;
+          return (
+            <Alert 
+              key={index} 
+              className={`${alert.color} border-2 cursor-pointer hover:opacity-80 transition-opacity`}
+              onClick={() => alert.type === "entry" && handleEntryClick(alert)}
+            >
+              <Icon className="h-5 w-5" />
+              <AlertDescription className="ml-2 flex items-center gap-2 flex-wrap">
+                <span className="font-bold">{alert.asset}</span>
+                <div className={`flex items-center gap-1 ${alert.direction === "buy" ? "text-profit" : "text-loss"}`}>
+                  <DirectionIcon className="h-4 w-4" />
+                  <span className="text-xs font-medium uppercase">{alert.direction}</span>
+                </div>
+                <span>-</span>
+                <span className="text-sm">{alert.message}</span>
+                <Badge variant="outline" className="ml-auto">R:R {alert.rr}</Badge>
+                <Badge variant="secondary">{alert.session}</Badge>
+              </AlertDescription>
+            </Alert>
+          );
+        })
+      )}
+      {settings && settings.balance <= 0 && (
         <Alert className="border-destructive bg-destructive/10">
           <AlertTriangle className="h-5 w-5 text-destructive" />
           <AlertDescription className="ml-2 font-medium text-destructive">

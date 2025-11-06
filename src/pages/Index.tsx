@@ -9,6 +9,7 @@ import { ActivePositions } from "@/components/trading/ActivePositions";
 import { DailyGoals } from "@/components/trading/DailyGoals";
 import { DailyHistory } from "@/components/trading/DailyHistory";
 import { SessionCyclePanel } from "@/components/trading/SessionCyclePanel";
+import { SystemStatusPanel } from "@/components/trading/SystemStatusPanel";
 import { useUserSettings } from "@/hooks/useTradingData";
 import { useTradingOrchestrator } from "@/hooks/useTradingOrchestrator";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
@@ -53,6 +54,7 @@ const Index = () => {
           <div className="space-y-4">
             <StatsPanel />
             <DailyGoals />
+            <SystemStatusPanel />
             <SessionCyclePanel />
             <AgentPanel />
           </div>

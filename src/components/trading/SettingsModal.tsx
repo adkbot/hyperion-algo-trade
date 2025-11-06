@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useState, useEffect } from "react";
 import { useUserSettings, useUpdateSettings } from "@/hooks/useTradingData";
+import { useToast } from "@/hooks/use-toast";
 
 interface SettingsModalProps {
   open: boolean;
@@ -14,6 +15,7 @@ interface SettingsModalProps {
 export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
   const { data: settings } = useUserSettings();
   const updateSettings = useUpdateSettings();
+  const { toast } = useToast();
   
   const [balance, setBalance] = useState(10000);
   const [maxPositions, setMaxPositions] = useState(3);
@@ -34,13 +36,42 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
   }, [settings]);
 
   const handleSave = () => {
+    // Validate API keys if switching to real mode
+    if (!paperMode && (!apiKey || !apiSecret)) {
+      toast({
+        title: "API Keys Obrigatórias",
+        description: "Para operar em modo REAL, você precisa configurar suas API Keys da Binance.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Basic API key format validation (Binance keys are typically 64 characters)
+    if (apiKey && apiKey.length < 20) {
+      toast({
+        title: "API Key Inválida",
+        description: "A API Key parece estar incorreta. Verifique e tente novamente.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (apiSecret && apiSecret.length < 20) {
+      toast({
+        title: "API Secret Inválida",
+        description: "A API Secret parece estar incorreta. Verifique e tente novamente.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     updateSettings.mutate({
       balance,
       max_positions: maxPositions,
       risk_per_trade: riskPerTrade,
       paper_mode: paperMode,
-      api_key: apiKey,
-      api_secret: apiSecret,
+      api_key: apiKey || null,
+      api_secret: apiSecret || null,
     });
     onOpenChange(false);
   };

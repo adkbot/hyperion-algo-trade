@@ -8,6 +8,8 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const WINDMILL_WORKSPACE_URL = Deno.env.get('WINDMILL_WORKSPACE_URL');
+const WINDMILL_TOKEN = Deno.env.get('WINDMILL_TOKEN');
 
 // Session time ranges in UTC
 const SESSIONS = {
@@ -141,6 +143,33 @@ serve(async (req) => {
           notes: analysis.notes,
         }
       });
+
+      // Send analysis to Windmill for external processing/logging
+      if (WINDMILL_WORKSPACE_URL && WINDMILL_TOKEN && analysis.signal !== 'STAY_OUT') {
+        try {
+          await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/main/jobs/run/f/trading/signal_processor`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${WINDMILL_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              asset,
+              session: currentSession,
+              phase: cyclePhase,
+              signal: analysis.signal,
+              confidence: analysis.confidence,
+              direction: analysis.direction,
+              risk: analysis.risk,
+              timestamp: new Date().toISOString(),
+            }),
+          });
+          console.log(`Windmill notification sent for ${asset} signal`);
+        } catch (windmillError) {
+          console.error('Windmill integration error:', windmillError);
+          // Don't fail the main flow if Windmill is down
+        }
+      }
 
       // Execute trade only in LONDON or NEW_YORK execution phase
       if ((currentSession === 'London' || currentSession === 'NewYork') && analysis.signal !== 'STAY_OUT' && analysis.confidence > 0.7) {
@@ -581,6 +610,32 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
     });
 
     console.log(`Position opened successfully for ${asset}`);
+
+    // Notify Windmill about trade execution
+    if (WINDMILL_WORKSPACE_URL && WINDMILL_TOKEN) {
+      try {
+        await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/main/jobs/run/f/trading/trade_executor`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${WINDMILL_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            asset,
+            direction: analysis.signal,
+            entry_price: entry,
+            stop_loss: stop,
+            take_profit: target,
+            risk_reward: rr_ratio,
+            position_size: projectedProfit,
+            timestamp: new Date().toISOString(),
+          }),
+        });
+        console.log(`Windmill trade notification sent for ${asset}`);
+      } catch (windmillError) {
+        console.error('Windmill trade notification error:', windmillError);
+      }
+    }
   }
 }
 
@@ -636,6 +691,31 @@ async function monitorActivePositions(supabase: any, positions: any[]) {
             losses: result === 'LOSS' ? goal.losses + 1 : goal.losses,
             total_pnl: goal.total_pnl + currentPnl,
           }).eq('date', today);
+        }
+
+        // Notify Windmill about trade closure
+        if (WINDMILL_WORKSPACE_URL && WINDMILL_TOKEN) {
+          try {
+            await fetch(`${WINDMILL_WORKSPACE_URL}/api/w/main/jobs/run/f/trading/trade_closer`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${WINDMILL_TOKEN}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                asset: position.asset,
+                result,
+                entry_price: position.entry_price,
+                exit_price: currentPrice,
+                pnl: currentPnl,
+                direction: position.direction,
+                timestamp: new Date().toISOString(),
+              }),
+            });
+            console.log(`Windmill close notification sent for ${position.asset}`);
+          } catch (windmillError) {
+            console.error('Windmill close notification error:', windmillError);
+          }
         }
       }
       else if (rMultiple >= 1 && Math.abs(position.stop_loss - position.entry_price) > 0.01) {
