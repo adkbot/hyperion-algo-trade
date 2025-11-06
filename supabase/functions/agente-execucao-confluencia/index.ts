@@ -25,11 +25,23 @@ serve(async (req) => {
 Sua função é verificar se existem múltiplos fatores de confluência que justifiquem a execução do trade.
 
 Analise:
-1. Confluência de indicadores técnicos
-2. Qualidade do setup de risco/recompensa
-3. Posicionamento de entrada, stop e target
-4. Timing de execução
-5. Fatores de confirmação adicionais
+1. Confluência de indicadores técnicos (RSI, VWMA, EMA, MACD, ATR)
+2. Metodologia Wyckoff - Verifique se a fase do ciclo suporta a direção do trade
+3. Volume Profile - Valide se a entrada está próxima de zonas de alto volume (POC) ou Value Area
+4. Qualidade do setup de risco/recompensa (mínimo 2:1)
+5. Posicionamento de entrada, stop e target
+6. Timing de execução
+7. Fatores de confirmação adicionais
+
+**CRITICAL - Volume Profile Validation:**
+- Entry deve estar próximo de POC ou dentro da Value Area para maior confluência
+- Stop Loss deve estar abaixo/acima de zonas de baixo volume (LVN)
+- Take Profit deve visar zonas de alto volume ou LVN para correção
+
+**CRITICAL - Wyckoff Validation:**
+- Trade LONG apenas em Accumulation (fim) ou Markup
+- Trade SHORT apenas em Distribution (fim) ou Markdown
+- Evite entradas contra a fase do ciclo
 
 Seja rigoroso - apenas aprove execuções com alta confluência (3+ fatores convergentes).`;
 
@@ -45,16 +57,20 @@ TAMANHO DA POSIÇÃO: ${position_size?.toFixed(4)}
 
 Avalie:
 1. O Risk/Reward é adequado (mínimo 2:1)?
-2. A entrada está em nível de confluência?
-3. O stop loss está bem posicionado?
-4. O take profit é realista?
-5. Existem pelo menos 3 fatores de confluência?
+2. **Wyckoff:** A fase do ciclo suporta a direção do trade?
+3. **Volume Profile:** A entrada está próxima do POC ou dentro da Value Area?
+4. A entrada está em nível de confluência?
+5. O stop loss está bem posicionado (abaixo/acima de LVN)?
+6. O take profit é realista e visa zonas de volume?
+7. Existem pelo menos 3 fatores de confluência?
 
 Forneça:
 1. Análise de confluência detalhada
-2. Pontuação de confluência (0-100)
-3. Fatores de confluência identificados
-4. Decisão final: APROVAR / AGUARDAR / REJEITAR`;
+2. **Análise Wyckoff:** Validação da fase do ciclo
+3. **Análise Volume Profile:** Validação de níveis de volume (POC, VA, LVN)
+4. Pontuação de confluência (0-100)
+5. Fatores de confluência identificados
+6. Decisão final: APROVAR / AGUARDAR / REJEITAR`;
 
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',

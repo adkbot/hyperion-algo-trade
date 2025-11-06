@@ -26,11 +26,25 @@ serve(async (req) => {
 Sua função é avaliar sinais de trading e fornecer feedback analítico profundo sobre a qualidade do sinal.
 
 Analise os seguintes aspectos:
-1. Força do sinal baseado nos indicadores técnicos
+1. Força do sinal baseado nos indicadores técnicos (RSI, VWMA, EMA, MACD, ATR)
 2. Confluência entre múltiplos indicadores
 3. Contexto da sessão de mercado atual
-4. Qualidade do setup de risco/recompensa
-5. Fatores que podem validar ou invalidar o sinal
+4. Metodologia Wyckoff - Identifique a fase do ciclo (Acumulação, Mark Up, Distribuição, Mark Down)
+5. Volume Profile - Analise zonas de alto volume (POC), áreas de valor e zonas de baixo volume
+6. Qualidade do setup de risco/recompensa
+7. Fatores que podem validar ou invalidar o sinal
+
+**CRITICAL - Volume Profile Analysis:**
+- Identifique o POC (Point of Control) - nível de maior volume
+- Marque Value Area (VA) - região com 70% do volume (20 níveis)
+- Identifique zonas de baixo volume (LVN) - possíveis alvos de correção
+- Analise se o preço está acima/abaixo do POC
+- Use 200 linhas de análise para precisão máxima
+
+**CRITICAL - Wyckoff Analysis:**
+- Identifique a fase atual do mercado (Accumulation, Markup, Distribution, Markdown)
+- Analise eventos (Spring, Upthrust, Test)
+- Verifique volume em pontos-chave
 
 Seja objetivo, técnico e forneça uma pontuação de 0-100 para a qualidade do sinal.`;
 
@@ -58,9 +72,12 @@ ${risk ? `GESTÃO DE RISCO:
 
 Forneça:
 1. Análise detalhada da qualidade do sinal
-2. Pontuação de qualidade (0-100)
-3. Principais pontos de atenção
-4. Recomendação final (EXECUTAR / AGUARDAR / REJEITAR)`;
+2. **Análise Wyckoff:** Identifique a fase do ciclo e eventos importantes
+3. **Análise Volume Profile:** Identifique POC, Value Area, e zonas de baixo volume. Determine se o preço está em zona de suporte/resistência baseada em volume
+4. Pontuação de qualidade (0-100)
+5. Principais pontos de atenção
+6. Níveis de correção esperados baseados em Volume Profile
+7. Recomendação final (EXECUTAR / AGUARDAR / REJEITAR)`;
 
     // Call Lovable AI
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {

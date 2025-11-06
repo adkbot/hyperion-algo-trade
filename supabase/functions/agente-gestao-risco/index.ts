@@ -28,8 +28,15 @@ Analise:
 1. Qualidade da execução do trade
 2. Gestão de risco durante a operação
 3. Razões do resultado (WIN/LOSS)
-4. Lições aprendidas
-5. Ajustes sugeridos para futuros trades
+4. **Análise Wyckoff:** O trade estava alinhado com a fase correta do ciclo?
+5. **Análise Volume Profile:** A entrada/saída respeitou zonas de volume (POC, VA, LVN)?
+6. Lições aprendidas com base em Wyckoff e Volume Profile
+7. Ajustes sugeridos para futuros trades
+
+**CRITICAL - Post-Trade Analysis:**
+- Avalie se o preço corrigiu até zonas de volume esperadas (LVN, POC)
+- Verifique se a fase Wyckoff mudou durante o trade
+- Identifique se o stop/target estava bem posicionado em relação ao Volume Profile
 
 Seja objetivo e focado em melhoria contínua.`;
 
@@ -47,11 +54,13 @@ ${JSON.stringify(position_data, null, 2)}` : ''}
 
 Forneça:
 1. Análise do resultado
-2. Avaliação da gestão de risco (0-100)
-3. Principais lições aprendidas
-4. Sugestões de melhoria
-5. Se foi WIN: O que funcionou bem?
-6. Se foi LOSS: O que pode ser melhorado?`;
+2. **Análise Wyckoff:** A fase do ciclo estava correta?
+3. **Análise Volume Profile:** O preço respeitou as zonas de volume? Corrigiu até LVN/POC conforme esperado?
+4. Avaliação da gestão de risco (0-100)
+5. Principais lições aprendidas (incluindo insights de Wyckoff e Volume Profile)
+6. Sugestões de melhoria
+7. Se foi WIN: O que funcionou bem? (Wyckoff e Volume Profile estavam alinhados?)
+8. Se foi LOSS: O que pode ser melhorado? (Ignorou sinais de Wyckoff ou Volume Profile?)`;
 
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
