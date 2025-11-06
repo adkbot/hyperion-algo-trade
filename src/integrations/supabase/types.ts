@@ -188,6 +188,66 @@ export type Database = {
         }
         Relationships: []
       }
+      session_history: {
+        Row: {
+          c1_direction: string | null
+          confidence_score: number | null
+          confirmation: string | null
+          created_at: string | null
+          cycle_phase: string
+          direction: string | null
+          id: string
+          market_data: Json | null
+          notes: string | null
+          pair: string
+          range_high: number | null
+          range_low: number | null
+          risk: Json | null
+          session: string
+          signal: string | null
+          timestamp: string
+          volume_factor: number | null
+        }
+        Insert: {
+          c1_direction?: string | null
+          confidence_score?: number | null
+          confirmation?: string | null
+          created_at?: string | null
+          cycle_phase: string
+          direction?: string | null
+          id?: string
+          market_data?: Json | null
+          notes?: string | null
+          pair: string
+          range_high?: number | null
+          range_low?: number | null
+          risk?: Json | null
+          session: string
+          signal?: string | null
+          timestamp: string
+          volume_factor?: number | null
+        }
+        Update: {
+          c1_direction?: string | null
+          confidence_score?: number | null
+          confirmation?: string | null
+          created_at?: string | null
+          cycle_phase?: string
+          direction?: string | null
+          id?: string
+          market_data?: Json | null
+          notes?: string | null
+          pair?: string
+          range_high?: number | null
+          range_low?: number | null
+          risk?: Json | null
+          session?: string
+          signal?: string | null
+          timestamp?: string
+          volume_factor?: number | null
+        }
+        Relationships: []
+      }
       user_settings: {
         Row: {
           balance: number

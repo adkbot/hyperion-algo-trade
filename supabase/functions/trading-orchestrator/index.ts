@@ -6,10 +6,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const WINDMILL_TOKEN = Deno.env.get('WINDMILL_TOKEN');
-const WINDMILL_URL = Deno.env.get('WINDMILL_WORKSPACE_URL');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+// Session time ranges in UTC
+const SESSIONS = {
+  OCEANIA: { start: 0, end: 3, name: 'Oceania' },
+  ASIA: { start: 3, end: 8, name: 'Asia' },
+  LONDON: { start: 8, end: 12, name: 'London' },
+  NEW_YORK: { start: 12, end: 17, name: 'NewYork' },
+};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -19,52 +25,47 @@ serve(async (req) => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // 1. Check bot status
+    // Check bot status
     const { data: settings, error: settingsError } = await supabase
       .from('user_settings')
       .select('*')
       .single();
 
-    if (settingsError || !settings) {
-      throw new Error('Failed to fetch settings');
-    }
-
-    if (settings.bot_status !== 'running') {
+    if (settingsError || !settings || settings.bot_status !== 'running') {
       return new Response(
-        JSON.stringify({ message: 'Bot is not running', status: settings.bot_status }),
+        JSON.stringify({ message: 'Bot is not running' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Bot is running, starting analysis...');
+    console.log('Bot is running - starting cycle analysis...');
 
-    // 2. Get daily goals
+    // Detect current session and cycle phase
+    const currentSession = detectCurrentSession();
+    const cyclePhase = getCyclePhase(currentSession);
+    
+    console.log(`Current Session: ${currentSession}, Phase: ${cyclePhase}`);
+
+    // Check daily goals
     const { data: dailyGoal } = await supabase
       .from('daily_goals')
       .select('*')
       .eq('date', new Date().toISOString().split('T')[0])
       .single();
 
-    // Check if max losses reached
     if (dailyGoal && dailyGoal.losses >= dailyGoal.max_losses) {
-      console.log('Max losses reached for today, stopping bot');
-      
-      await supabase
-        .from('user_settings')
-        .update({ bot_status: 'stopped' })
-        .eq('id', settings.id);
-
+      console.log('Max losses reached - stopping bot');
+      await supabase.from('user_settings').update({ bot_status: 'stopped' }).eq('id', settings.id);
       return new Response(
         JSON.stringify({ message: 'Max losses reached, bot stopped' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // 3. Check active positions count
-    const { data: activePositions } = await supabase
-      .from('active_positions')
-      .select('*');
+    // Get active positions
+    const { data: activePositions } = await supabase.from('active_positions').select('*');
 
+    // Check max positions
     if (activePositions && activePositions.length >= settings.max_positions) {
       console.log('Max positions reached');
       return new Response(
@@ -73,93 +74,94 @@ serve(async (req) => {
       );
     }
 
-    // 4. Fetch candles from Binance for analysis
+    // Assets to analyze
     const assets = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
-    const results: Array<{ asset: string; signal: any }> = [];
+    const sessionAnalysis: any[] = [];
+
+    // Get last session data for C1 direction tracking
+    const { data: lastSessionData } = await supabase
+      .from('session_history')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(1)
+      .single();
 
     for (const asset of assets) {
-      // Skip if already have position on this asset
+      // Skip if already have position
       if (activePositions?.some(p => p.asset === asset)) {
         console.log(`Skipping ${asset} - already have position`);
         continue;
       }
 
-      console.log(`Analyzing ${asset}...`);
+      console.log(`Analyzing ${asset} - Session: ${currentSession}`);
 
-      // Fetch candles from Binance
+      // Fetch market data
       const candles = await fetchCandlesFromBinance(asset);
       
-      // Analyze market data and generate trading signals
-      const signal = await analyzeMarketAndGenerateSignal(candles, asset, settings);
-      
+      // Analyze based on current phase
+      const analysis = await analyzeCyclePhase({
+        candles,
+        asset,
+        settings,
+        session: currentSession,
+        phase: cyclePhase,
+        lastC1Direction: lastSessionData?.c1_direction,
+        londonRange: lastSessionData ? { high: lastSessionData.range_high, low: lastSessionData.range_low } : null,
+      });
+
+      // Store session analysis
+      await supabase.from('session_history').insert({
+        timestamp: new Date().toISOString(),
+        pair: asset,
+        session: currentSession,
+        cycle_phase: cyclePhase,
+        direction: analysis.direction,
+        volume_factor: analysis.volumeFactor,
+        confirmation: analysis.confirmation,
+        risk: analysis.risk,
+        confidence_score: analysis.confidence,
+        notes: analysis.notes,
+        market_data: analysis.marketData,
+        c1_direction: analysis.c1Direction,
+        range_high: analysis.rangeHigh,
+        range_low: analysis.rangeLow,
+        signal: analysis.signal,
+      });
+
+      // Log agent activity
       await supabase.from('agent_logs').insert({
-        agent_name: 'Market Analyzer',
+        agent_name: 'Cycle Orchestrator',
         asset: asset,
-        status: signal ? 'active' : 'waiting',
-        data: { 
-          message: signal ? `Signal generated: ${signal.action}` : 'No signal - waiting for setup',
-          intervals: Object.keys(candles)
+        status: analysis.signal === 'STAY_OUT' ? 'waiting' : 'active',
+        data: {
+          session: currentSession,
+          phase: cyclePhase,
+          signal: analysis.signal,
+          confidence: analysis.confidence,
+          notes: analysis.notes,
         }
       });
 
-      // Create new position if signal is valid
-      if (signal && signal.action !== 'HOLD') {
-        const positionSize = (settings.balance * settings.risk_per_trade) / Math.abs(signal.entry_price - signal.stop_loss);
-        const projectedProfit = positionSize * Math.abs(signal.take_profit - signal.entry_price);
-        
-        const { data: newPosition, error: positionError } = await supabase
-          .from('active_positions')
-          .insert({
-            asset: asset,
-            direction: signal.action,
-            entry_price: signal.entry_price,
-            stop_loss: signal.stop_loss,
-            take_profit: signal.take_profit,
-            risk_reward: signal.risk_reward,
-            current_price: signal.entry_price,
-            current_pnl: 0,
-            projected_profit: projectedProfit,
-            agents: signal.agents,
-            session: 'auto'
-          })
-          .select()
-          .single();
-
-        if (positionError) {
-          console.error('Error creating position:', positionError);
-        } else {
-          console.log('New position opened:', newPosition);
-          
-          // Insert into operations table with 'OPEN' result
-          await supabase.from('operations').insert({
-            asset: asset,
-            direction: signal.action,
-            entry_price: signal.entry_price,
-            stop_loss: signal.stop_loss,
-            take_profit: signal.take_profit,
-            risk_reward: signal.risk_reward,
-            agents: signal.agents,
-            session: 'auto',
-            result: 'OPEN'
-          });
-
-          results.push({ asset, signal });
-        }
+      // Execute trade only in LONDON or NEW_YORK execution phase
+      if ((currentSession === 'London' || currentSession === 'NewYork') && analysis.signal !== 'STAY_OUT' && analysis.confidence > 0.7) {
+        await executeTradeSignal(supabase, asset, analysis, settings);
       }
+
+      sessionAnalysis.push({ asset, analysis });
     }
 
-    // 5. Monitor and update active positions
+    // Monitor active positions
     if (activePositions && activePositions.length > 0) {
       await monitorActivePositions(supabase, activePositions);
     }
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        message: 'Analysis cycle completed',
-        analyzedAssets: assets.length,
+      JSON.stringify({
+        success: true,
+        session: currentSession,
+        phase: cyclePhase,
+        analysis: sessionAnalysis,
         activePositions: activePositions?.length || 0,
-        results
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -167,88 +169,277 @@ serve(async (req) => {
     console.error('Error in trading-orchestrator:', error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
 
-// Simple technical analysis function
-async function analyzeMarketAndGenerateSignal(candles: any, asset: string, settings: any) {
-  try {
-    const candles5m = candles['5m'];
-    const candles15m = candles['15m'];
-    const candles1h = candles['1h'];
-    
-    if (!candles5m || candles5m.length < 20 || !candles1h || candles1h.length < 10) {
-      return null;
-    }
+// Detect current trading session based on UTC time
+function detectCurrentSession(): string {
+  const now = new Date();
+  const utcHour = now.getUTCHours();
 
-    const currentPrice = parseFloat(candles5m[candles5m.length - 1].close);
-    
-    // Calculate Simple Moving Averages
-    const sma20_5m = candles5m.slice(-20).reduce((sum: number, c: any) => sum + parseFloat(c.close), 0) / 20;
-    const sma50_5m = candles5m.slice(-50).reduce((sum: number, c: any) => sum + parseFloat(c.close), 0) / 50;
-    
-    // Calculate RSI (14 periods on 5m)
-    const rsi = calculateRSI(candles5m.slice(-15).map((c: any) => parseFloat(c.close)));
-    
-    // Check trend on higher timeframe
-    const trend1h = candles1h[candles1h.length - 1].close > candles1h[candles1h.length - 5].close ? 'UP' : 'DOWN';
-    
-    // Generate signal based on multiple conditions
-    let signal = null;
-    
-    // LONG setup: Price above SMA20, RSI oversold recovering, aligned with 1h trend
-    if (currentPrice > sma20_5m && rsi > 30 && rsi < 50 && trend1h === 'UP' && sma20_5m > sma50_5m) {
-      const stopLoss = currentPrice * 0.995; // 0.5% stop loss
-      const takeProfit = currentPrice * 1.015; // 1.5% take profit (1:3 R:R)
-      const riskReward = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
-      
-      signal = {
-        action: 'BUY',
-        entry_price: currentPrice,
-        stop_loss: stopLoss,
-        take_profit: takeProfit,
-        risk_reward: riskReward,
-        agents: {
-          'Trend Analyzer': 'Uptrend confirmed on 1h',
-          'RSI Agent': `RSI: ${rsi.toFixed(2)} - Oversold recovery`,
-          'MA Agent': 'Price above SMA20, bullish alignment'
-        }
-      };
+  for (const [key, session] of Object.entries(SESSIONS)) {
+    if (utcHour >= session.start && utcHour < session.end) {
+      return session.name;
     }
-    
-    // SHORT setup: Price below SMA20, RSI overbought, aligned with 1h trend
-    if (currentPrice < sma20_5m && rsi > 50 && rsi < 70 && trend1h === 'DOWN' && sma20_5m < sma50_5m) {
-      const stopLoss = currentPrice * 1.005; // 0.5% stop loss
-      const takeProfit = currentPrice * 0.985; // 1.5% take profit (1:3 R:R)
-      const riskReward = Math.abs(currentPrice - takeProfit) / Math.abs(stopLoss - currentPrice);
-      
-      signal = {
-        action: 'SELL',
-        entry_price: currentPrice,
-        stop_loss: stopLoss,
-        take_profit: takeProfit,
-        risk_reward: riskReward,
-        agents: {
-          'Trend Analyzer': 'Downtrend confirmed on 1h',
-          'RSI Agent': `RSI: ${rsi.toFixed(2)} - Overbought correction`,
-          'MA Agent': 'Price below SMA20, bearish alignment'
-        }
-      };
-    }
-    
-    return signal;
-  } catch (error) {
-    console.error('Error analyzing market:', error);
-    return null;
   }
+  return 'Oceania'; // Default
 }
 
-// Calculate RSI (Relative Strength Index)
+// Determine cycle phase based on session
+function getCyclePhase(session: string): string {
+  if (session === 'Oceania' || session === 'Asia') return 'Projection';
+  if (session === 'London') return 'Consolidation';
+  if (session === 'NewYork') return 'Execution';
+  return 'Projection';
+}
+
+// Main cycle analysis function
+async function analyzeCyclePhase(params: any) {
+  const { candles, asset, session, phase, lastC1Direction, londonRange } = params;
+
+  const candles5m = candles['5m'];
+  const candles15m = candles['15m'];
+  const candles1h = candles['1h'];
+
+  if (!candles5m || !candles15m || !candles1h) {
+    return createEmptyAnalysis('Insufficient candle data');
+  }
+
+  const currentPrice = parseFloat(candles5m[candles5m.length - 1].close);
+
+  // Calculate indicators
+  const indicators = calculateIndicators(candles5m, candles15m, candles1h);
+
+  // Phase-specific analysis
+  if (phase === 'Projection') {
+    return analyzeProjectionPhase(candles5m, candles15m, indicators, currentPrice, asset, session);
+  } else if (phase === 'Consolidation') {
+    return analyzeConsolidationPhase(candles5m, candles15m, indicators, currentPrice, asset, lastC1Direction);
+  } else if (phase === 'Execution') {
+    return analyzeExecutionPhase(candles5m, candles15m, indicators, currentPrice, asset, lastC1Direction, londonRange);
+  }
+
+  return createEmptyAnalysis('Unknown phase');
+}
+
+// PHASE 1: PROJECTION - Oceania and Asia
+function analyzeProjectionPhase(candles5m: any[], candles15m: any[], indicators: any, currentPrice: number, asset: string, session: string) {
+  const { rsi, vwma, atr, volume } = indicators;
+
+  // Check if this is the beginning of Oceania (first 4 candles M15)
+  const isOceaniaStart = session === 'Oceania' && candles15m.length >= 4;
+  
+  let direction = 'NEUTRAL';
+  let c1Direction = null;
+  let confidence = 0;
+
+  // Detect C1 direction based on first 4 M15 candles of Oceania
+  if (isOceaniaStart) {
+    const first4Candles = candles15m.slice(-4);
+    const high = Math.max(...first4Candles.map((c: any) => c.high));
+    const low = Math.min(...first4Candles.map((c: any) => c.low));
+    const close = first4Candles[first4Candles.length - 1].close;
+    
+    if (close > (high + low) / 2) {
+      c1Direction = 'LONG';
+      direction = 'LONG';
+    } else {
+      c1Direction = 'SHORT';
+      direction = 'SHORT';
+    }
+
+    confidence = volume.factor > 1.2 ? 0.8 : 0.6;
+  }
+
+  // Asia confirms Oceania direction
+  if (session === 'Asia' && indicators.trend === 'UP') {
+    direction = 'LONG';
+    confidence = 0.75;
+  } else if (session === 'Asia' && indicators.trend === 'DOWN') {
+    direction = 'SHORT';
+    confidence = 0.75;
+  }
+
+  return {
+    signal: 'STAY_OUT', // Don't trade in projection phase
+    direction,
+    c1Direction,
+    volumeFactor: volume.factor,
+    confirmation: `${session} - Projection phase | Trend: ${indicators.trend} | RSI: ${rsi.toFixed(2)}`,
+    risk: null,
+    confidence,
+    notes: `${session} mapping market direction. Volume factor: ${volume.factor.toFixed(2)}. C1 Direction: ${c1Direction || 'N/A'}`,
+    marketData: { price: currentPrice, vwma, rsi, atr },
+    rangeHigh: null,
+    rangeLow: null,
+  };
+}
+
+// PHASE 2: CONSOLIDATION - London
+function analyzeConsolidationPhase(candles5m: any[], candles15m: any[], indicators: any, currentPrice: number, asset: string, lastC1Direction: string | null) {
+  const { rsi, vwma, atr, volume, slope } = indicators;
+
+  // Calculate London range (first 2 hours = 8 candles M15)
+  const londonCandles = candles15m.slice(-8);
+  const rangeHigh = Math.max(...londonCandles.map((c: any) => c.high));
+  const rangeLow = Math.min(...londonCandles.map((c: any) => c.low));
+
+  // Detect consolidation characteristics
+  const isConsolidating = Math.abs(slope) < 0.1 && rsi > 45 && rsi < 55;
+  const hasHighVolume = volume.factor > 1.3;
+
+  // Monitor for stop hunts and liquidity zones
+  const notes = `London consolidation phase. Range: ${rangeLow.toFixed(2)} - ${rangeHigh.toFixed(2)}. ${isConsolidating ? 'Market in range' : 'Breaking structure'}. Volume elevated: ${hasHighVolume}`;
+
+  return {
+    signal: 'STAY_OUT', // Don't trade during consolidation
+    direction: 'NEUTRAL',
+    c1Direction: lastC1Direction,
+    volumeFactor: volume.factor,
+    confirmation: 'London - Consolidation phase | Monitoring range',
+    risk: null,
+    confidence: 0.5,
+    notes,
+    marketData: { price: currentPrice, vwma, rsi, atr, slope },
+    rangeHigh,
+    rangeLow,
+  };
+}
+
+// PHASE 3: EXECUTION - New York
+function analyzeExecutionPhase(candles5m: any[], candles15m: any[], indicators: any, currentPrice: number, asset: string, lastC1Direction: string | null, londonRange: any) {
+  const { rsi, vwma, ema, macd, atr, volume } = indicators;
+
+  if (!londonRange) {
+    return createEmptyAnalysis('No London range data available');
+  }
+
+  const { high: rangeHigh, low: rangeLow } = londonRange;
+  
+  // Check for range breakout
+  const breakoutUp = currentPrice > rangeHigh;
+  const breakoutDown = currentPrice < rangeLow;
+  
+  // Volume confirmation (must be 1.5x average)
+  const volumeConfirmed = volume.factor > 1.5;
+  
+  // Technical alignment
+  const bullishAlignment = vwma > ema && macd > 0 && rsi < 70;
+  const bearishAlignment = vwma < ema && macd < 0 && rsi > 30;
+
+  let signal = 'STAY_OUT';
+  let direction = 'NEUTRAL';
+  let confidence = 0;
+  let risk = null;
+  let confirmation = '';
+
+  // LONG setup
+  if (breakoutUp && volumeConfirmed && bullishAlignment) {
+    signal = 'LONG';
+    direction = 'LONG';
+    
+    const stopLoss = currentPrice - (atr * 1.0);
+    const rangeAmplitude = rangeHigh - rangeLow;
+    const takeProfit = currentPrice + (rangeAmplitude * 2); // Measured move
+    const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
+
+    risk = {
+      entry: currentPrice,
+      stop: stopLoss,
+      target: takeProfit,
+      rr_ratio: rrRatio,
+    };
+
+    confidence = 0.85;
+    confirmation = 'NY breakout confirmed | Volume 1.5x+ | VWMA > EMA | MACD positive';
+  }
+  
+  // SHORT setup
+  else if (breakoutDown && volumeConfirmed && bearishAlignment) {
+    signal = 'SHORT';
+    direction = 'SHORT';
+    
+    const stopLoss = currentPrice + (atr * 1.0);
+    const rangeAmplitude = rangeHigh - rangeLow;
+    const takeProfit = currentPrice - (rangeAmplitude * 2);
+    const rrRatio = Math.abs(currentPrice - takeProfit) / Math.abs(stopLoss - currentPrice);
+
+    risk = {
+      entry: currentPrice,
+      stop: stopLoss,
+      target: takeProfit,
+      rr_ratio: rrRatio,
+    };
+
+    confidence = 0.85;
+    confirmation = 'NY breakout confirmed | Volume 1.5x+ | VWMA < EMA | MACD negative';
+  }
+
+  const notes = `NY Execution phase. Range breakout: ${breakoutUp ? 'UP' : breakoutDown ? 'DOWN' : 'NONE'}. Volume factor: ${volume.factor.toFixed(2)}. Signal: ${signal}`;
+
+  return {
+    signal,
+    direction,
+    c1Direction: lastC1Direction,
+    volumeFactor: volume.factor,
+    confirmation,
+    risk,
+    confidence,
+    notes,
+    marketData: { price: currentPrice, vwma, ema, macd, rsi, atr },
+    rangeHigh: londonRange.high,
+    rangeLow: londonRange.low,
+  };
+}
+
+// Calculate all technical indicators
+function calculateIndicators(candles5m: any[], candles15m: any[], candles1h: any[]) {
+  const closes5m = candles5m.map((c: any) => c.close);
+  const volumes5m = candles5m.map((c: any) => c.volume);
+  const closes15m = candles15m.map((c: any) => c.close);
+  const closes1h = candles1h.map((c: any) => c.close);
+
+  // RSI (14 period on M5)
+  const rsi = calculateRSI(closes5m.slice(-15));
+
+  // VWMA (Volume Weighted Moving Average)
+  const vwma = calculateVWMA(candles5m.slice(-20));
+
+  // EMA (20 period)
+  const ema = calculateEMA(closes5m.slice(-20), 20);
+
+  // MACD
+  const macd = calculateMACD(closes5m);
+
+  // ATR (14 period)
+  const atr = calculateATR(candles5m.slice(-15));
+
+  // Volume analysis
+  const avgVolume = volumes5m.slice(-20).reduce((a: number, b: number) => a + b, 0) / 20;
+  const currentVolume = volumes5m[volumes5m.length - 1];
+  const volumeFactor = currentVolume / avgVolume;
+
+  // Trend (from 1h)
+  const trend = closes1h[closes1h.length - 1] > closes1h[closes1h.length - 5] ? 'UP' : 'DOWN';
+
+  // Slope (rate of change on M15)
+  const slope = (closes15m[closes15m.length - 1] - closes15m[closes15m.length - 3]) / closes15m[closes15m.length - 3];
+
+  return {
+    rsi,
+    vwma,
+    ema,
+    macd,
+    atr,
+    volume: { factor: volumeFactor, current: currentVolume, average: avgVolume },
+    trend,
+    slope,
+  };
+}
+
+// RSI calculation
 function calculateRSI(prices: number[], period: number = 14): number {
   if (prices.length < period + 1) return 50;
   
@@ -257,26 +448,71 @@ function calculateRSI(prices: number[], period: number = 14): number {
   
   for (let i = 1; i <= period; i++) {
     const change = prices[i] - prices[i - 1];
-    if (change > 0) {
-      gains += change;
-    } else {
-      losses += Math.abs(change);
-    }
+    if (change > 0) gains += change;
+    else losses += Math.abs(change);
   }
   
   const avgGain = gains / period;
   const avgLoss = losses / period;
-  
   if (avgLoss === 0) return 100;
   
   const rs = avgGain / avgLoss;
-  const rsi = 100 - (100 / (1 + rs));
-  
-  return rsi;
+  return 100 - (100 / (1 + rs));
 }
 
+// VWMA calculation
+function calculateVWMA(candles: any[]): number {
+  let totalPV = 0;
+  let totalV = 0;
+  
+  for (const candle of candles) {
+    totalPV += candle.close * candle.volume;
+    totalV += candle.volume;
+  }
+  
+  return totalV > 0 ? totalPV / totalV : candles[candles.length - 1].close;
+}
+
+// EMA calculation
+function calculateEMA(prices: number[], period: number): number {
+  if (prices.length < period) return prices[prices.length - 1];
+  
+  const multiplier = 2 / (period + 1);
+  let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  
+  for (let i = period; i < prices.length; i++) {
+    ema = (prices[i] - ema) * multiplier + ema;
+  }
+  
+  return ema;
+}
+
+// MACD calculation (simplified)
+function calculateMACD(prices: number[]): number {
+  const ema12 = calculateEMA(prices, 12);
+  const ema26 = calculateEMA(prices, 26);
+  return ema12 - ema26;
+}
+
+// ATR calculation
+function calculateATR(candles: any[], period: number = 14): number {
+  if (candles.length < period) return 0;
+  
+  let sum = 0;
+  for (let i = 1; i < period; i++) {
+    const high = candles[i].high;
+    const low = candles[i].low;
+    const prevClose = candles[i - 1].close;
+    const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+    sum += tr;
+  }
+  
+  return sum / (period - 1);
+}
+
+// Fetch candles from Binance
 async function fetchCandlesFromBinance(symbol: string) {
-  const intervals = ['1m', '5m', '15m', '1h', '4h'];
+  const intervals = ['5m', '15m', '1h'];
   const allCandles: any = {};
 
   for (const interval of intervals) {
@@ -303,33 +539,72 @@ async function fetchCandlesFromBinance(symbol: string) {
   return allCandles;
 }
 
+// Execute trade signal
+async function executeTradeSignal(supabase: any, asset: string, analysis: any, settings: any) {
+  if (!analysis.risk) return;
+
+  const { entry, stop, target, rr_ratio } = analysis.risk;
+  const positionSize = (settings.balance * settings.risk_per_trade) / Math.abs(entry - stop);
+  const projectedProfit = positionSize * Math.abs(target - entry);
+
+  console.log(`Executing ${analysis.signal} signal for ${asset}`);
+
+  const { data: newPosition, error } = await supabase
+    .from('active_positions')
+    .insert({
+      asset,
+      direction: analysis.signal,
+      entry_price: entry,
+      stop_loss: stop,
+      take_profit: target,
+      risk_reward: rr_ratio,
+      current_price: entry,
+      current_pnl: 0,
+      projected_profit: projectedProfit,
+      agents: { 'Cycle Orchestrator': analysis.confirmation },
+      session: 'auto',
+    })
+    .select()
+    .single();
+
+  if (!error) {
+    await supabase.from('operations').insert({
+      asset,
+      direction: analysis.signal,
+      entry_price: entry,
+      stop_loss: stop,
+      take_profit: target,
+      risk_reward: rr_ratio,
+      agents: { 'Cycle Orchestrator': analysis.confirmation },
+      session: 'auto',
+      result: 'OPEN',
+    });
+
+    console.log(`Position opened successfully for ${asset}`);
+  }
+}
+
+// Monitor and update active positions
 async function monitorActivePositions(supabase: any, positions: any[]) {
   for (const position of positions) {
     try {
-      // Fetch current price
       const url = `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${position.asset}`;
       const response = await fetch(url);
       const data = await response.json();
       const currentPrice = parseFloat(data.price);
 
-      // Calculate P&L
       const priceDiff = position.direction === 'BUY' 
         ? currentPrice - position.entry_price
         : position.entry_price - currentPrice;
       
       const rMultiple = priceDiff / Math.abs(position.entry_price - position.stop_loss);
-      const currentPnl = priceDiff * 100; // Simplified, should use actual quantity
+      const currentPnl = priceDiff * 100;
 
-      // Update position
-      await supabase
-        .from('active_positions')
-        .update({ 
-          current_price: currentPrice,
-          current_pnl: currentPnl 
-        })
-        .eq('id', position.id);
+      await supabase.from('active_positions').update({ 
+        current_price: currentPrice,
+        current_pnl: currentPnl 
+      }).eq('id', position.id);
 
-      // Check for TP/SL hit
       const tpHit = position.direction === 'BUY' 
         ? currentPrice >= position.take_profit
         : currentPrice <= position.take_profit;
@@ -342,54 +617,50 @@ async function monitorActivePositions(supabase: any, positions: any[]) {
         const result = tpHit ? 'WIN' : 'LOSS';
         console.log(`Position ${position.asset} closed: ${result}`);
 
-        // Close position
-        await supabase
-          .from('active_positions')
-          .delete()
-          .eq('id', position.id);
+        await supabase.from('active_positions').delete().eq('id', position.id);
 
-        // Update operation
-        await supabase
-          .from('operations')
-          .update({
-            exit_price: currentPrice,
-            exit_time: new Date().toISOString(),
-            result,
-            pnl: currentPnl,
-          })
-          .eq('asset', position.asset)
-          .eq('result', 'OPEN');
+        await supabase.from('operations').update({
+          exit_price: currentPrice,
+          exit_time: new Date().toISOString(),
+          result,
+          pnl: currentPnl,
+        }).eq('asset', position.asset).eq('result', 'OPEN');
 
-        // Update daily goals
         const today = new Date().toISOString().split('T')[0];
-        const { data: goal } = await supabase
-          .from('daily_goals')
-          .select('*')
-          .eq('date', today)
-          .single();
+        const { data: goal } = await supabase.from('daily_goals').select('*').eq('date', today).single();
 
         if (goal) {
-          await supabase
-            .from('daily_goals')
-            .update({
-              total_operations: goal.total_operations + 1,
-              wins: result === 'WIN' ? goal.wins + 1 : goal.wins,
-              losses: result === 'LOSS' ? goal.losses + 1 : goal.losses,
-              total_pnl: goal.total_pnl + currentPnl,
-            })
-            .eq('date', today);
+          await supabase.from('daily_goals').update({
+            total_operations: goal.total_operations + 1,
+            wins: result === 'WIN' ? goal.wins + 1 : goal.wins,
+            losses: result === 'LOSS' ? goal.losses + 1 : goal.losses,
+            total_pnl: goal.total_pnl + currentPnl,
+          }).eq('date', today);
         }
       }
-      // Move SL to BE if +1R
       else if (rMultiple >= 1 && Math.abs(position.stop_loss - position.entry_price) > 0.01) {
         console.log(`Moving SL to BE for ${position.asset}`);
-        await supabase
-          .from('active_positions')
-          .update({ stop_loss: position.entry_price })
-          .eq('id', position.id);
+        await supabase.from('active_positions').update({ stop_loss: position.entry_price }).eq('id', position.id);
       }
     } catch (error) {
       console.error(`Error monitoring position ${position.asset}:`, error);
     }
   }
+}
+
+// Helper to create empty analysis
+function createEmptyAnalysis(reason: string) {
+  return {
+    signal: 'STAY_OUT',
+    direction: 'NEUTRAL',
+    c1Direction: null,
+    volumeFactor: 0,
+    confirmation: reason,
+    risk: null,
+    confidence: 0,
+    notes: reason,
+    marketData: {},
+    rangeHigh: null,
+    rangeLow: null,
+  };
 }
