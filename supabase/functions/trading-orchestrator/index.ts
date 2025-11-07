@@ -14,13 +14,22 @@ const AGENTE_FEEDBACK_URL = `${SUPABASE_URL}/functions/v1/agente-feedback-analit
 const AGENTE_EXECUCAO_URL = `${SUPABASE_URL}/functions/v1/agente-execucao-confluencia`;
 const AGENTE_GESTAO_URL = `${SUPABASE_URL}/functions/v1/agente-gestao-risco`;
 
+// ✅ FASE 6: R:R ranges por sessão e tipo de operação
+const RR_RANGES = {
+  OCEANIA_CONFIRMATION: { min: 1.15, max: 1.4 },
+  ASIA_CONFIRMATION: { min: 1.2, max: 1.5 },
+  ASIA_REVERSAL: { min: 1.25, max: 1.6 },
+  LONDON_SCALP: { min: 1.15, max: 1.3 },
+  NY_BREAKOUT: { min: 1.3, max: 1.8 },
+  NY_REENTRY: { min: 1.2, max: 1.5 },
+};
+
 // Session time ranges in UTC - CONTÍNUAS (24h cobertura)
-// Apenas 30min de pausa nas transições (2 velas de 15min)
 const SESSIONS = {
   OCEANIA: { start: 0, end: 3, name: 'Oceania' },      // 00:00 - 03:00 UTC
   ASIA: { start: 3, end: 8, name: 'Asia' },            // 03:00 - 08:00 UTC
-  LONDON: { start: 8, end: 13, name: 'London' },       // 08:00 - 13:00 UTC (estendido)
-  NEW_YORK: { start: 13, end: 24, name: 'NewYork' },   // 13:00 - 24:00 UTC (estendido para cobrir até meia-noite)
+  LONDON: { start: 8, end: 13, name: 'London' },       // 08:00 - 13:00 UTC
+  NEW_YORK: { start: 13, end: 24, name: 'NewYork' },   // 13:00 - 24:00 UTC
 };
 
 // Map direction from LONG/SHORT to BUY/SELL for database
@@ -111,9 +120,64 @@ serve(async (req) => {
   }
 });
 
+// ✅ FASE 1: Session State Management
+async function getSessionState(supabase: any, userId: string): Promise<any> {
+  const today = new Date().toISOString().split('T')[0];
+  
+  const { data, error } = await supabase
+    .from('session_state')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('date', today)
+    .single();
+  
+  if (error && error.code !== 'PGRST116') { // PGRST116 = no rows
+    console.error('Error fetching session state:', error);
+    return null;
+  }
+  
+  return data;
+}
+
+async function updateSessionState(supabase: any, userId: string, updates: any): Promise<void> {
+  const today = new Date().toISOString().split('T')[0];
+  
+  // Try to update first
+  const { error: updateError } = await supabase
+    .from('session_state')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('date', today);
+  
+  // If no rows updated, insert new
+  if (updateError) {
+    await supabase
+      .from('session_state')
+      .insert({
+        user_id: userId,
+        date: today,
+        ...updates
+      });
+  }
+  
+  console.log(`✅ Session state updated: ${Object.keys(updates).join(', ')}`);
+}
+
 // ✅ NOVA FUNÇÃO: Processar ciclo de trading para um usuário específico
 async function processUserTradingCycle(supabase: any, settings: any, currentSession: string, cyclePhase: string) {
   const userId = settings.user_id;
+
+  // ✅ FASE 7: Carregar session state
+  const sessionState = await getSessionState(supabase, userId);
+  
+  // ✅ FASE 7: Log detalhado do estado
+  console.log(`
+📊 SESSION STATE for ${userId}:
+- C1 Direction: ${sessionState?.c1_direction || 'NOT SET'} (confidence: ${sessionState?.c1_confidence || 0})
+- Asia Status: ${sessionState?.asia_confirmation || 'NOT SET'}
+- London Range: ${sessionState?.london_range_low || 'N/A'} - ${sessionState?.london_range_high || 'N/A'}
+- Current Session: ${currentSession}
+  `);
 
   // ✅ Check daily goals POR USUÁRIO
   const { data: dailyGoal } = await supabase
@@ -152,252 +216,155 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     });
     
     return { 
+      message: 'Daily goal reached - bot stopped',
+      operations: dailyGoal.total_operations,
+      pnl: dailyGoal.total_pnl
+    };
+  }
+
+  // ✅ Verificar perda máxima diária
+  const maxLosses = dailyGoal?.max_losses || 15;
+  
+  if (dailyGoal && dailyGoal.losses >= maxLosses) {
+    console.log(`⚠️ PERDA MÁXIMA ATINGIDA (${maxLosses} losses) para user ${userId}!`);
+    
+    await supabase.from('user_settings').update({ 
+      bot_status: 'stopped' 
+    }).eq('user_id', userId);
+    
+    await supabase.from('agent_logs').insert({
       user_id: userId,
-      message: 'Meta diária atingida - bot parado',
-      status: 'stopped',
-      stats: {
-        operations: dailyGoal.total_operations,
-        wins: dailyGoal.wins,
+      agent_name: 'Risk Manager',
+      asset: 'SYSTEM',
+      status: 'warning',
+      data: {
+        message: 'Perda máxima diária atingida',
         losses: dailyGoal.losses,
-        pnl: dailyGoal.total_pnl,
+        max_losses: maxLosses,
+        total_pnl: dailyGoal.total_pnl,
       }
-    };
-  }
-
-  // ✅ Verificar se atingiu limite de perdas
-  if (dailyGoal && dailyGoal.losses >= dailyGoal.max_losses) {
-    console.log(`Max losses reached for user ${userId} - stopping bot`);
-    await supabase.from('user_settings').update({ bot_status: 'stopped' }).eq('user_id', userId);
+    });
+    
     return { 
-      user_id: userId,
-      message: 'Max losses reached, bot stopped',
-      status: 'stopped' 
+      message: 'Max daily losses reached - bot stopped for protection',
+      losses: dailyGoal.losses 
     };
   }
 
-  // ✅ Get active positions POR USUÁRIO
+  // ✅ Verificar posições ativas
   const { data: activePositions } = await supabase
     .from('active_positions')
     .select('*')
     .eq('user_id', userId);
 
-  // Check max positions
   if (activePositions && activePositions.length >= settings.max_positions) {
-    console.log(`Max positions reached for user ${userId}`);
-    return {
-      user_id: userId,
-      message: 'Max positions reached',
-      activePositions: activePositions.length
-    };
+    console.log(`📊 Max positions reached (${settings.max_positions}) - monitoring only`);
+    await monitorActivePositions(supabase, userId, settings);
+    return { message: 'Max positions reached - monitoring' };
   }
 
-  // Scan market for valid trading pairs
+  // Monitor existing positions
+  if (activePositions && activePositions.length > 0) {
+    await monitorActivePositions(supabase, userId, settings);
+  }
+
+  // ✅ Scan market for valid pairs
   console.log('Scanning market for valid trading pairs...');
-  const allAssets = await scanMarketForValidPairs();
+  const validPairs = await scanMarketForValidPairs();
   
-  if (allAssets.length === 0) {
-    console.log('No valid assets found in market scan');
-    return {
-      user_id: userId,
-      message: 'No valid trading pairs found'
-    };
-  }
+  console.log(`Found ${validPairs.length} valid trading pairs: ${validPairs.join(', ')}`);
 
-  console.log(`Found ${allAssets.length} valid trading pairs: ${allAssets.join(', ')}`);
-  
-  const sessionAnalysis: any[] = [];
+  // ✅ Análise de mercado para múltiplos pares
+  const analysisResults: any[] = [];
 
-  // ✅ Get last session data POR USUÁRIO for C1 direction tracking
-  const { data: lastSessionData } = await supabase
-    .from('session_history')
-    .select('*')
-    .eq('user_id', userId)
-    .order('timestamp', { ascending: false })
-    .limit(1)
-    .single();
+  for (const pair of validPairs) {
+    console.log(`Analyzing ${pair} - Session: ${currentSession}`);
+    
+    // Fetch candles
+    const candles = await fetchCandlesFromBinance(pair, ['5m', '15m', '1h']);
+    
+    if (!candles['5m'] || !candles['15m'] || !candles['1h']) {
+      console.log(`❌ Insufficient candle data for ${pair}`);
+      continue;
+    }
 
-    for (const asset of allAssets) {
-      // Skip if already have position
-      if (activePositions?.some((p: any) => p.asset === asset)) {
-        console.log(`Skipping ${asset} - already have position`);
-        continue;
-      }
+    // ✅ FASE 2-5: Análise baseada na sessão atual
+    const analysis = await analyzeCyclePhase({
+      candles,
+      asset: pair,
+      session: currentSession,
+      phase: cyclePhase,
+      sessionState,
+      supabase,
+      userId
+    });
 
-      console.log(`Analyzing ${asset} - Session: ${currentSession}`);
-
-      // Fetch market data
-      const candles = await fetchCandlesFromBinance(asset);
-      
-      // Analyze based on current phase
-      const analysis = await analyzeCyclePhase({
-        candles,
-        asset,
-        settings,
-        session: currentSession,
-        phase: cyclePhase,
-        lastC1Direction: lastSessionData?.c1_direction,
-        londonRange: lastSessionData ? { high: lastSessionData.range_high, low: lastSessionData.range_low } : null,
+    if (analysis) {
+      analysisResults.push({
+        pair,
+        ...analysis
       });
 
-      // ✅ Store session analysis COM user_id
+      // ✅ Gravar análise no histórico
       await supabase.from('session_history').insert({
         user_id: userId,
-        timestamp: new Date().toISOString(),
-        pair: asset,
-        session: currentSession,
+        pair,
+        session: mapSession(currentSession),
         cycle_phase: cyclePhase,
         direction: analysis.direction,
-        volume_factor: analysis.volumeFactor,
-        confirmation: analysis.confirmation,
-        risk: analysis.risk,
+        signal: analysis.signal,
         confidence_score: analysis.confidence,
+        volume_factor: analysis.volumeFactor,
         notes: analysis.notes,
-        market_data: analysis.marketData,
+        confirmation: analysis.confirmation,
         c1_direction: analysis.c1Direction,
         range_high: analysis.rangeHigh,
         range_low: analysis.rangeLow,
-        signal: analysis.signal,
+        market_data: analysis.marketData,
+        risk: analysis.risk,
+        timestamp: new Date().toISOString(),
       });
-
-      // ✅ Log agent activity COM user_id
-      await supabase.from('agent_logs').insert({
-        user_id: userId,
-        agent_name: 'Cycle Orchestrator',
-        asset: asset,
-        status: analysis.signal === 'STAY_OUT' ? 'waiting' : 'active',
-        data: {
-          session: currentSession,
-          phase: cyclePhase,
-          signal: analysis.signal,
-          confidence: analysis.confidence,
-          notes: analysis.notes,
-        }
-      });
-
-      // Send analysis to AI Agent - Agente de Feedback Analítico
-      if (analysis.signal !== 'STAY_OUT') {
-        try {
-          console.log(`🤖 Calling Agente Feedback Analítico for ${asset}...`);
-          const agentResponse = await fetch(AGENTE_FEEDBACK_URL, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              asset,
-              session: currentSession,
-              phase: cyclePhase,
-              signal: analysis.signal,
-              confidence: analysis.confidence,
-              direction: analysis.direction,
-              risk: analysis.risk,
-              marketData: analysis.marketData,
-              timestamp: new Date().toISOString(),
-            }),
-          });
-
-          if (agentResponse.ok) {
-            const agentData = await agentResponse.json();
-            console.log(`✅ Agent Feedback: Quality Score ${agentData.qualityScore}/100 | Recommendation: ${agentData.recommendation}`);
-            
-            // Update confidence based on AI analysis
-            if (agentData.adjustedConfidence) {
-              analysis.confidence = agentData.adjustedConfidence;
-              console.log(`📊 Confidence adjusted: ${(agentData.adjustedConfidence * 100).toFixed(1)}%`);
-            }
-          }
-        } catch (agentError) {
-          console.error('❌ Agente Feedback Analítico error:', agentError);
-          // Don't fail the main flow if agent is down
-        }
-      }
-
-      // ✅ Verificar se NÃO estamos nas últimas 2 velas ou primeiras velas da sessão
-      const isInvalidTradingTime = isNearSessionTransition(currentSession);
-      
-      if (isInvalidTradingTime) {
-        console.log(`⏸️ Aguardando transição de sessão - não operando nas primeiras/últimas velas`);
-        await supabase.from('agent_logs').insert({
-          user_id: userId,
-          agent_name: 'Session Filter',
-          asset: asset,
-          status: 'waiting',
-          data: {
-            reason: 'Aguardando fim de transição de sessão',
-            session: currentSession,
-          }
-        });
-        continue; // Pular para próximo asset
-      }
-      
-      // ✅ Execute trade em QUALQUER sessão com R:R flexível (1.15-1.6)
-      // CRITICAL: Aceitar R:R de 1.15 até 1.6 para maximizar oportunidades
-      const rrRatio = analysis.risk?.rr_ratio || 0;
-      
-      if (analysis.signal !== 'STAY_OUT' && analysis.confidence >= 0.8 && rrRatio >= 1.15 && rrRatio <= 1.6) {
-        console.log(`✅ EXECUTANDO TRADE: ${asset} | Conf: ${(analysis.confidence * 100).toFixed(1)}% | R:R: ${rrRatio.toFixed(2)} | Session: ${currentSession}`);
-        await executeTradeSignal(supabase, asset, analysis, settings, currentSession, userId);
-      } else if (analysis.signal !== 'STAY_OUT') {
-        const reason = analysis.confidence < 0.8 
-          ? `Confidence baixa (${(analysis.confidence * 100).toFixed(1)}%)`
-          : `R:R fora do range (${rrRatio.toFixed(2)}, aceito: 1.15-1.6)`;
-        
-        console.log(`⚠️ Signal detectado mas não executado: ${reason} - skipping ${asset}`);
-        await supabase.from('agent_logs').insert({
-          user_id: userId,
-          agent_name: 'Trade Filter',
-          asset: asset,
-          status: 'skipped',
-          data: {
-            reason,
-            confidence: analysis.confidence,
-            risk_reward: rrRatio,
-            signal: analysis.signal,
-          }
-        });
-      }
-
-      sessionAnalysis.push({ asset, analysis });
     }
 
-  // Monitor active positions
-  if (activePositions && activePositions.length > 0) {
-    await monitorActivePositions(supabase, activePositions, userId);
+    // ✅ Execute trades if signal is valid
+    if (analysis && analysis.signal !== 'STAY_OUT' && analysis.risk) {
+      const tradeExecuted = await executeTradeSignal(
+        supabase,
+        userId,
+        pair,
+        analysis,
+        settings,
+        currentSession
+      );
+      
+      if (tradeExecuted) {
+        console.log(`✅ Trade executed for ${pair} - ${analysis.signal}`);
+      }
+    }
   }
 
   return {
-    user_id: userId,
-    success: true,
     session: currentSession,
     phase: cyclePhase,
-    analysis: sessionAnalysis,
+    analysis: analysisResults,
     activePositions: activePositions?.length || 0,
   };
 }
 
-// Check if we are near session transition (first or last 2 candles of 15min)
-function isNearSessionTransition(currentSession: string): boolean {
-  const now = new Date();
-  const utcHour = now.getUTCHours();
-  const utcMinute = now.getUTCMinutes();
-  
-  // Get current session times
-  const session = Object.values(SESSIONS).find(s => s.name === currentSession);
-  if (!session) return false;
-  
-  // Check if we're in the last 30 minutes (2 velas de 15min)
-  const isLastCandles = (utcHour === session.end - 1 && utcMinute >= 30) || utcHour >= session.end;
-  
-  // Check if we're in the first 30 minutes (2 velas de 15min)
-  const isFirstCandles = utcHour === session.start && utcMinute < 30;
-  
-  return isLastCandles || isFirstCandles;
-}
-
-// Detect current trading session based on UTC time
+// Detect current session based on UTC time
 function detectCurrentSession(): string {
   const now = new Date();
   const utcHour = now.getUTCHours();
+  const utcMinutes = now.getUTCMinutes();
+
+  // Check for 30-minute transition periods (2 x 15min candles)
+  const isNearSessionTransition = (utcMinutes >= 30 && utcMinutes < 60 && 
+    [2, 7, 12].includes(utcHour));
+
+  if (isNearSessionTransition) {
+    console.log('⏸️ Aguardando transição de sessão (30min safety)');
+    return 'Transition'; // Special state - no trading
+  }
 
   // Sessões agora cobrem 24h contínuas
   for (const [key, session] of Object.entries(SESSIONS)) {
@@ -406,261 +373,571 @@ function detectCurrentSession(): string {
     }
   }
   
-  // Nunca deve chegar aqui, mas por segurança retorna Oceania
   return 'Oceania';
 }
 
 // Determine cycle phase based on session
 function getCyclePhase(session: string): string {
-  if (session === 'Oceania' || session === 'Asia') return 'Projection';
+  if (session === 'Transition') return 'Waiting';
+  if (session === 'Oceania') return 'Projection_Oceania';
+  if (session === 'Asia') return 'Projection_Asia';
   if (session === 'London') return 'Consolidation';
   if (session === 'NewYork') return 'Execution';
-  return 'Projection';
+  return 'Unknown';
 }
 
 // Main cycle analysis function
 async function analyzeCyclePhase(params: any) {
-  const { candles, asset, session, phase, lastC1Direction, londonRange } = params;
+  const { candles, asset, session, phase, sessionState, supabase, userId } = params;
+
+  if (session === 'Transition') {
+    return null; // No trading during transitions
+  }
 
   const candles5m = candles['5m'];
   const candles15m = candles['15m'];
   const candles1h = candles['1h'];
 
   if (!candles5m || !candles15m || !candles1h) {
-    return createEmptyAnalysis('Insufficient candle data');
+    return null;
   }
 
   const currentPrice = parseFloat(candles5m[candles5m.length - 1].close);
-
-  // Calculate indicators
   const indicators = calculateIndicators(candles5m, candles15m, candles1h);
 
-  // Phase-specific analysis
-  if (phase === 'Projection') {
-    return analyzeProjectionPhase(candles5m, candles15m, indicators, currentPrice, asset, session);
-  } else if (phase === 'Consolidation') {
-    return analyzeConsolidationPhase(candles5m, candles15m, indicators, currentPrice, asset, lastC1Direction);
-  } else if (phase === 'Execution') {
-    return analyzeExecutionPhase(candles5m, candles15m, indicators, currentPrice, asset, lastC1Direction, londonRange);
+  // ✅ FASE 2: Oceania - O Desenhista
+  if (phase === 'Projection_Oceania') {
+    return await analyzeOceaniaPhase(candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
+  }
+  
+  // ✅ FASE 3: Asia - O Confirmador
+  if (phase === 'Projection_Asia') {
+    return await analyzeAsiaPhase(candles5m, candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
+  }
+  
+  // ✅ FASE 4: London - O Precificador
+  if (phase === 'Consolidation') {
+    return await analyzeLondonPhase(candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
+  }
+  
+  // ✅ FASE 5: NY - O Executor
+  if (phase === 'Execution') {
+    return await analyzeNYPhase(candles5m, candles15m, indicators, currentPrice, asset, sessionState);
   }
 
-  return createEmptyAnalysis('Unknown phase');
+  return null;
 }
 
-// PHASE 1: PROJECTION - Oceania and Asia
-function analyzeProjectionPhase(candles5m: any[], candles15m: any[], indicators: any, currentPrice: number, asset: string, session: string) {
-  const { rsi, vwma, atr, volume } = indicators;
-
-  // Check if this is the beginning of Oceania (first 4 candles M15)
-  const isOceaniaStart = session === 'Oceania' && candles15m.length >= 4;
+// ✅ FASE 2: Oceania - O Desenhista (CRÍTICO)
+async function analyzeOceaniaPhase(candles15m: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
+  const { volume, atr } = indicators;
+  const now = new Date();
+  const utcHour = now.getUTCHours();
   
-  let direction = 'NEUTRAL';
-  let c1Direction = null;
-  let confidence = 0;
-
-  // Detect C1 direction based on first 4 M15 candles of Oceania
-  if (isOceaniaStart) {
+  // Primeira hora de Oceania (00:00-01:00) - Detectar C1
+  const isFirstHour = utcHour === 0;
+  
+  if (isFirstHour && candles15m.length >= 4) {
     const first4Candles = candles15m.slice(-4);
-    const high = Math.max(...first4Candles.map((c: any) => c.high));
-    const low = Math.min(...first4Candles.map((c: any) => c.low));
-    const close = first4Candles[first4Candles.length - 1].close;
+    const high = Math.max(...first4Candles.map((c: any) => parseFloat(c.high)));
+    const low = Math.min(...first4Candles.map((c: any) => parseFloat(c.low)));
+    const close = parseFloat(first4Candles[first4Candles.length - 1].close);
     
-    if (close > (high + low) / 2) {
-      c1Direction = 'LONG';
-      direction = 'LONG';
-    } else {
-      c1Direction = 'SHORT';
-      direction = 'SHORT';
+    const c1Direction = close > (high + low) / 2 ? 'LONG' : 'SHORT';
+    const c1Confidence = volume.factor > 1.2 ? 0.75 : 0.60;
+    
+    // ✅ GRAVAR C1 no Session State
+    await updateSessionState(supabase, userId, {
+      c1_direction: c1Direction,
+      c1_confidence: c1Confidence,
+      oceania_high: high,
+      oceania_low: low
+    });
+    
+    console.log(`🎯 C1 Direction detectada: ${c1Direction} (confidence: ${c1Confidence})`);
+    
+    return {
+      signal: 'STAY_OUT', // Apenas observar na primeira hora
+      direction: c1Direction,
+      c1Direction,
+      volumeFactor: volume.factor,
+      confirmation: `Oceania C1 detected: ${c1Direction}`,
+      risk: null,
+      confidence: c1Confidence,
+      notes: `C1 Direction set: ${c1Direction}. High: ${high}, Low: ${low}`,
+      marketData: { price: currentPrice, high, low },
+      rangeHigh: null,
+      rangeLow: null,
+    };
+  }
+  
+  // Operações de confirmação (01:00-03:00)
+  if (!isFirstHour && sessionState?.c1_direction) {
+    const c1Direction = sessionState.c1_direction;
+    const trend = detectTrend(candles15m.slice(-8));
+    
+    // Confirmar se movimento está alinhado com C1
+    const isAligned = trend.direction === c1Direction;
+    const hasVolume = volume.factor > 1.1;
+    
+    if (isAligned && hasVolume && trend.strength > 0.5) {
+      const stopLoss = c1Direction === 'LONG' 
+        ? currentPrice - (atr * 0.8)
+        : currentPrice + (atr * 0.8);
+      
+      const takeProfit = c1Direction === 'LONG'
+        ? currentPrice + (atr * 1.0)
+        : currentPrice - (atr * 1.0);
+      
+      const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
+      
+      // ✅ FASE 6: Validar R:R específico para Oceania
+      if (rrRatio >= RR_RANGES.OCEANIA_CONFIRMATION.min && rrRatio <= RR_RANGES.OCEANIA_CONFIRMATION.max) {
+        return {
+          signal: c1Direction,
+          direction: c1Direction,
+          c1Direction,
+          volumeFactor: volume.factor,
+          confirmation: `Oceania C1 confirmation trade - aligned momentum`,
+          risk: {
+            entry: currentPrice,
+            stop: stopLoss,
+            target: takeProfit,
+            rr_ratio: rrRatio,
+          },
+          confidence: 0.68,
+          notes: `Confirming C1 ${c1Direction} with volume ${volume.factor.toFixed(2)}x`,
+          marketData: { price: currentPrice, atr },
+          rangeHigh: null,
+          rangeLow: null,
+        };
+      }
     }
-
-    confidence = volume.factor > 1.2 ? 0.8 : 0.6;
   }
-
-  // Asia confirms Oceania direction
-  if (session === 'Asia' && indicators.trend === 'UP') {
-    direction = 'LONG';
-    confidence = 0.75;
-  } else if (session === 'Asia' && indicators.trend === 'DOWN') {
-    direction = 'SHORT';
-    confidence = 0.75;
-  }
-
+  
   return {
-    signal: 'STAY_OUT', // Don't trade in projection phase
-    direction,
-    c1Direction,
+    signal: 'STAY_OUT',
+    direction: sessionState?.c1_direction || 'NEUTRAL',
+    c1Direction: sessionState?.c1_direction,
     volumeFactor: volume.factor,
-    confirmation: `${session} - Projection phase | Trend: ${indicators.trend} | RSI: ${rsi.toFixed(2)}`,
+    confirmation: 'Oceania - monitoring C1',
     risk: null,
-    confidence,
-    notes: `${session} mapping market direction. Volume factor: ${volume.factor.toFixed(2)}. C1 Direction: ${c1Direction || 'N/A'}`,
-    marketData: { price: currentPrice, vwma, rsi, atr },
+    confidence: 0.5,
+    notes: 'Oceania phase - observing market structure',
+    marketData: { price: currentPrice },
     rangeHigh: null,
     rangeLow: null,
   };
 }
 
-// PHASE 2: CONSOLIDATION - London
-function analyzeConsolidationPhase(candles5m: any[], candles15m: any[], indicators: any, currentPrice: number, asset: string, lastC1Direction: string | null) {
-  const { rsi, vwma, atr, volume, slope } = indicators;
-
-  // Calculate London range (first 2 hours = 8 candles M15)
-  const londonCandles = candles15m.slice(-8);
-  const rangeHigh = Math.max(...londonCandles.map((c: any) => c.high));
-  const rangeLow = Math.min(...londonCandles.map((c: any) => c.low));
-
-  // Detect consolidation characteristics
-  const isConsolidating = Math.abs(slope) < 0.1 && rsi > 45 && rsi < 55;
-  const hasHighVolume = volume.factor > 1.3;
-
-  // Monitor for stop hunts and liquidity zones
-  const notes = `London consolidation phase. Range: ${rangeLow.toFixed(2)} - ${rangeHigh.toFixed(2)}. ${isConsolidating ? 'Market in range' : 'Breaking structure'}. Volume elevated: ${hasHighVolume}`;
-
+// ✅ FASE 3: Asia - O Confirmador
+async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
+  const { rsi, volume, atr } = indicators;
+  const c1Direction = sessionState?.c1_direction;
+  
+  if (!c1Direction) {
+    return {
+      signal: 'STAY_OUT',
+      direction: 'NEUTRAL',
+      c1Direction: null,
+      volumeFactor: volume.factor,
+      confirmation: 'Asia - waiting for C1 Direction from Oceania',
+      risk: null,
+      confidence: 0,
+      notes: 'No C1 direction set by Oceania yet',
+      marketData: { price: currentPrice },
+      rangeHigh: null,
+      rangeLow: null,
+    };
+  }
+  
+  // Analisar últimas 4 horas de Asia (16 velas de 15m)
+  const asiaCandles = candles15m.slice(-16);
+  const asiaTrend = detectTrend(asiaCandles);
+  
+  // Asia CONFIRMA C1
+  if (asiaTrend.direction === c1Direction && asiaTrend.strength > 0.6) {
+    await updateSessionState(supabase, userId, {
+      asia_confirmation: 'CONFIRMED',
+      asia_direction: c1Direction
+    });
+    
+    console.log(`✅ Asia CONFIRMOU C1: ${c1Direction}`);
+    
+    // Operar na direção confirmada
+    if (volume.factor > 1.2) {
+      const stopLoss = c1Direction === 'LONG'
+        ? currentPrice - (atr * 0.9)
+        : currentPrice + (atr * 0.9);
+      
+      const takeProfit = c1Direction === 'LONG'
+        ? currentPrice + (atr * 1.2)
+        : currentPrice - (atr * 1.2);
+      
+      const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
+      
+      if (rrRatio >= RR_RANGES.ASIA_CONFIRMATION.min && rrRatio <= RR_RANGES.ASIA_CONFIRMATION.max) {
+        return {
+          signal: c1Direction,
+          direction: c1Direction,
+          c1Direction,
+          volumeFactor: volume.factor,
+          confirmation: `Asia CONFIRMED Oceania C1: ${c1Direction}`,
+          risk: {
+            entry: currentPrice,
+            stop: stopLoss,
+            target: takeProfit,
+            rr_ratio: rrRatio,
+          },
+          confidence: 0.78,
+          notes: `Asia confirms C1 ${c1Direction} - strong alignment`,
+          marketData: { price: currentPrice, rsi, atr },
+          rangeHigh: null,
+          rangeLow: null,
+        };
+      }
+    }
+  }
+  
+  // Asia REVERTE C1
+  else if (asiaTrend.direction !== c1Direction && asiaTrend.strength > 0.7) {
+    const newDirection = asiaTrend.direction;
+    
+    await updateSessionState(supabase, userId, {
+      c1_direction: newDirection, // ATUALIZA C1!
+      asia_confirmation: 'REVERSED',
+      asia_direction: newDirection
+    });
+    
+    console.log(`🔄 Asia REVERTEU C1 de ${c1Direction} para ${newDirection}`);
+    
+    // Operar na NOVA direção
+    if (volume.factor > 1.3) {
+      const stopLoss = newDirection === 'LONG'
+        ? currentPrice - (atr * 1.0)
+        : currentPrice + (atr * 1.0);
+      
+      const takeProfit = newDirection === 'LONG'
+        ? currentPrice + (atr * 1.4)
+        : currentPrice - (atr * 1.4);
+      
+      const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
+      
+      if (rrRatio >= RR_RANGES.ASIA_REVERSAL.min && rrRatio <= RR_RANGES.ASIA_REVERSAL.max) {
+        return {
+          signal: newDirection,
+          direction: newDirection,
+          c1Direction: newDirection,
+          volumeFactor: volume.factor,
+          confirmation: `Asia REVERSED C1 to ${newDirection}`,
+          risk: {
+            entry: currentPrice,
+            stop: stopLoss,
+            target: takeProfit,
+            rr_ratio: rrRatio,
+          },
+          confidence: 0.73,
+          notes: `Asia reversal: ${c1Direction} → ${newDirection}`,
+          marketData: { price: currentPrice, rsi, atr },
+          rangeHigh: null,
+          rangeLow: null,
+        };
+      }
+    }
+  }
+  
+  // Asia fraca - aguardar Londres
   return {
-    signal: 'STAY_OUT', // Don't trade during consolidation
-    direction: 'NEUTRAL',
-    c1Direction: lastC1Direction,
+    signal: 'STAY_OUT',
+    direction: c1Direction,
+    c1Direction,
     volumeFactor: volume.factor,
-    confirmation: 'London - Consolidation phase | Monitoring range',
+    confirmation: 'Asia - weak momentum, waiting London',
     risk: null,
     confidence: 0.5,
-    notes,
-    marketData: { price: currentPrice, vwma, rsi, atr, slope },
+    notes: `Asia trend weak (strength: ${asiaTrend.strength.toFixed(2)})`,
+    marketData: { price: currentPrice, rsi },
+    rangeHigh: null,
+    rangeLow: null,
+  };
+}
+
+// ✅ FASE 4: London - O Precificador
+async function analyzeLondonPhase(candles15m: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
+  const { rsi, vwma, ema, volume, atr } = indicators;
+  const c1Direction = sessionState?.c1_direction;
+  
+  // Calcular London Range (primeiras 8 velas = 2h)
+  const londonCandles = candles15m.slice(-32); // 8h de dados
+  const rangeHigh = Math.max(...londonCandles.map((c: any) => parseFloat(c.high)));
+  const rangeLow = Math.min(...londonCandles.map((c: any) => parseFloat(c.low)));
+  const rangeSize = rangeHigh - rangeLow;
+  
+  // ✅ GRAVAR London Range no Session State
+  await updateSessionState(supabase, userId, {
+    london_range_high: rangeHigh,
+    london_range_low: rangeLow
+  });
+  
+  console.log(`📏 London Range: ${rangeLow.toFixed(2)} - ${rangeHigh.toFixed(2)} (size: ${rangeSize.toFixed(2)})`);
+  
+  // Scalping dentro do range alinhado com C1
+  const nearSupport = currentPrice <= rangeLow + (rangeSize * 0.2);
+  const nearResistance = currentPrice >= rangeHigh - (rangeSize * 0.2);
+  
+  // LONG setup - bounce no suporte alinhado com C1
+  if (nearSupport && c1Direction === 'LONG' && volume.factor > 1.1 && rsi < 45) {
+    const entry = currentPrice;
+    const stop = rangeLow - (atr * 0.5);
+    const target = (rangeHigh + rangeLow) / 2; // Meio do range
+    const rrRatio = Math.abs(target - entry) / Math.abs(entry - stop);
+    
+    if (rrRatio >= RR_RANGES.LONDON_SCALP.min && rrRatio <= RR_RANGES.LONDON_SCALP.max) {
+      return {
+        signal: 'LONG',
+        direction: 'LONG',
+        c1Direction,
+        volumeFactor: volume.factor,
+        confirmation: 'London support bounce - aligned with C1',
+        risk: {
+          entry,
+          stop,
+          target,
+          rr_ratio: rrRatio,
+        },
+        confidence: 0.70,
+        notes: `London scalp LONG from support ${rangeLow.toFixed(2)}`,
+        marketData: { price: currentPrice, rsi, vwma, ema },
+        rangeHigh,
+        rangeLow,
+      };
+    }
+  }
+  
+  // SHORT setup - rejeição na resistência alinhado com C1
+  if (nearResistance && c1Direction === 'SHORT' && volume.factor > 1.1 && rsi > 55) {
+    const entry = currentPrice;
+    const stop = rangeHigh + (atr * 0.5);
+    const target = (rangeHigh + rangeLow) / 2;
+    const rrRatio = Math.abs(entry - target) / Math.abs(stop - entry);
+    
+    if (rrRatio >= RR_RANGES.LONDON_SCALP.min && rrRatio <= RR_RANGES.LONDON_SCALP.max) {
+      return {
+        signal: 'SHORT',
+        direction: 'SHORT',
+        c1Direction,
+        volumeFactor: volume.factor,
+        confirmation: 'London resistance rejection - aligned with C1',
+        risk: {
+          entry,
+          stop,
+          target,
+          rr_ratio: rrRatio,
+        },
+        confidence: 0.70,
+        notes: `London scalp SHORT from resistance ${rangeHigh.toFixed(2)}`,
+        marketData: { price: currentPrice, rsi, vwma, ema },
+        rangeHigh,
+        rangeLow,
+      };
+    }
+  }
+  
+  return {
+    signal: 'STAY_OUT',
+    direction: 'NEUTRAL',
+    c1Direction,
+    volumeFactor: volume.factor,
+    confirmation: 'London - range consolidation',
+    risk: null,
+    confidence: 0.5,
+    notes: `London range ${rangeLow.toFixed(2)} - ${rangeHigh.toFixed(2)}`,
+    marketData: { price: currentPrice, rsi },
     rangeHigh,
     rangeLow,
   };
 }
 
-// PHASE 3: EXECUTION - New York
-function analyzeExecutionPhase(candles5m: any[], candles15m: any[], indicators: any, currentPrice: number, asset: string, lastC1Direction: string | null, londonRange: any) {
-  const { rsi, vwma, ema, macd, atr, volume } = indicators;
-
-  if (!londonRange) {
-    return createEmptyAnalysis('No London range data available');
+// ✅ FASE 5: NY - O Executor (Melhorado)
+async function analyzeNYPhase(candles5m: any[], candles15m: any[], indicators: any, currentPrice: number, asset: string, sessionState: any) {
+  const { rsi, vwma, ema, macd, volume, atr } = indicators;
+  
+  const c1Direction = sessionState?.c1_direction;
+  const londonHigh = sessionState?.london_range_high;
+  const londonLow = sessionState?.london_range_low;
+  const asiaConfirmation = sessionState?.asia_confirmation;
+  
+  if (!londonHigh || !londonLow) {
+    return {
+      signal: 'STAY_OUT',
+      direction: 'NEUTRAL',
+      c1Direction,
+      volumeFactor: volume.factor,
+      confirmation: 'NY - waiting for London range data',
+      risk: null,
+      confidence: 0,
+      notes: 'No London range available',
+      marketData: { price: currentPrice },
+      rangeHigh: null,
+      rangeLow: null,
+    };
   }
-
-  const { high: rangeHigh, low: rangeLow } = londonRange;
   
-  // Check for range breakout
-  const breakoutUp = currentPrice > rangeHigh;
-  const breakoutDown = currentPrice < rangeLow;
+  // Aumentar confiança se Asia confirmou
+  let baseConfidence = 0.85;
+  if (asiaConfirmation === 'CONFIRMED') {
+    baseConfidence = 0.92;
+  } else if (asiaConfirmation === 'REVERSED') {
+    baseConfidence = 0.88;
+  }
   
-  // Volume confirmation (must be 1.5x average)
+  // Detectar breakouts
+  const breakoutUp = currentPrice > londonHigh;
+  const breakoutDown = currentPrice < londonLow;
   const volumeConfirmed = volume.factor > 1.5;
   
-  // Technical alignment
   const bullishAlignment = vwma > ema && macd > 0 && rsi < 70;
   const bearishAlignment = vwma < ema && macd < 0 && rsi > 30;
-
-  let signal = 'STAY_OUT';
-  let direction = 'NEUTRAL';
-  let confidence = 0;
-  let risk = null;
-  let confirmation = '';
-
-  // LONG setup
+  
+  // LONG breakout
   if (breakoutUp && volumeConfirmed && bullishAlignment) {
-    signal = 'LONG';
-    direction = 'LONG';
-    
-    const stopLoss = currentPrice - (atr * 1.0);
-    const rangeAmplitude = rangeHigh - rangeLow;
-    const takeProfit = currentPrice + (rangeAmplitude * 2); // Measured move
-    const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
-
-    // ✅ FASE 2: Validar range de R:R (1.3 a 1.6)
-    if (rrRatio < 1.3 || rrRatio > 1.6) {
-      console.log(`❌ R:R fora do range aceitável: ${rrRatio.toFixed(2)} (esperado: 1.3-1.6)`);
-      return createEmptyAnalysis(`R:R ${rrRatio.toFixed(2)} fora do range 1.3-1.6`);
+    // Apenas operar se alinhado com C1 ou Asia confirmou
+    if (c1Direction === 'LONG' || asiaConfirmation === 'REVERSED') {
+      const entry = currentPrice;
+      const stop = londonHigh - (atr * 0.8);
+      const rangeAmplitude = londonHigh - londonLow;
+      const target = currentPrice + (rangeAmplitude * 1.5); // Measured move
+      const rrRatio = Math.abs(target - entry) / Math.abs(entry - stop);
+      
+      if (rrRatio >= RR_RANGES.NY_BREAKOUT.min && rrRatio <= RR_RANGES.NY_BREAKOUT.max) {
+        return {
+          signal: 'LONG',
+          direction: 'LONG',
+          c1Direction,
+          volumeFactor: volume.factor,
+          confirmation: `NY breakout UP - C1: ${c1Direction}, Asia: ${asiaConfirmation}`,
+          risk: {
+            entry,
+            stop,
+            target,
+            rr_ratio: rrRatio,
+          },
+          confidence: baseConfidence,
+          notes: `NY LONG breakout above ${londonHigh.toFixed(2)}`,
+          marketData: { price: currentPrice, vwma, ema, macd, rsi },
+          rangeHigh: londonHigh,
+          rangeLow: londonLow,
+        };
+      }
     }
-
-    risk = {
-      entry: currentPrice,
-      stop: stopLoss,
-      target: takeProfit,
-      rr_ratio: rrRatio,
-    };
-
-    confidence = 0.85;
-    confirmation = 'NY breakout confirmed | Volume 1.5x+ | VWMA > EMA | MACD positive';
   }
   
-  // SHORT setup
-  else if (breakoutDown && volumeConfirmed && bearishAlignment) {
-    signal = 'SHORT';
-    direction = 'SHORT';
-    
-    const stopLoss = currentPrice + (atr * 1.0);
-    const rangeAmplitude = rangeHigh - rangeLow;
-    const takeProfit = currentPrice - (rangeAmplitude * 2);
-    const rrRatio = Math.abs(currentPrice - takeProfit) / Math.abs(stopLoss - currentPrice);
-
-    // ✅ FASE 2: Validar range de R:R (1.3 a 1.6)
-    if (rrRatio < 1.3 || rrRatio > 1.6) {
-      console.log(`❌ R:R fora do range aceitável: ${rrRatio.toFixed(2)} (esperado: 1.3-1.6)`);
-      return createEmptyAnalysis(`R:R ${rrRatio.toFixed(2)} fora do range 1.3-1.6`);
+  // SHORT breakout
+  if (breakoutDown && volumeConfirmed && bearishAlignment) {
+    if (c1Direction === 'SHORT' || asiaConfirmation === 'REVERSED') {
+      const entry = currentPrice;
+      const stop = londonLow + (atr * 0.8);
+      const rangeAmplitude = londonHigh - londonLow;
+      const target = currentPrice - (rangeAmplitude * 1.5);
+      const rrRatio = Math.abs(entry - target) / Math.abs(stop - entry);
+      
+      if (rrRatio >= RR_RANGES.NY_BREAKOUT.min && rrRatio <= RR_RANGES.NY_BREAKOUT.max) {
+        return {
+          signal: 'SHORT',
+          direction: 'SHORT',
+          c1Direction,
+          volumeFactor: volume.factor,
+          confirmation: `NY breakout DOWN - C1: ${c1Direction}, Asia: ${asiaConfirmation}`,
+          risk: {
+            entry,
+            stop,
+            target,
+            rr_ratio: rrRatio,
+          },
+          confidence: baseConfidence,
+          notes: `NY SHORT breakout below ${londonLow.toFixed(2)}`,
+          marketData: { price: currentPrice, vwma, ema, macd, rsi },
+          rangeHigh: londonHigh,
+          rangeLow: londonLow,
+        };
+      }
     }
-
-    risk = {
-      entry: currentPrice,
-      stop: stopLoss,
-      target: takeProfit,
-      rr_ratio: rrRatio,
-    };
-
-    confidence = 0.85;
-    confirmation = 'NY breakout confirmed | Volume 1.5x+ | VWMA < EMA | MACD negative';
   }
-
-  const notes = `NY Execution phase. Range breakout: ${breakoutUp ? 'UP' : breakoutDown ? 'DOWN' : 'NONE'}. Volume factor: ${volume.factor.toFixed(2)}. Signal: ${signal}`;
-
+  
   return {
-    signal,
-    direction,
-    c1Direction: lastC1Direction,
+    signal: 'STAY_OUT',
+    direction: 'NEUTRAL',
+    c1Direction,
     volumeFactor: volume.factor,
-    confirmation,
-    risk,
-    confidence,
-    notes,
-    marketData: { price: currentPrice, vwma, ema, macd, rsi, atr },
-    rangeHigh: londonRange.high,
-    rangeLow: londonRange.low,
+    confirmation: 'NY - monitoring for breakout',
+    risk: null,
+    confidence: 0.5,
+    notes: `NY waiting for breakout. London range: ${londonLow.toFixed(2)} - ${londonHigh.toFixed(2)}`,
+    marketData: { price: currentPrice, rsi },
+    rangeHigh: londonHigh,
+    rangeLow: londonLow,
   };
 }
 
-// Calculate all technical indicators
+// Helper: Detect trend direction and strength
+function detectTrend(candles: any[]): { direction: string; strength: number } {
+  if (candles.length < 4) {
+    return { direction: 'NEUTRAL', strength: 0 };
+  }
+  
+  const closes = candles.map((c: any) => parseFloat(c.close));
+  const firstClose = closes[0];
+  const lastClose = closes[closes.length - 1];
+  const percentChange = ((lastClose - firstClose) / firstClose) * 100;
+  
+  // Count bullish vs bearish candles
+  let bullishCount = 0;
+  let bearishCount = 0;
+  
+  for (const candle of candles) {
+    const open = parseFloat(candle.open);
+    const close = parseFloat(candle.close);
+    if (close > open) bullishCount++;
+    else if (close < open) bearishCount++;
+  }
+  
+  const totalCandles = candles.length;
+  const bullishRatio = bullishCount / totalCandles;
+  const bearishRatio = bearishCount / totalCandles;
+  
+  if (bullishRatio > 0.6 && percentChange > 0.3) {
+    return { direction: 'LONG', strength: Math.min(bullishRatio, 1) };
+  } else if (bearishRatio > 0.6 && percentChange < -0.3) {
+    return { direction: 'SHORT', strength: Math.min(bearishRatio, 1) };
+  }
+  
+  return { direction: 'NEUTRAL', strength: 0 };
+}
+
+// Calculate technical indicators
 function calculateIndicators(candles5m: any[], candles15m: any[], candles1h: any[]) {
-  const closes5m = candles5m.map((c: any) => c.close);
-  const volumes5m = candles5m.map((c: any) => c.volume);
-  const closes15m = candles15m.map((c: any) => c.close);
-  const closes1h = candles1h.map((c: any) => c.close);
+  const closes5m = candles5m.map((c: any) => parseFloat(c.close));
+  const closes15m = candles15m.map((c: any) => parseFloat(c.close));
+  const volumes5m = candles5m.map((c: any) => parseFloat(c.volume));
 
-  // RSI (14 period on M5)
-  const rsi = calculateRSI(closes5m.slice(-15));
-
-  // VWMA (Volume Weighted Moving Average)
-  const vwma = calculateVWMA(candles5m.slice(-20));
-
-  // EMA (20 period)
-  const ema = calculateEMA(closes5m.slice(-20), 20);
-
-  // MACD
+  const rsi = calculateRSI(closes5m, 14);
+  const vwma = calculateVWMA(closes5m, volumes5m, 20);
+  const ema = calculateEMA(closes15m, 21);
   const macd = calculateMACD(closes5m);
-
-  // ATR (14 period)
-  const atr = calculateATR(candles5m.slice(-15));
+  const atr = calculateATR(candles5m, 14);
 
   // Volume analysis
-  const avgVolume = volumes5m.slice(-20).reduce((a: number, b: number) => a + b, 0) / 20;
+  const avgVolume = volumes5m.reduce((a: number, b: number) => a + b, 0) / volumes5m.length;
   const currentVolume = volumes5m[volumes5m.length - 1];
   const volumeFactor = currentVolume / avgVolume;
 
-  // Trend (from 1h)
-  const trend = closes1h[closes1h.length - 1] > closes1h[closes1h.length - 5] ? 'UP' : 'DOWN';
+  // Slope analysis (momentum)
+  const recentCloses = closes5m.slice(-10);
+  const slope = (recentCloses[recentCloses.length - 1] - recentCloses[0]) / recentCloses[0];
 
-  // Slope (rate of change on M15)
-  const slope = (closes15m[closes15m.length - 1] - closes15m[closes15m.length - 3]) / closes15m[closes15m.length - 3];
+  // Trend detection
+  const ema50 = calculateEMA(closes15m, 50);
+  const trend = closes15m[closes15m.length - 1] > ema50 ? 'UP' : 'DOWN';
 
   return {
     rsi,
@@ -668,542 +945,408 @@ function calculateIndicators(candles5m: any[], candles15m: any[], candles1h: any
     ema,
     macd,
     atr,
-    volume: { factor: volumeFactor, current: currentVolume, average: avgVolume },
-    trend,
+    volume: { current: currentVolume, average: avgVolume, factor: volumeFactor },
     slope,
+    trend,
   };
 }
 
-// RSI calculation
-function calculateRSI(prices: number[], period: number = 14): number {
+function calculateRSI(prices: number[], period: number): number {
   if (prices.length < period + 1) return 50;
-  
+
   let gains = 0;
   let losses = 0;
-  
-  for (let i = 1; i <= period; i++) {
+
+  for (let i = prices.length - period; i < prices.length; i++) {
     const change = prices[i] - prices[i - 1];
     if (change > 0) gains += change;
-    else losses += Math.abs(change);
+    else losses -= change;
   }
-  
+
   const avgGain = gains / period;
   const avgLoss = losses / period;
+
   if (avgLoss === 0) return 100;
-  
   const rs = avgGain / avgLoss;
   return 100 - (100 / (1 + rs));
 }
 
-// VWMA calculation
-function calculateVWMA(candles: any[]): number {
-  let totalPV = 0;
-  let totalV = 0;
-  
-  for (const candle of candles) {
-    totalPV += candle.close * candle.volume;
-    totalV += candle.volume;
+function calculateVWMA(prices: number[], volumes: number[], period: number): number {
+  if (prices.length < period) return prices[prices.length - 1];
+
+  const recentPrices = prices.slice(-period);
+  const recentVolumes = volumes.slice(-period);
+
+  let sumPV = 0;
+  let sumV = 0;
+
+  for (let i = 0; i < period; i++) {
+    sumPV += recentPrices[i] * recentVolumes[i];
+    sumV += recentVolumes[i];
   }
-  
-  return totalV > 0 ? totalPV / totalV : candles[candles.length - 1].close;
+
+  return sumV === 0 ? recentPrices[recentPrices.length - 1] : sumPV / sumV;
 }
 
-// EMA calculation
 function calculateEMA(prices: number[], period: number): number {
   if (prices.length < period) return prices[prices.length - 1];
-  
-  const multiplier = 2 / (period + 1);
-  let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  
-  for (let i = period; i < prices.length; i++) {
-    ema = (prices[i] - ema) * multiplier + ema;
+
+  const k = 2 / (period + 1);
+  let ema = prices[0];
+
+  for (let i = 1; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
   }
-  
+
   return ema;
 }
 
-// MACD calculation (simplified)
 function calculateMACD(prices: number[]): number {
   const ema12 = calculateEMA(prices, 12);
   const ema26 = calculateEMA(prices, 26);
   return ema12 - ema26;
 }
 
-// ATR calculation
-function calculateATR(candles: any[], period: number = 14): number {
+function calculateATR(candles: any[], period: number): number {
   if (candles.length < period) return 0;
-  
-  let sum = 0;
-  for (let i = 1; i < period; i++) {
-    const high = candles[i].high;
-    const low = candles[i].low;
-    const prevClose = candles[i - 1].close;
+
+  const trs: number[] = [];
+  for (let i = 1; i < candles.length; i++) {
+    const high = parseFloat(candles[i].high);
+    const low = parseFloat(candles[i].low);
+    const prevClose = parseFloat(candles[i - 1].close);
     const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
-    sum += tr;
+    trs.push(tr);
   }
-  
-  return sum / (period - 1);
+
+  const recentTRs = trs.slice(-period);
+  return recentTRs.reduce((a, b) => a + b, 0) / period;
 }
 
-// Scan market for valid trading pairs with sufficient volume
+// Scan market for valid trading pairs
 async function scanMarketForValidPairs(): Promise<string[]> {
   try {
-    // Fetch all USDT perpetual contracts from Binance Futures
     const response = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo');
-    
-    if (!response.ok) {
-      console.error('Failed to fetch exchange info');
-      return ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']; // Fallback to default pairs
-    }
-
     const data = await response.json();
-    const symbols = data.symbols
-      .filter((s: any) => 
-        s.status === 'TRADING' && 
-        s.quoteAsset === 'USDT' && 
-        s.contractType === 'PERPETUAL'
-      )
-      .map((s: any) => s.symbol);
 
-    console.log(`Total USDT perpetual pairs available: ${symbols.length}`);
+    const perpetualPairs = data.symbols.filter((s: any) => 
+      s.symbol.endsWith('USDT') && 
+      s.contractType === 'PERPETUAL' &&
+      s.status === 'TRADING'
+    );
 
-    // Get 24h ticker data to filter by volume
-    const tickerResponse = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
-    
-    if (!tickerResponse.ok) {
-      console.error('Failed to fetch ticker data');
-      return symbols.slice(0, 10); // Return first 10 if ticker fails
-    }
+    console.log(`Total USDT perpetual pairs available: ${perpetualPairs.length}`);
 
-    const tickers = await tickerResponse.json();
-    
-    // Filter pairs with high volume (minimum $50M daily volume)
-    const MIN_VOLUME_USD = 50_000_000;
-    
-    const validPairs = tickers
-      .filter((t: any) => {
-        const volumeUSD = parseFloat(t.quoteVolume);
-        const priceChange = Math.abs(parseFloat(t.priceChangePercent));
-        
-        return (
-          symbols.includes(t.symbol) &&
-          volumeUSD >= MIN_VOLUME_USD &&
-          priceChange >= 0.5 && // At least 0.5% movement
-          priceChange <= 20 // Not more than 20% (avoid extreme volatility)
-        );
+    // Get 24h stats for volume filtering
+    const statsResponse = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
+    const stats = await statsResponse.json();
+    const statsMap = new Map(stats.map((s: any) => [s.symbol, s]));
+
+    const validPairs = perpetualPairs
+      .filter((pair: any) => {
+        const stat: any = statsMap.get(pair.symbol);
+        if (!stat) return false;
+
+        const volume24h = parseFloat(stat.quoteVolume);
+        const priceChange = Math.abs(parseFloat(stat.priceChangePercent));
+
+        return volume24h >= 50_000_000 && priceChange >= 0.5;
       })
-      .sort((a: any, b: any) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume)) // Sort by volume
-      .slice(0, 15) // Top 15 pairs
-      .map((t: any) => t.symbol);
+      .map((pair: any) => pair.symbol)
+      .slice(0, 15);
 
-    console.log(`Filtered to ${validPairs.length} high-quality pairs with volume >= $${MIN_VOLUME_USD.toLocaleString()}`);
-
-    return validPairs.length > 0 ? validPairs : ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
+    console.log(`Filtered to ${validPairs.length} high-quality pairs with volume >= $50,000,000`);
+    
+    return validPairs;
   } catch (error) {
-    console.error('Error in market scan:', error);
-    return ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']; // Fallback
+    console.error('Error scanning market:', error);
+    return ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
   }
 }
 
 // Fetch candles from Binance
-async function fetchCandlesFromBinance(symbol: string) {
-  const intervals = ['5m', '15m', '1h'];
-  const allCandles: any = {};
+async function fetchCandlesFromBinance(symbol: string, intervals: string[]) {
+  const candles: any = {};
 
   for (const interval of intervals) {
-    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=100`;
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-      console.error(`Failed to fetch ${interval} candles for ${symbol}`);
-      continue;
-    }
+    try {
+      const limit = interval === '1h' ? 100 : interval === '15m' ? 96 : 200;
+      const response = await fetch(
+        `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
+      );
+      const data = await response.json();
 
-    const data = await response.json();
-    allCandles[interval] = data.map((k: any) => ({
-      openTime: k[0],
-      open: parseFloat(k[1]),
-      high: parseFloat(k[2]),
-      low: parseFloat(k[3]),
-      close: parseFloat(k[4]),
-      volume: parseFloat(k[5]),
-      closeTime: k[6],
-    }));
+      candles[interval] = data.map((k: any) => ({
+        time: k[0],
+        open: k[1],
+        high: k[2],
+        low: k[3],
+        close: k[4],
+        volume: k[5],
+      }));
+    } catch (error) {
+      console.error(`Error fetching ${interval} candles for ${symbol}:`, error);
+      candles[interval] = null;
+    }
   }
 
-  return allCandles;
+  return candles;
 }
 
 // Execute trade signal
-async function executeTradeSignal(supabase: any, asset: string, analysis: any, settings: any, currentSession: string, userId: string) {
-  if (!analysis.risk) return;
+async function executeTradeSignal(supabase: any, userId: string, asset: string, analysis: any, settings: any, currentSession: string) {
+  const { signal, risk, confidence } = analysis;
 
-  console.log(`✅ Executing trade for user ${userId}`);
-
-  // CRITICAL: Validate balance before executing trade
-  if (!settings.balance || settings.balance <= 0) {
-    console.error('❌ SALDO INSUFICIENTE - Cannot execute trade');
-    console.error(`Balance: $${settings.balance || 0}`);
-    await supabase.from('agent_logs').insert({
-      user_id: userId,
-      agent_name: 'Trade Executor',
-      asset: asset,
-      status: 'error',
-      data: {
-        error: 'Saldo insuficiente',
-        message: 'O saldo está zerado ou negativo. Não é possível executar trades.',
-        balance: settings.balance || 0,
-        required_minimum: 10,
-      }
-    });
-    return;
+  if (!risk || !risk.entry || !risk.stop || !risk.target) {
+    console.log(`❌ Invalid risk parameters for ${asset}`);
+    return false;
   }
 
-  // Validate minimum balance of $10
-  if (settings.balance < 10) {
-    console.error('❌ SALDO MUITO BAIXO - Cannot execute trade');
-    console.error(`Balance: $${settings.balance} | Minimum required: $10`);
-    await supabase.from('agent_logs').insert({
-      user_id: userId,
-      agent_name: 'Trade Executor',
-      asset: asset,
-      status: 'error',
-      data: {
-        error: 'Saldo muito baixo',
-        message: 'O saldo mínimo para operar é de $10 USD.',
-        balance: settings.balance,
-        required_minimum: 10,
-      }
-    });
-    return;
+  // Additional validation: confidence must be >= 0.65
+  if (confidence < 0.65) {
+    console.log(`❌ Confidence too low: ${confidence.toFixed(2)} (min: 0.65)`);
+    return false;
   }
 
-  const { entry, stop, target, rr_ratio } = analysis.risk;
-  
-  // ✅ FASE 1: Dividir risco pelo número de posições simultâneas
-  const adjustedRisk = settings.risk_per_trade / settings.max_positions;
-  const positionSize = (settings.balance * adjustedRisk) / Math.abs(entry - stop);
-  const projectedProfit = positionSize * Math.abs(target - entry);
+  // Calculate position size
+  const balance = settings.balance;
+  const riskPerTrade = settings.risk_per_trade;
+  const riskAmount = balance * riskPerTrade;
 
-  // ✅ FASE 4: Log completo de gestão de risco
+  const entryPrice = risk.entry;
+  const stopLoss = risk.stop;
+  const takeProfit = risk.target;
+  const riskPerUnit = Math.abs(entryPrice - stopLoss);
+
+  if (riskPerUnit === 0) {
+    console.log(`❌ Invalid risk per unit for ${asset}`);
+    return false;
+  }
+
+  // Check if user has sufficient balance
+  if (balance < riskAmount) {
+    console.log(`❌ Insufficient balance: $${balance} < $${riskAmount}`);
+    return false;
+  }
+
+  const quantity = riskAmount / riskPerUnit;
+  const projectedProfit = Math.abs(takeProfit - entryPrice) * quantity;
+
   console.log(`
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 ANÁLISE DE RISCO - ${asset}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💰 Saldo: $${settings.balance.toFixed(2)}
-🎯 Max Posições: ${settings.max_positions}
-📉 Risco Total: ${(settings.risk_per_trade * 100).toFixed(1)}%
-📊 Risco por Posição: ${(adjustedRisk * 100).toFixed(1)}%
-💵 Tamanho da Posição: ${positionSize.toFixed(4)} contratos
-📈 Entry: $${entry.toFixed(2)} | Stop: $${stop.toFixed(2)} | Target: $${target.toFixed(2)}
-🎲 R:R: ${rr_ratio.toFixed(2)}:1
-💎 Lucro Projetado: $${projectedProfit.toFixed(2)}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`);
+  💰 EXECUTING TRADE:
+  - Asset: ${asset}
+  - Direction: ${signal}
+  - Entry: ${entryPrice}
+  - Stop Loss: ${stopLoss}
+  - Take Profit: ${takeProfit}
+  - R:R Ratio: ${risk.rr_ratio.toFixed(2)}
+  - Quantity: ${quantity.toFixed(4)}
+  - Risk: $${riskAmount.toFixed(2)}
+  - Projected Profit: $${projectedProfit.toFixed(2)}
+  - Confidence: ${(confidence * 100).toFixed(1)}%
+  `);
 
-  // Check if position size is valid
-  if (positionSize <= 0 || !isFinite(positionSize)) {
-    console.error('❌ INVALID POSITION SIZE');
-    console.error(`Position size: ${positionSize} | Balance: $${settings.balance} | Risk: ${settings.risk_per_trade}`);
-    await supabase.from('agent_logs').insert({
-      user_id: userId,
-      agent_name: 'Trade Executor',
-      asset: asset,
-      status: 'error',
-      data: {
-        error: 'Tamanho de posição inválido',
-        balance: settings.balance,
-        risk_per_trade: settings.risk_per_trade,
-        position_size: positionSize,
-      }
-    });
-    return;
-  }
-
-  // Final validation: ensure we have enough balance for the position
-  const minimumRequired = positionSize * 0.01; // At least 1% margin
-  if (settings.balance < minimumRequired) {
-    console.error('❌ SALDO INSUFICIENTE PARA POSIÇÃO');
-    console.error(`Balance: $${settings.balance} | Required: $${minimumRequired.toFixed(2)}`);
-    await supabase.from('agent_logs').insert({
-      user_id: userId,
-      agent_name: 'Trade Executor',
-      asset: asset,
-      status: 'error',
-      data: {
-        error: 'Saldo insuficiente para posição',
-        message: 'O saldo disponível não é suficiente para abrir esta posição com segurança.',
-        balance: settings.balance,
-        required: minimumRequired,
-        position_size: positionSize,
-      }
-    });
-    return;
-  }
-
-  console.log(`✅ VALIDAÇÃO DE SALDO OK - Balance: $${settings.balance} | Position Size: ${positionSize.toFixed(4)}`);
-
-
-  console.log(`Executing ${analysis.signal} signal for ${asset}`);
-
-  // ✅ Insert position COM user_id
-  const { data: newPosition, error } = await supabase
-    .from('active_positions')
-    .insert({
-      user_id: userId,
-      asset,
-      direction: mapDirection(analysis.signal),
-      entry_price: entry,
-      stop_loss: stop,
-      take_profit: target,
-      risk_reward: rr_ratio,
-      current_price: entry,
-      current_pnl: 0,
-      projected_profit: projectedProfit,
-      agents: { 'Cycle Orchestrator': analysis.confirmation },
-      session: mapSession(currentSession),
-    })
-    .select();
-
-  if (error) {
-    console.error('❌ ERROR INSERTING ACTIVE POSITION:', error);
-    console.error('Asset:', asset);
-    console.error('Direction:', analysis.signal);
-    console.error('Entry:', entry, 'Stop:', stop, 'Target:', target);
-    console.error('Error details:', JSON.stringify({
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-      code: error.code,
-    }));
-    
-    await supabase.from('agent_logs').insert({
-      user_id: userId,
-      agent_name: 'Trade Executor',
-      asset: asset,
-      status: 'error',
-      data: {
-        error: 'Failed to insert active_position',
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-        position_data: {
-          asset,
-          direction: analysis.signal,
-          entry_price: entry,
-          stop_loss: stop,
-          take_profit: target,
-          risk_reward: rr_ratio,
-        }
-      }
-    });
-    return;
-  }
-
-  // ✅ Insert operation COM user_id
-  const { error: opError } = await supabase.from('operations').insert({
+  // Insert into active_positions
+  const { error: positionError } = await supabase.from('active_positions').insert({
     user_id: userId,
     asset,
-    direction: mapDirection(analysis.signal),
-    entry_price: entry,
-    stop_loss: stop,
-    take_profit: target,
-    risk_reward: rr_ratio,
-    agents: { 'Cycle Orchestrator': analysis.confirmation },
+    direction: mapDirection(signal),
+    entry_price: entryPrice,
+    stop_loss: stopLoss,
+    take_profit: takeProfit,
+    risk_reward: risk.rr_ratio,
+    current_price: entryPrice,
+    current_pnl: 0,
+    projected_profit: projectedProfit,
     session: mapSession(currentSession),
-    result: 'OPEN',
+    agents: {
+      confidence,
+      volume_factor: analysis.volumeFactor,
+      c1_direction: analysis.c1Direction,
+    },
   });
 
-  if (opError) {
-    console.error('❌ ERROR INSERTING OPERATION:', opError);
-    console.error('Asset:', asset);
-    console.error('Error details:', JSON.stringify({
-      message: opError.message,
-      details: opError.details,
-      hint: opError.hint,
-      code: opError.code,
-    }));
-    
-    await supabase.from('agent_logs').insert({
-      user_id: userId,
-      agent_name: 'Trade Executor',
-      asset: asset,
-      status: 'error',
-      data: {
-        error: 'Failed to insert operation',
-        message: opError.message,
-        details: opError.details,
-        hint: opError.hint,
-      }
-    });
+  if (positionError) {
+    console.error('❌ Error inserting position:', positionError);
+    return false;
   }
 
-  console.log(`✅ Position opened successfully for ${asset}`);
+  // Insert into operations
+  const { error: operationError } = await supabase.from('operations').insert({
+    user_id: userId,
+    asset,
+    direction: mapDirection(signal),
+    entry_price: entryPrice,
+    stop_loss: stopLoss,
+    take_profit: takeProfit,
+    risk_reward: risk.rr_ratio,
+    session: mapSession(currentSession),
+    agents: {
+      confidence,
+      signal: analysis.confirmation,
+    },
+  });
 
-  // Notify AI Agent - Agente de Execução e Confluência
-  try {
-    console.log(`🤖 Calling Agente Execução e Confluência for ${asset}...`);
-    const agentResponse = await fetch(AGENTE_EXECUCAO_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        asset,
-        direction: mapDirection(analysis.signal),
-        entry_price: entry,
-        stop_loss: stop,
-        take_profit: target,
-        risk_reward: rr_ratio,
-        position_size: projectedProfit,
-        timestamp: new Date().toISOString(),
-      }),
-    });
-
-    if (agentResponse.ok) {
-      const agentData = await agentResponse.json();
-      console.log(`✅ Agent Execução: ${agentData.decision} | Confluence: ${agentData.confluenceScore}/100`);
-    }
-  } catch (agentError) {
-    console.error('❌ Agente Execução e Confluência error:', agentError);
+  if (operationError) {
+    console.error('❌ Error inserting operation:', operationError);
   }
+
+  // Log to agent_logs
+  await supabase.from('agent_logs').insert({
+    user_id: userId,
+    agent_name: 'Trading Orchestrator',
+    asset,
+    status: 'success',
+    data: {
+      action: 'TRADE_EXECUTED',
+      signal,
+      entry: entryPrice,
+      stop: stopLoss,
+      target: takeProfit,
+      rr_ratio: risk.rr_ratio,
+      confidence,
+      session: currentSession,
+    },
+  });
+
+  console.log(`✅ Position opened for ${asset} - ${signal}`);
+  return true;
 }
 
-// Monitor and update active positions
-async function monitorActivePositions(supabase: any, positions: any[], userId: string) {
+// Monitor active positions
+async function monitorActivePositions(supabase: any, userId: string, settings: any) {
+  const { data: positions, error } = await supabase
+    .from('active_positions')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (error || !positions || positions.length === 0) {
+    return;
+  }
+
+  console.log(`📊 Monitoring ${positions.length} active position(s)...`);
+
   for (const position of positions) {
+    const symbol = position.asset;
+    
     try {
-      const url = `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${position.asset}`;
-      const response = await fetch(url);
-      const data = await response.json();
-      const currentPrice = parseFloat(data.price);
+      const priceResponse = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`);
+      const priceData = await priceResponse.json();
+      const currentPrice = parseFloat(priceData.price);
 
-      const priceDiff = position.direction === 'BUY' 
-        ? currentPrice - position.entry_price
-        : position.entry_price - currentPrice;
+      const entryPrice = parseFloat(position.entry_price);
+      const stopLoss = parseFloat(position.stop_loss);
+      const takeProfit = parseFloat(position.take_profit);
+      const direction = position.direction;
+
+      // Calculate P&L
+      const priceDiff = direction === 'BUY' 
+        ? currentPrice - entryPrice 
+        : entryPrice - currentPrice;
       
-      const rMultiple = priceDiff / Math.abs(position.entry_price - position.stop_loss);
-      const currentPnl = priceDiff * 100;
+      const riskAmount = settings.balance * settings.risk_per_trade;
+      const riskPerUnit = Math.abs(entryPrice - stopLoss);
+      const quantity = riskAmount / riskPerUnit;
+      const currentPnL = priceDiff * quantity;
 
-      await supabase.from('active_positions').update({ 
-        current_price: currentPrice,
-        current_pnl: currentPnl 
-      }).eq('id', position.id);
+      // Update position
+      await supabase
+        .from('active_positions')
+        .update({
+          current_price: currentPrice,
+          current_pnl: currentPnL,
+        })
+        .eq('id', position.id);
 
-      const tpHit = position.direction === 'BUY' 
-        ? currentPrice >= position.take_profit
-        : currentPrice <= position.take_profit;
-      
-      const slHit = position.direction === 'BUY'
-        ? currentPrice <= position.stop_loss
-        : currentPrice >= position.stop_loss;
+      // Check if TP or SL hit
+      let closePosition = false;
+      let result = '';
 
-      if (tpHit || slHit) {
-        const result = tpHit ? 'WIN' : 'LOSS';
-        console.log(`Position ${position.asset} closed: ${result}`);
+      if (direction === 'BUY') {
+        if (currentPrice >= takeProfit) {
+          closePosition = true;
+          result = 'WIN';
+          console.log(`🎯 Take Profit hit for ${symbol} - LONG at ${currentPrice}`);
+        } else if (currentPrice <= stopLoss) {
+          closePosition = true;
+          result = 'LOSS';
+          console.log(`❌ Stop Loss hit for ${symbol} - LONG at ${currentPrice}`);
+        }
+      } else {
+        if (currentPrice <= takeProfit) {
+          closePosition = true;
+          result = 'WIN';
+          console.log(`🎯 Take Profit hit for ${symbol} - SHORT at ${currentPrice}`);
+        } else if (currentPrice >= stopLoss) {
+          closePosition = true;
+          result = 'LOSS';
+          console.log(`❌ Stop Loss hit for ${symbol} - SHORT at ${currentPrice}`);
+        }
+      }
 
+      if (closePosition) {
+        // Close position
         await supabase.from('active_positions').delete().eq('id', position.id);
 
-        await supabase.from('operations').update({
-          exit_price: currentPrice,
-          exit_time: new Date().toISOString(),
-          result,
-          pnl: currentPnl,
-        }).eq('asset', position.asset).eq('result', 'OPEN');
+        // Update operation
+        await supabase
+          .from('operations')
+          .update({
+            exit_price: currentPrice,
+            exit_time: new Date().toISOString(),
+            pnl: currentPnL,
+            result,
+          })
+          .eq('asset', symbol)
+          .eq('entry_price', entryPrice)
+          .is('exit_time', null);
 
+        // Update daily goals
         const today = new Date().toISOString().split('T')[0];
-        // ✅ Buscar daily_goal POR USUÁRIO
-        const { data: goal } = await supabase
+        const { data: dailyGoal } = await supabase
           .from('daily_goals')
           .select('*')
           .eq('user_id', userId)
           .eq('date', today)
           .single();
 
-        if (goal) {
-          const newTotalOps = goal.total_operations + 1;
-          const newWins = result === 'WIN' ? goal.wins + 1 : goal.wins;
-          const newLosses = result === 'LOSS' ? goal.losses + 1 : goal.losses;
-          const newTotalPnl = goal.total_pnl + currentPnl;
-
-          // Calculate projected completion time
-          const now = new Date();
-          const todayStart = new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0);
-          const elapsedHours = (now.getTime() - todayStart.getTime()) / (1000 * 60 * 60);
-          
-          let projectedCompletionTime = null;
-          if (newTotalOps > 0 && elapsedHours > 0) {
-            const opsPerHour = newTotalOps / elapsedHours;
-            const remainingOps = 45 - newTotalOps;
-            
-            if (remainingOps > 0 && opsPerHour > 0) {
-              const hoursToComplete = remainingOps / opsPerHour;
-              projectedCompletionTime = new Date(now.getTime() + (hoursToComplete * 60 * 60 * 1000)).toISOString();
-            }
-          }
-
-          // ✅ Update daily_goal POR USUÁRIO
-          await supabase.from('daily_goals').update({
-            total_operations: newTotalOps,
-            wins: newWins,
-            losses: newLosses,
-            total_pnl: newTotalPnl,
-            projected_completion_time: projectedCompletionTime,
-          }).eq('user_id', userId).eq('date', today);
+        if (dailyGoal) {
+          await supabase
+            .from('daily_goals')
+            .update({
+              total_operations: (dailyGoal.total_operations || 0) + 1,
+              wins: result === 'WIN' ? (dailyGoal.wins || 0) + 1 : dailyGoal.wins,
+              losses: result === 'LOSS' ? (dailyGoal.losses || 0) + 1 : dailyGoal.losses,
+              total_pnl: (dailyGoal.total_pnl || 0) + currentPnL,
+            })
+            .eq('id', dailyGoal.id);
         }
 
-        // Notify AI Agent - Agente de Gestão de Risco
-        try {
-          console.log(`🤖 Calling Agente Gestão de Risco for ${position.asset}...`);
-          const agentResponse = await fetch(AGENTE_GESTAO_URL, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              asset: position.asset,
-              result,
-              entry_price: position.entry_price,
-              exit_price: currentPrice,
-              pnl: currentPnl,
-              direction: position.direction,
-              position_data: position,
-              timestamp: new Date().toISOString(),
-            }),
-          });
+        // Update balance
+        await supabase
+          .from('user_settings')
+          .update({
+            balance: settings.balance + currentPnL,
+          })
+          .eq('user_id', userId);
 
-          if (agentResponse.ok) {
-            const agentData = await agentResponse.json();
-            console.log(`✅ Agent Gestão de Risco: Score ${agentData.riskManagementScore}/100 | Lessons: ${agentData.lessons}`);
-          }
-        } catch (agentError) {
-          console.error('❌ Agente Gestão de Risco error:', agentError);
-        }
-      }
-      else if (rMultiple >= 1 && Math.abs(position.stop_loss - position.entry_price) > 0.01) {
-        console.log(`Moving SL to BE for ${position.asset}`);
-        await supabase.from('active_positions').update({ stop_loss: position.entry_price }).eq('id', position.id);
+        // Notify agents
+        await supabase.from('agent_logs').insert({
+          user_id: userId,
+          agent_name: 'Risk Management',
+          asset: symbol,
+          status: result === 'WIN' ? 'success' : 'warning',
+          data: {
+            action: 'POSITION_CLOSED',
+            result,
+            entry: entryPrice,
+            exit: currentPrice,
+            pnl: currentPnL,
+          },
+        });
       }
     } catch (error) {
-      console.error(`Error monitoring position ${position.asset}:`, error);
+      console.error(`Error monitoring position for ${symbol}:`, error);
     }
   }
-}
-
-// Helper to create empty analysis
-function createEmptyAnalysis(reason: string) {
-  return {
-    signal: 'STAY_OUT',
-    direction: 'NEUTRAL',
-    c1Direction: null,
-    volumeFactor: 0,
-    confirmation: reason,
-    risk: null,
-    confidence: 0,
-    notes: reason,
-    marketData: {},
-    rangeHigh: null,
-    rangeLow: null,
-  };
 }

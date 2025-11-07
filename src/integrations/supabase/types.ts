@@ -287,6 +287,54 @@ export type Database = {
         }
         Relationships: []
       }
+      session_state: {
+        Row: {
+          asia_confirmation: string | null
+          asia_direction: string | null
+          c1_confidence: number | null
+          c1_direction: string | null
+          created_at: string | null
+          date: string
+          id: string
+          london_range_high: number | null
+          london_range_low: number | null
+          oceania_high: number | null
+          oceania_low: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          asia_confirmation?: string | null
+          asia_direction?: string | null
+          c1_confidence?: number | null
+          c1_direction?: string | null
+          created_at?: string | null
+          date: string
+          id?: string
+          london_range_high?: number | null
+          london_range_low?: number | null
+          oceania_high?: number | null
+          oceania_low?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          asia_confirmation?: string | null
+          asia_direction?: string | null
+          c1_confidence?: number | null
+          c1_direction?: string | null
+          created_at?: string | null
+          date?: string
+          id?: string
+          london_range_high?: number | null
+          london_range_low?: number | null
+          oceania_high?: number | null
+          oceania_low?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_settings: {
         Row: {
           api_key: string | null
