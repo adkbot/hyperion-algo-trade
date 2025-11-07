@@ -942,11 +942,33 @@ async function monitorActivePositions(supabase: any, positions: any[]) {
         const { data: goal } = await supabase.from('daily_goals').select('*').eq('date', today).single();
 
         if (goal) {
+          const newTotalOps = goal.total_operations + 1;
+          const newWins = result === 'WIN' ? goal.wins + 1 : goal.wins;
+          const newLosses = result === 'LOSS' ? goal.losses + 1 : goal.losses;
+          const newTotalPnl = goal.total_pnl + currentPnl;
+
+          // Calculate projected completion time
+          const now = new Date();
+          const todayStart = new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0);
+          const elapsedHours = (now.getTime() - todayStart.getTime()) / (1000 * 60 * 60);
+          
+          let projectedCompletionTime = null;
+          if (newTotalOps > 0 && elapsedHours > 0) {
+            const opsPerHour = newTotalOps / elapsedHours;
+            const remainingOps = 45 - newTotalOps;
+            
+            if (remainingOps > 0 && opsPerHour > 0) {
+              const hoursToComplete = remainingOps / opsPerHour;
+              projectedCompletionTime = new Date(now.getTime() + (hoursToComplete * 60 * 60 * 1000)).toISOString();
+            }
+          }
+
           await supabase.from('daily_goals').update({
-            total_operations: goal.total_operations + 1,
-            wins: result === 'WIN' ? goal.wins + 1 : goal.wins,
-            losses: result === 'LOSS' ? goal.losses + 1 : goal.losses,
-            total_pnl: goal.total_pnl + currentPnl,
+            total_operations: newTotalOps,
+            wins: newWins,
+            losses: newLosses,
+            total_pnl: newTotalPnl,
+            projected_completion_time: projectedCompletionTime,
           }).eq('date', today);
         }
 

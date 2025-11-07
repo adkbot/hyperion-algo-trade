@@ -7,6 +7,14 @@ import { useDailyGoals } from "@/hooks/useTradingData";
 export const DailyGoals = () => {
   const { data: goals } = useDailyGoals();
 
+  // Calculate elapsed time since start of day (00:00 UTC)
+  const now = new Date();
+  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+  const elapsedMs = now.getTime() - todayStart.getTime();
+  const elapsedHours = Math.floor(elapsedMs / (1000 * 60 * 60));
+  const elapsedMinutes = Math.floor((elapsedMs % (1000 * 60 * 60)) / (1000 * 60));
+  const elapsedTime = `${elapsedHours.toString().padStart(2, '0')}:${elapsedMinutes.toString().padStart(2, '0')}`;
+
   const dailyStats = {
     targetOperations: goals?.target_operations || 45,
     completedOperations: goals?.total_operations || 0,
@@ -16,7 +24,7 @@ export const DailyGoals = () => {
     projectedTime: goals?.projected_completion_time 
       ? new Date(goals.projected_completion_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
       : "--:--",
-    currentTime: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    elapsedTime: elapsedTime,
     dailyProfit: goals?.total_pnl || 0
   };
 
@@ -97,7 +105,7 @@ export const DailyGoals = () => {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-xs text-muted-foreground">Tempo Decorrido</div>
-              <div className="font-mono font-bold">{dailyStats.currentTime}</div>
+              <div className="font-mono font-bold">{dailyStats.elapsedTime}</div>
             </div>
             <div className="text-right">
               <div className="text-xs text-muted-foreground">Tempo Estimado</div>
