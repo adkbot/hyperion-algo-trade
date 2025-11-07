@@ -16,16 +16,36 @@ export const useTradingOrchestrator = (botStatus: "stopped" | "running" | "pause
         });
 
         if (error) {
-          console.error("Orchestrator error:", error);
+          console.error("❌ Orchestrator error:", error);
+          console.error("Error details:", {
+            message: error.message,
+            context: error.context,
+            name: error.name,
+          });
+          
           toast({
             title: "Erro no Orchestrator",
-            description: error.message,
+            description: error.message || "Falha ao chamar orchestrator",
             variant: "destructive",
           });
           return;
         }
 
-        console.log("Orchestrator response:", data);
+        if (data) {
+          console.log("✅ Orchestrator response:", data);
+          
+          // Log successful operations
+          if (data.analysis && data.analysis.length > 0) {
+            const signals = data.analysis.filter((a: any) => a.analysis?.signal !== 'STAY_OUT');
+            if (signals.length > 0) {
+              console.log(`📊 ${signals.length} trade signal(s) detected:`, signals);
+            }
+          }
+          
+          if (data.activePositions > 0) {
+            console.log(`💼 Active positions: ${data.activePositions}`);
+          }
+        }
       } catch (error) {
         console.error("Error calling orchestrator:", error);
       }

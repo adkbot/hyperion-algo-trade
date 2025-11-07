@@ -776,51 +776,106 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
       agents: { 'Cycle Orchestrator': analysis.confirmation },
       session: 'auto',
     })
-    .select()
-    .single();
+    .select();
 
-  if (!error) {
-    await supabase.from('operations').insert({
-      asset,
-      direction: analysis.signal,
-      entry_price: entry,
-      stop_loss: stop,
-      take_profit: target,
-      risk_reward: rr_ratio,
-      agents: { 'Cycle Orchestrator': analysis.confirmation },
-      session: 'auto',
-      result: 'OPEN',
-    });
-
-    console.log(`Position opened successfully for ${asset}`);
-
-    // Notify AI Agent - Agente de Execução e Confluência
-    try {
-      console.log(`🤖 Calling Agente Execução e Confluência for ${asset}...`);
-      const agentResponse = await fetch(AGENTE_EXECUCAO_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+  if (error) {
+    console.error('❌ ERROR INSERTING ACTIVE POSITION:', error);
+    console.error('Asset:', asset);
+    console.error('Direction:', analysis.signal);
+    console.error('Entry:', entry, 'Stop:', stop, 'Target:', target);
+    console.error('Error details:', JSON.stringify({
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+    }));
+    
+    await supabase.from('agent_logs').insert({
+      agent_name: 'Trade Executor',
+      asset: asset,
+      status: 'error',
+      data: {
+        error: 'Failed to insert active_position',
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+        position_data: {
           asset,
           direction: analysis.signal,
           entry_price: entry,
           stop_loss: stop,
           take_profit: target,
           risk_reward: rr_ratio,
-          position_size: projectedProfit,
-          timestamp: new Date().toISOString(),
-        }),
-      });
-
-      if (agentResponse.ok) {
-        const agentData = await agentResponse.json();
-        console.log(`✅ Agent Execução: ${agentData.decision} | Confluence: ${agentData.confluenceScore}/100`);
+        }
       }
-    } catch (agentError) {
-      console.error('❌ Agente Execução e Confluência error:', agentError);
+    });
+    return;
+  }
+
+  const { error: opError } = await supabase.from('operations').insert({
+    asset,
+    direction: analysis.signal,
+    entry_price: entry,
+    stop_loss: stop,
+    take_profit: target,
+    risk_reward: rr_ratio,
+    agents: { 'Cycle Orchestrator': analysis.confirmation },
+    session: 'auto',
+    result: 'OPEN',
+  });
+
+  if (opError) {
+    console.error('❌ ERROR INSERTING OPERATION:', opError);
+    console.error('Asset:', asset);
+    console.error('Error details:', JSON.stringify({
+      message: opError.message,
+      details: opError.details,
+      hint: opError.hint,
+      code: opError.code,
+    }));
+    
+    await supabase.from('agent_logs').insert({
+      agent_name: 'Trade Executor',
+      asset: asset,
+      status: 'error',
+      data: {
+        error: 'Failed to insert operation',
+        message: opError.message,
+        details: opError.details,
+        hint: opError.hint,
+      }
+    });
+  }
+
+  console.log(`✅ Position opened successfully for ${asset}`);
+
+  // Notify AI Agent - Agente de Execução e Confluência
+  try {
+    console.log(`🤖 Calling Agente Execução e Confluência for ${asset}...`);
+    const agentResponse = await fetch(AGENTE_EXECUCAO_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        asset,
+        direction: analysis.signal,
+        entry_price: entry,
+        stop_loss: stop,
+        take_profit: target,
+        risk_reward: rr_ratio,
+        position_size: projectedProfit,
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    if (agentResponse.ok) {
+      const agentData = await agentResponse.json();
+      console.log(`✅ Agent Execução: ${agentData.decision} | Confluence: ${agentData.confluenceScore}/100`);
     }
+  } catch (agentError) {
+    console.error('❌ Agente Execução e Confluência error:', agentError);
   }
 }
 
