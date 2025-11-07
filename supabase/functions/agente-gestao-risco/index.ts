@@ -11,7 +11,8 @@ serve(async (req) => {
   }
 
   try {
-    const { asset, result, entry_price, exit_price, pnl, direction, position_data, timestamp } = await req.json();
+    // ✅ Receber user_id do body
+    const { user_id, asset, result, entry_price, exit_price, pnl, direction, position_data, timestamp } = await req.json();
     
     console.log(`⚖️ AGENTE GESTÃO DE RISCO - Analisando fechamento ${asset}`);
     console.log(`Result: ${result} | Entry: $${entry_price} | Exit: $${exit_price} | PnL: $${pnl}`);

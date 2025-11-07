@@ -47,87 +47,135 @@ serve(async (req) => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Check bot status
-    const { data: settings, error: settingsError } = await supabase
+    // ✅ MULTI-USER: Buscar TODOS os usuários com bot rodando
+    const { data: activeUsers, error: settingsError } = await supabase
       .from('user_settings')
       .select('*')
-      .single();
+      .eq('bot_status', 'running');
 
-    if (settingsError || !settings || settings.bot_status !== 'running') {
+    if (settingsError || !activeUsers || activeUsers.length === 0) {
       return new Response(
-        JSON.stringify({ message: 'Bot is not running' }),
+        JSON.stringify({ message: 'No active bots running' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     console.log('='.repeat(80));
-    console.log('🤖 BOT IS RUNNING - Starting cycle analysis...');
+    console.log(`🤖 MULTI-USER BOT - Processing ${activeUsers.length} active user(s)...`);
     
     // Detect current session and cycle phase
     const currentSession = detectCurrentSession();
     const cyclePhase = getCyclePhase(currentSession);
     
     console.log(`📊 Current Session: ${currentSession}, Phase: ${cyclePhase}`);
-    console.log(`💰 Balance: $${settings.balance} | Risk per trade: ${(settings.risk_per_trade * 100).toFixed(1)}%`);
-    console.log(`📈 Max Positions: ${settings.max_positions}`);
     console.log(`🤖 AI Agents: ✅ ENABLED (3 agents active)`);
     console.log('='.repeat(80));
 
-    // Check daily goals
-    const { data: dailyGoal } = await supabase
-      .from('daily_goals')
-      .select('*')
-      .eq('date', new Date().toISOString().split('T')[0])
-      .single();
+    // ✅ MULTI-USER: Processar cada usuário individualmente
+    const allResults: any[] = [];
 
-    if (dailyGoal && dailyGoal.losses >= dailyGoal.max_losses) {
-      console.log('Max losses reached - stopping bot');
-      await supabase.from('user_settings').update({ bot_status: 'stopped' }).eq('id', settings.id);
-      return new Response(
-        JSON.stringify({ message: 'Max losses reached, bot stopped' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    for (const userSettings of activeUsers) {
+      console.log(`\n👤 Processing user: ${userSettings.user_id}`);
+      console.log(`💰 Balance: $${userSettings.balance} | Risk: ${(userSettings.risk_per_trade * 100).toFixed(1)}%`);
+      console.log(`📈 Max Positions: ${userSettings.max_positions}`);
+
+      try {
+        const userResult = await processUserTradingCycle(supabase, userSettings, currentSession, cyclePhase);
+        allResults.push(userResult);
+      } catch (userError) {
+        console.error(`❌ Error processing user ${userSettings.user_id}:`, userError);
+        allResults.push({
+          user_id: userSettings.user_id,
+          error: userError instanceof Error ? userError.message : 'Unknown error'
+        });
+      }
     }
 
-    // Get active positions
-    const { data: activePositions } = await supabase.from('active_positions').select('*');
+    return new Response(
+      JSON.stringify({
+        success: true,
+        session: currentSession,
+        phase: cyclePhase,
+        users_processed: activeUsers.length,
+        results: allResults,
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } catch (error) {
+    console.error('Error in trading-orchestrator:', error);
+    return new Response(
+      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});
 
-    // Check max positions
-    if (activePositions && activePositions.length >= settings.max_positions) {
-      console.log('Max positions reached');
-      return new Response(
-        JSON.stringify({ message: 'Max positions reached' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+// ✅ NOVA FUNÇÃO: Processar ciclo de trading para um usuário específico
+async function processUserTradingCycle(supabase: any, settings: any, currentSession: string, cyclePhase: string) {
+  const userId = settings.user_id;
 
-    // Scan market for valid trading pairs
-    console.log('Scanning market for valid trading pairs...');
-    const allAssets = await scanMarketForValidPairs();
-    
-    if (allAssets.length === 0) {
-      console.log('No valid assets found in market scan');
-      return new Response(
-        JSON.stringify({ message: 'No valid trading pairs found' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+  // ✅ Check daily goals POR USUÁRIO
+  const { data: dailyGoal } = await supabase
+    .from('daily_goals')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('date', new Date().toISOString().split('T')[0])
+    .single();
 
-    console.log(`Found ${allAssets.length} valid trading pairs: ${allAssets.join(', ')}`);
-    
-    const sessionAnalysis: any[] = [];
+  if (dailyGoal && dailyGoal.losses >= dailyGoal.max_losses) {
+    console.log(`Max losses reached for user ${userId} - stopping bot`);
+    await supabase.from('user_settings').update({ bot_status: 'stopped' }).eq('user_id', userId);
+    return { 
+      user_id: userId,
+      message: 'Max losses reached, bot stopped',
+      status: 'stopped' 
+    };
+  }
 
-    // Get last session data for C1 direction tracking
-    const { data: lastSessionData } = await supabase
-      .from('session_history')
-      .select('*')
-      .order('timestamp', { ascending: false })
-      .limit(1)
-      .single();
+  // ✅ Get active positions POR USUÁRIO
+  const { data: activePositions } = await supabase
+    .from('active_positions')
+    .select('*')
+    .eq('user_id', userId);
+
+  // Check max positions
+  if (activePositions && activePositions.length >= settings.max_positions) {
+    console.log(`Max positions reached for user ${userId}`);
+    return {
+      user_id: userId,
+      message: 'Max positions reached',
+      activePositions: activePositions.length
+    };
+  }
+
+  // Scan market for valid trading pairs
+  console.log('Scanning market for valid trading pairs...');
+  const allAssets = await scanMarketForValidPairs();
+  
+  if (allAssets.length === 0) {
+    console.log('No valid assets found in market scan');
+    return {
+      user_id: userId,
+      message: 'No valid trading pairs found'
+    };
+  }
+
+  console.log(`Found ${allAssets.length} valid trading pairs: ${allAssets.join(', ')}`);
+  
+  const sessionAnalysis: any[] = [];
+
+  // ✅ Get last session data POR USUÁRIO for C1 direction tracking
+  const { data: lastSessionData } = await supabase
+    .from('session_history')
+    .select('*')
+    .eq('user_id', userId)
+    .order('timestamp', { ascending: false })
+    .limit(1)
+    .single();
 
     for (const asset of allAssets) {
       // Skip if already have position
-      if (activePositions?.some(p => p.asset === asset)) {
+      if (activePositions?.some((p: any) => p.asset === asset)) {
         console.log(`Skipping ${asset} - already have position`);
         continue;
       }
@@ -148,8 +196,9 @@ serve(async (req) => {
         londonRange: lastSessionData ? { high: lastSessionData.range_high, low: lastSessionData.range_low } : null,
       });
 
-      // Store session analysis
+      // ✅ Store session analysis COM user_id
       await supabase.from('session_history').insert({
+        user_id: userId,
         timestamp: new Date().toISOString(),
         pair: asset,
         session: currentSession,
@@ -167,8 +216,9 @@ serve(async (req) => {
         signal: analysis.signal,
       });
 
-      // Log agent activity
+      // ✅ Log agent activity COM user_id
       await supabase.from('agent_logs').insert({
+        user_id: userId,
         agent_name: 'Cycle Orchestrator',
         asset: asset,
         status: analysis.signal === 'STAY_OUT' ? 'waiting' : 'active',
@@ -223,10 +273,11 @@ serve(async (req) => {
       // CRITICAL: Only execute with confidence >= 80% (0.8)
       if ((currentSession === 'London' || currentSession === 'NewYork') && analysis.signal !== 'STAY_OUT' && analysis.confidence >= 0.8) {
         console.log(`High confidence signal (${(analysis.confidence * 100).toFixed(1)}%) - executing trade for ${asset}`);
-        await executeTradeSignal(supabase, asset, analysis, settings, currentSession);
+        await executeTradeSignal(supabase, asset, analysis, settings, currentSession, userId);
       } else if (analysis.signal !== 'STAY_OUT' && analysis.confidence < 0.8) {
         console.log(`Signal detected but confidence too low (${(analysis.confidence * 100).toFixed(1)}%) - skipping ${asset}`);
         await supabase.from('agent_logs').insert({
+          user_id: userId,
           agent_name: 'Trade Filter',
           asset: asset,
           status: 'skipped',
@@ -242,29 +293,20 @@ serve(async (req) => {
       sessionAnalysis.push({ asset, analysis });
     }
 
-    // Monitor active positions
-    if (activePositions && activePositions.length > 0) {
-      await monitorActivePositions(supabase, activePositions);
-    }
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        session: currentSession,
-        phase: cyclePhase,
-        analysis: sessionAnalysis,
-        activePositions: activePositions?.length || 0,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  } catch (error) {
-    console.error('Error in trading-orchestrator:', error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+  // Monitor active positions
+  if (activePositions && activePositions.length > 0) {
+    await monitorActivePositions(supabase, activePositions, userId);
   }
-});
+
+  return {
+    user_id: userId,
+    success: true,
+    session: currentSession,
+    phase: cyclePhase,
+    analysis: sessionAnalysis,
+    activePositions: activePositions?.length || 0,
+  };
+}
 
 // Detect current trading session based on UTC time
 function detectCurrentSession(): string {
@@ -692,14 +734,17 @@ async function fetchCandlesFromBinance(symbol: string) {
 }
 
 // Execute trade signal
-async function executeTradeSignal(supabase: any, asset: string, analysis: any, settings: any, currentSession: string) {
+async function executeTradeSignal(supabase: any, asset: string, analysis: any, settings: any, currentSession: string, userId: string) {
   if (!analysis.risk) return;
+
+  console.log(`✅ Executing trade for user ${userId}`);
 
   // CRITICAL: Validate balance before executing trade
   if (!settings.balance || settings.balance <= 0) {
     console.error('❌ SALDO INSUFICIENTE - Cannot execute trade');
     console.error(`Balance: $${settings.balance || 0}`);
     await supabase.from('agent_logs').insert({
+      user_id: userId,
       agent_name: 'Trade Executor',
       asset: asset,
       status: 'error',
@@ -718,6 +763,7 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
     console.error('❌ SALDO MUITO BAIXO - Cannot execute trade');
     console.error(`Balance: $${settings.balance} | Minimum required: $10`);
     await supabase.from('agent_logs').insert({
+      user_id: userId,
       agent_name: 'Trade Executor',
       asset: asset,
       status: 'error',
@@ -740,6 +786,7 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
     console.error('❌ INVALID POSITION SIZE');
     console.error(`Position size: ${positionSize} | Balance: $${settings.balance} | Risk: ${settings.risk_per_trade}`);
     await supabase.from('agent_logs').insert({
+      user_id: userId,
       agent_name: 'Trade Executor',
       asset: asset,
       status: 'error',
@@ -759,6 +806,7 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
     console.error('❌ SALDO INSUFICIENTE PARA POSIÇÃO');
     console.error(`Balance: $${settings.balance} | Required: $${minimumRequired.toFixed(2)}`);
     await supabase.from('agent_logs').insert({
+      user_id: userId,
       agent_name: 'Trade Executor',
       asset: asset,
       status: 'error',
@@ -778,9 +826,11 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
 
   console.log(`Executing ${analysis.signal} signal for ${asset}`);
 
+  // ✅ Insert position COM user_id
   const { data: newPosition, error } = await supabase
     .from('active_positions')
     .insert({
+      user_id: userId,
       asset,
       direction: mapDirection(analysis.signal),
       entry_price: entry,
@@ -808,6 +858,7 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
     }));
     
     await supabase.from('agent_logs').insert({
+      user_id: userId,
       agent_name: 'Trade Executor',
       asset: asset,
       status: 'error',
@@ -830,7 +881,9 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
     return;
   }
 
+  // ✅ Insert operation COM user_id
   const { error: opError } = await supabase.from('operations').insert({
+    user_id: userId,
     asset,
     direction: mapDirection(analysis.signal),
     entry_price: entry,
@@ -853,6 +906,7 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
     }));
     
     await supabase.from('agent_logs').insert({
+      user_id: userId,
       agent_name: 'Trade Executor',
       asset: asset,
       status: 'error',
@@ -897,7 +951,7 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
 }
 
 // Monitor and update active positions
-async function monitorActivePositions(supabase: any, positions: any[]) {
+async function monitorActivePositions(supabase: any, positions: any[], userId: string) {
   for (const position of positions) {
     try {
       const url = `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${position.asset}`;
@@ -939,7 +993,13 @@ async function monitorActivePositions(supabase: any, positions: any[]) {
         }).eq('asset', position.asset).eq('result', 'OPEN');
 
         const today = new Date().toISOString().split('T')[0];
-        const { data: goal } = await supabase.from('daily_goals').select('*').eq('date', today).single();
+        // ✅ Buscar daily_goal POR USUÁRIO
+        const { data: goal } = await supabase
+          .from('daily_goals')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('date', today)
+          .single();
 
         if (goal) {
           const newTotalOps = goal.total_operations + 1;
@@ -963,13 +1023,14 @@ async function monitorActivePositions(supabase: any, positions: any[]) {
             }
           }
 
+          // ✅ Update daily_goal POR USUÁRIO
           await supabase.from('daily_goals').update({
             total_operations: newTotalOps,
             wins: newWins,
             losses: newLosses,
             total_pnl: newTotalPnl,
             projected_completion_time: projectedCompletionTime,
-          }).eq('date', today);
+          }).eq('user_id', userId).eq('date', today);
         }
 
         // Notify AI Agent - Agente de Gestão de Risco

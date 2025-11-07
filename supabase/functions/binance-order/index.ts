@@ -17,16 +17,22 @@ serve(async (req) => {
   }
 
   try {
-    const { asset, direction, quantity, price, stopLoss, takeProfit, agents, session, riskReward } = await req.json();
+    // ✅ CRÍTICO: Receber user_id do body
+    const { user_id, asset, direction, quantity, price, stopLoss, takeProfit, agents, session, riskReward } = await req.json();
 
-    console.log('Processing order:', { asset, direction, quantity, price });
+    if (!user_id) {
+      throw new Error('user_id is required');
+    }
+
+    console.log(`Processing order for user ${user_id}:`, { asset, direction, quantity, price });
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Get settings
+    // ✅ Get settings POR USUÁRIO
     const { data: settings, error: settingsError } = await supabase
       .from('user_settings')
       .select('*')
+      .eq('user_id', user_id)
       .single();
 
     if (settingsError || !settings) {
@@ -37,10 +43,11 @@ serve(async (req) => {
     if (settings.paper_mode) {
       console.log('PAPER MODE: Simulating order');
       
-      // Save to active_positions (direction already mapped to BUY/SELL by orchestrator)
+      // ✅ Save to active_positions COM user_id
       const { error: insertError } = await supabase
         .from('active_positions')
         .insert({
+          user_id,
           asset,
           direction,
           entry_price: price,
@@ -59,10 +66,11 @@ serve(async (req) => {
         throw insertError;
       }
 
-      // Save to operations (direction already mapped to BUY/SELL by orchestrator)
+      // ✅ Save to operations COM user_id
       const { error: opError } = await supabase
         .from('operations')
         .insert({
+          user_id,
           asset,
           direction,
           entry_price: price,
@@ -142,10 +150,11 @@ serve(async (req) => {
     const binanceResult = await response.json();
     console.log('Order executed on Binance:', binanceResult);
 
-    // Save to database (direction already mapped to BUY/SELL by orchestrator)
+    // ✅ Save to database COM user_id
     const { error: insertError } = await supabase
       .from('active_positions')
       .insert({
+        user_id,
         asset,
         direction,
         entry_price: price,
@@ -163,9 +172,11 @@ serve(async (req) => {
       console.error('Error inserting position:', insertError);
     }
 
+    // ✅ Insert operation COM user_id
     const { error: opError } = await supabase
       .from('operations')
       .insert({
+        user_id,
         asset,
         direction,
         entry_price: price,
