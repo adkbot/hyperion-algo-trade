@@ -38,34 +38,26 @@ const Index = () => {
     <div className="min-h-screen bg-background text-foreground">
       <TradingHeader botStatus={botStatus} setBotStatus={setBotStatus} />
       
-      <div className="container mx-auto p-4 space-y-4">
+      <div className="container mx-auto p-4">
         {/* Alert Panel */}
         <AlertPanel />
         
-        {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Chart - Takes 2 columns on large screens */}
-          <div className="lg:col-span-2 space-y-4">
+        {/* Unified Grid - 3 Columns */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 items-start">
+          {/* Left Column (2/3) - Chart, Positions, and History */}
+          <div className="lg:col-span-2 grid grid-rows-[auto_auto_auto] gap-4">
             <TradingChart />
             <ActivePositions />
+            <OperationHistory />
           </div>
           
-          {/* Right Sidebar - Stats, Goals, Agents and Session */}
-          <div className="space-y-4">
+          {/* Right Column (1/3) - Stats, Goals, Panels, and Daily History */}
+          <div className="grid grid-rows-[auto_auto_auto_auto_auto_auto] gap-4">
             <StatsPanel />
             <DailyGoals />
             <SystemStatusPanel />
             <SessionCyclePanel />
             <AgentPanel />
-          </div>
-        </div>
-        
-        {/* Bottom Grid - History */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2">
-            <OperationHistory />
-          </div>
-          <div>
             <DailyHistory />
           </div>
         </div>
