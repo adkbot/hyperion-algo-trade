@@ -14,12 +14,13 @@ const AGENTE_FEEDBACK_URL = `${SUPABASE_URL}/functions/v1/agente-feedback-analit
 const AGENTE_EXECUCAO_URL = `${SUPABASE_URL}/functions/v1/agente-execucao-confluencia`;
 const AGENTE_GESTAO_URL = `${SUPABASE_URL}/functions/v1/agente-gestao-risco`;
 
-// Session time ranges in UTC
+// Session time ranges in UTC - CONTÍNUAS (24h cobertura)
+// Apenas 30min de pausa nas transições (2 velas de 15min)
 const SESSIONS = {
-  OCEANIA: { start: 0, end: 3, name: 'Oceania' },
-  ASIA: { start: 3, end: 8, name: 'Asia' },
-  LONDON: { start: 8, end: 12, name: 'London' },
-  NEW_YORK: { start: 12, end: 17, name: 'NewYork' },
+  OCEANIA: { start: 0, end: 3, name: 'Oceania' },      // 00:00 - 03:00 UTC
+  ASIA: { start: 3, end: 8, name: 'Asia' },            // 03:00 - 08:00 UTC
+  LONDON: { start: 8, end: 13, name: 'London' },       // 08:00 - 13:00 UTC (estendido)
+  NEW_YORK: { start: 13, end: 24, name: 'NewYork' },   // 13:00 - 24:00 UTC (estendido para cobrir até meia-noite)
 };
 
 // Map direction from LONG/SHORT to BUY/SELL for database
@@ -398,12 +399,15 @@ function detectCurrentSession(): string {
   const now = new Date();
   const utcHour = now.getUTCHours();
 
+  // Sessões agora cobrem 24h contínuas
   for (const [key, session] of Object.entries(SESSIONS)) {
     if (utcHour >= session.start && utcHour < session.end) {
       return session.name;
     }
   }
-  return 'Oceania'; // Default
+  
+  // Nunca deve chegar aqui, mas por segurança retorna Oceania
+  return 'Oceania';
 }
 
 // Determine cycle phase based on session
