@@ -308,10 +308,10 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
         }
       }
 
-      // Execute trade only in LONDON or NEW_YORK execution phase
-      // CRITICAL: Only execute with confidence >= 80% (0.8)
-      if ((currentSession === 'London' || currentSession === 'NewYork') && analysis.signal !== 'STAY_OUT' && analysis.confidence >= 0.8) {
-        console.log(`High confidence signal (${(analysis.confidence * 100).toFixed(1)}%) - executing trade for ${asset}`);
+      // ✅ Execute trade em QUALQUER sessão (Oceania, Asia, London, NewYork)
+      // CRITICAL: Only execute with confidence >= 80% (0.8) e R:R 1.3-1.6
+      if (analysis.signal !== 'STAY_OUT' && analysis.confidence >= 0.8) {
+        console.log(`✅ High confidence signal (${(analysis.confidence * 100).toFixed(1)}%) - executing trade for ${asset} | Session: ${currentSession}`);
         await executeTradeSignal(supabase, asset, analysis, settings, currentSession, userId);
       } else if (analysis.signal !== 'STAY_OUT' && analysis.confidence < 0.8) {
         console.log(`Signal detected but confidence too low (${(analysis.confidence * 100).toFixed(1)}%) - skipping ${asset}`);
