@@ -24,14 +24,17 @@ export const PerformanceDashboard = () => {
       return acc;
     }, []) || [];
 
-  // Win/Loss distribution
-  const wins = operations?.filter(op => op.result === 'win').length || 0;
-  const losses = operations?.filter(op => op.result === 'loss').length || 0;
-  const winRate = wins + losses > 0 ? (wins / (wins + losses)) * 100 : 0;
+  // Get daily goal data
+  const dailyGoal = dailyGoals?.[0];
+  const totalPnl = dailyGoal?.total_pnl || 0;
+  const winsCount = dailyGoal?.wins || 0;
+  const lossesCount = dailyGoal?.losses || 0;
+  const totalCompleted = winsCount + lossesCount;
+  const winRate = totalCompleted > 0 ? (winsCount / totalCompleted) * 100 : 0;
 
   const pieData = [
-    { name: 'Vitórias', value: wins, color: 'hsl(var(--profit))' },
-    { name: 'Perdas', value: losses, color: 'hsl(var(--loss))' }
+    { name: 'Vitórias', value: winsCount, color: 'hsl(var(--profit))' },
+    { name: 'Perdas', value: lossesCount, color: 'hsl(var(--loss))' }
   ];
 
   // Operations progress
@@ -56,10 +59,7 @@ export const PerformanceDashboard = () => {
     .sort((a, b) => parseInt(a.hour) - parseInt(b.hour))
     .slice(-6) || [];
 
-  const totalPnl = dailyGoals?.total_pnl || 0;
-  const balance = settings?.balance || 10000;
-  const targetPnlPercent = dailyGoals?.target_pnl_percent || 4.0;
-  const currentPnlPercent = balance > 0 ? (totalPnl / balance) * 100 : 0;
+  const maxLosses = dailyGoal?.max_losses || 15;
 
   return (
     <div className="space-y-4">
@@ -107,13 +107,13 @@ export const PerformanceDashboard = () => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Meta de P&L</p>
-                <p className={`text-2xl font-bold ${currentPnlPercent >= targetPnlPercent ? 'text-profit' : 'text-primary'}`}>
-                  {currentPnlPercent.toFixed(2)}%
+                <p className="text-sm text-muted-foreground">R:R Médio</p>
+                <p className="text-2xl font-bold text-primary">
+                  1.15-1.6
                 </p>
-                <p className="text-xs text-muted-foreground">Alvo: {targetPnlPercent}%</p>
+                <p className="text-xs text-muted-foreground">Risco/Retorno</p>
               </div>
-              <Target className={`h-8 w-8 ${currentPnlPercent >= targetPnlPercent ? 'text-profit' : 'text-primary'}`} />
+              <Target className="h-8 w-8 text-primary" />
             </div>
           </CardContent>
         </Card>
@@ -233,31 +233,33 @@ export const PerformanceDashboard = () => {
         {/* Progress to Daily Goal */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Meta Diária de P&L</CardTitle>
+            <CardTitle className="text-lg">Meta Diária</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6 pt-4">
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Lucro Alvo: {targetPnlPercent}%</span>
-                <span className={`text-sm font-bold ${currentPnlPercent >= targetPnlPercent ? 'text-profit' : 'text-foreground'}`}>
-                  {currentPnlPercent.toFixed(2)}% (${totalPnl.toFixed(2)})
+                <span className="text-sm text-muted-foreground">Operações</span>
+                <span className="text-sm font-bold text-foreground">
+                  {totalOps} / {targetOps}
                 </span>
               </div>
               <Progress 
-                value={Math.min((currentPnlPercent / targetPnlPercent) * 100, 100)} 
+                value={Math.min(progress, 100)} 
                 className="h-3" 
               />
               <p className="text-xs text-muted-foreground mt-1">
-                {currentPnlPercent >= targetPnlPercent 
-                  ? 'Meta de P&L atingida! 🎉' 
-                  : `${(targetPnlPercent - currentPnlPercent).toFixed(2)}% restante`}
+                {totalOps >= targetOps 
+                  ? 'Meta de operações atingida! 🎉' 
+                  : `${targetOps - totalOps} operações restantes`}
               </p>
             </div>
 
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Operações Realizadas</span>
-                <span className="text-sm font-bold text-foreground">{totalOps}</span>
+                <span className="text-sm text-muted-foreground">P&L Total</span>
+                <span className={`text-sm font-bold ${totalPnl >= 0 ? 'text-profit' : 'text-loss'}`}>
+                  ${totalPnl.toFixed(2)}
+                </span>
               </div>
             </div>
 
@@ -265,22 +267,22 @@ export const PerformanceDashboard = () => {
               <div className="flex justify-between mb-2">
                 <span className="text-sm text-muted-foreground">Limite de Perdas</span>
                 <span className="text-sm font-bold text-foreground">
-                  {dailyGoals?.losses || 0} / {dailyGoals?.max_losses || 15}
+                  {lossesCount} / {maxLosses}
                 </span>
               </div>
               <Progress 
-                value={((dailyGoals?.losses || 0) / (dailyGoals?.max_losses || 15)) * 100} 
+                value={((lossesCount / maxLosses) * 100)} 
                 className="h-3"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4 pt-2">
               <div className="text-center p-3 rounded-lg bg-profit/10">
-                <p className="text-2xl font-bold text-profit">{wins}</p>
+                <p className="text-2xl font-bold text-profit">{winsCount}</p>
                 <p className="text-xs text-muted-foreground">Vitórias</p>
               </div>
               <div className="text-center p-3 rounded-lg bg-loss/10">
-                <p className="text-2xl font-bold text-loss">{losses}</p>
+                <p className="text-2xl font-bold text-loss">{lossesCount}</p>
                 <p className="text-xs text-muted-foreground">Perdas</p>
               </div>
             </div>

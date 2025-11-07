@@ -122,14 +122,13 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     .eq('date', new Date().toISOString().split('T')[0])
     .single();
 
-  // ✅ Verificar meta diária: 4% de P&L ou máximo de perdas
-  const currentPnlPercent = dailyGoal ? (dailyGoal.total_pnl / settings.balance) * 100 : 0;
-  const targetPnlPercent = dailyGoal?.target_pnl_percent || 4.0;
+  // ✅ Verificar meta diária: quantidade de operações
+  const targetOperations = dailyGoal?.target_operations || 45;
   
-  if (dailyGoal && currentPnlPercent >= targetPnlPercent) {
-    console.log(`✅ META DIÁRIA DE ${targetPnlPercent}% ATINGIDA para user ${userId}!`);
-    console.log(`📊 P&L: $${dailyGoal.total_pnl} (${currentPnlPercent.toFixed(2)}%)`);
-    console.log(`📈 Performance: ${dailyGoal.wins} wins | ${dailyGoal.losses} losses | ${dailyGoal.total_operations} ops`);
+  if (dailyGoal && dailyGoal.total_operations >= targetOperations) {
+    console.log(`✅ META DIÁRIA DE ${targetOperations} OPERAÇÕES ATINGIDA para user ${userId}!`);
+    console.log(`📊 Total: ${dailyGoal.total_operations} operações | P&L: $${dailyGoal.total_pnl}`);
+    console.log(`📈 Performance: ${dailyGoal.wins} wins | ${dailyGoal.losses} losses`);
     
     await supabase.from('user_settings').update({ 
       bot_status: 'stopped' 
@@ -141,14 +140,13 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
       asset: 'SYSTEM',
       status: 'success',
       data: {
-        message: 'Meta diária de P&L atingida',
-        pnl: dailyGoal.total_pnl,
-        pnl_percent: currentPnlPercent,
-        target_percent: targetPnlPercent,
+        message: 'Meta diária de operações atingida',
         total_operations: dailyGoal.total_operations,
+        target_operations: targetOperations,
+        pnl: dailyGoal.total_pnl,
         wins: dailyGoal.wins,
         losses: dailyGoal.losses,
-        win_rate: ((dailyGoal.wins / dailyGoal.total_operations) * 100).toFixed(1),
+        win_rate: dailyGoal.total_operations > 0 ? ((dailyGoal.wins / dailyGoal.total_operations) * 100).toFixed(1) : 0,
       }
     });
     
