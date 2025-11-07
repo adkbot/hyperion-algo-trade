@@ -68,109 +68,102 @@ export const SessionCyclePanel = () => {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg flex items-center gap-2">
-          <Activity className="h-4 w-4" />
-          Ciclo de Sessões
-        </CardTitle>
+        <CardTitle className="text-lg">Ciclo de Sessões</CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3">
         {/* Current Session */}
-        <div>
+        <div className="p-3 rounded-lg bg-secondary/50 border border-border">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-muted-foreground">Sessão Atual</span>
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
+            <div className="flex items-center gap-1">
+              <Clock className="h-3 w-3 text-muted-foreground" />
               <span className="text-xs text-muted-foreground">{sessionInfo.time}</span>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className={`w-3 h-3 rounded-full ${sessionInfo.color} animate-pulse`} />
-            <span className="text-2xl">{sessionInfo.icon}</span>
-            <span className="text-xl font-bold">{currentSession}</span>
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${sessionInfo.color} animate-pulse`} />
+            <span className="text-lg">{sessionInfo.icon}</span>
+            <span className="text-base font-bold">{currentSession}</span>
           </div>
         </div>
 
         {/* Current Phase */}
-        <div className="p-4 bg-muted/50 rounded-lg">
-          <div className="flex items-center justify-between mb-2">
+        <div className="p-3 rounded-lg bg-secondary/50 border border-border">
+          <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-medium">Fase do Ciclo</span>
             <Badge className={phaseInfo.color}>{currentPhase}</Badge>
           </div>
-          <p className="text-sm text-muted-foreground">{phaseInfo.description}</p>
+          <p className="text-xs text-muted-foreground">{phaseInfo.description}</p>
         </div>
 
         {/* Latest Analyses */}
-        {sessionData && sessionData.length > 0 && (
-          <div>
-            <h4 className="text-sm font-semibold mb-3">Análises Recentes</h4>
-            <div className="space-y-3">
-              {sessionData.map((analysis, index) => (
-                <div
-                  key={analysis.id}
-                  className="p-3 bg-muted/30 rounded-lg border border-border/50"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm">{analysis.pair}</span>
-                      {getDirectionIcon(analysis.direction)}
-                    </div>
-                    {getSignalBadge(analysis.signal)}
+        {sessionData && sessionData.length > 0 ? (
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold">Análises Recentes</h4>
+            {sessionData.map((analysis) => (
+              <div
+                key={analysis.id}
+                className="p-3 rounded-lg bg-secondary/50 border border-border"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{analysis.pair}</span>
+                    {getDirectionIcon(analysis.direction)}
                   </div>
-                  
-                  {analysis.confidence_score && (
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs text-muted-foreground">Confiança:</span>
-                      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className={`h-full transition-all ${
-                            analysis.confidence_score > 0.7 ? 'bg-green-500' : 
-                            analysis.confidence_score > 0.5 ? 'bg-yellow-500' : 'bg-red-500'
-                          }`}
-                          style={{ width: `${analysis.confidence_score * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-xs font-medium">
-                        {(analysis.confidence_score * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                  )}
-
-                  {analysis.volume_factor && (
-                    <div className="text-xs text-muted-foreground mb-1">
-                      Volume: {analysis.volume_factor.toFixed(2)}x
-                    </div>
-                  )}
-
-                  {analysis.notes && (
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {analysis.notes}
-                    </p>
-                  )}
-
-                  {analysis.c1_direction && (
-                    <div className="mt-2 pt-2 border-t border-border/30">
-                      <span className="text-xs text-muted-foreground">
-                        C1 Direction: <span className="font-medium">{analysis.c1_direction}</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {analysis.range_high && analysis.range_low && (
-                    <div className="mt-2 pt-2 border-t border-border/30">
-                      <span className="text-xs text-muted-foreground">
-                        Range Londres: {analysis.range_low.toFixed(2)} - {analysis.range_high.toFixed(2)}
-                      </span>
-                    </div>
-                  )}
+                  {getSignalBadge(analysis.signal)}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+                
+                {analysis.confidence_score && (
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs text-muted-foreground">Confiança:</span>
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all ${
+                          analysis.confidence_score > 0.7 ? 'bg-green-500' : 
+                          analysis.confidence_score > 0.5 ? 'bg-yellow-500' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${analysis.confidence_score * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-medium">
+                      {(analysis.confidence_score * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                )}
 
-        {(!sessionData || sessionData.length === 0) && (
-          <div className="text-center py-8">
+                {analysis.volume_factor && (
+                  <div className="text-xs text-muted-foreground mb-1">
+                    Volume: {analysis.volume_factor.toFixed(2)}x
+                  </div>
+                )}
+
+                {analysis.notes && (
+                  <p className="text-xs text-muted-foreground line-clamp-2">
+                    {analysis.notes}
+                  </p>
+                )}
+
+                {analysis.c1_direction && (
+                  <div className="mt-2 pt-2 border-t border-border/30">
+                    <span className="text-xs text-muted-foreground">
+                      C1 Direction: <span className="font-medium">{analysis.c1_direction}</span>
+                    </span>
+                  </div>
+                )}
+
+                {analysis.range_high && analysis.range_low && (
+                  <div className="mt-2 pt-2 border-t border-border/30">
+                    <span className="text-xs text-muted-foreground">
+                      Range Londres: {analysis.range_low.toFixed(2)} - {analysis.range_high.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-6">
             <p className="text-sm text-muted-foreground">
               Aguardando primeira análise...
             </p>
