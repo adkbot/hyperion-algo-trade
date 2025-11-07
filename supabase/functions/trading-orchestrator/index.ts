@@ -122,6 +122,45 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     .eq('date', new Date().toISOString().split('T')[0])
     .single();
 
+  // ✅ FASE 3: Verificar se atingiu meta diária de operações (45)
+  if (dailyGoal && dailyGoal.total_operations >= dailyGoal.target_operations) {
+    console.log(`✅ META DIÁRIA ATINGIDA para user ${userId}: ${dailyGoal.total_operations}/${dailyGoal.target_operations} operações`);
+    console.log(`Performance: ${dailyGoal.wins} wins | ${dailyGoal.losses} losses | P&L: $${dailyGoal.total_pnl}`);
+    
+    await supabase.from('user_settings').update({ 
+      bot_status: 'stopped' 
+    }).eq('user_id', userId);
+    
+    await supabase.from('agent_logs').insert({
+      user_id: userId,
+      agent_name: 'Daily Goal Manager',
+      asset: 'SYSTEM',
+      status: 'success',
+      data: {
+        message: 'Meta diária atingida',
+        total_operations: dailyGoal.total_operations,
+        target_operations: dailyGoal.target_operations,
+        wins: dailyGoal.wins,
+        losses: dailyGoal.losses,
+        total_pnl: dailyGoal.total_pnl,
+        win_rate: ((dailyGoal.wins / dailyGoal.total_operations) * 100).toFixed(1),
+      }
+    });
+    
+    return { 
+      user_id: userId,
+      message: 'Meta diária atingida - bot parado',
+      status: 'stopped',
+      stats: {
+        operations: dailyGoal.total_operations,
+        wins: dailyGoal.wins,
+        losses: dailyGoal.losses,
+        pnl: dailyGoal.total_pnl,
+      }
+    };
+  }
+
+  // ✅ Verificar se atingiu limite de perdas
   if (dailyGoal && dailyGoal.losses >= dailyGoal.max_losses) {
     console.log(`Max losses reached for user ${userId} - stopping bot`);
     await supabase.from('user_settings').update({ bot_status: 'stopped' }).eq('user_id', userId);
@@ -479,6 +518,12 @@ function analyzeExecutionPhase(candles5m: any[], candles15m: any[], indicators: 
     const takeProfit = currentPrice + (rangeAmplitude * 2); // Measured move
     const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
 
+    // ✅ FASE 2: Validar range de R:R (1.3 a 1.6)
+    if (rrRatio < 1.3 || rrRatio > 1.6) {
+      console.log(`❌ R:R fora do range aceitável: ${rrRatio.toFixed(2)} (esperado: 1.3-1.6)`);
+      return createEmptyAnalysis(`R:R ${rrRatio.toFixed(2)} fora do range 1.3-1.6`);
+    }
+
     risk = {
       entry: currentPrice,
       stop: stopLoss,
@@ -499,6 +544,12 @@ function analyzeExecutionPhase(candles5m: any[], candles15m: any[], indicators: 
     const rangeAmplitude = rangeHigh - rangeLow;
     const takeProfit = currentPrice - (rangeAmplitude * 2);
     const rrRatio = Math.abs(currentPrice - takeProfit) / Math.abs(stopLoss - currentPrice);
+
+    // ✅ FASE 2: Validar range de R:R (1.3 a 1.6)
+    if (rrRatio < 1.3 || rrRatio > 1.6) {
+      console.log(`❌ R:R fora do range aceitável: ${rrRatio.toFixed(2)} (esperado: 1.3-1.6)`);
+      return createEmptyAnalysis(`R:R ${rrRatio.toFixed(2)} fora do range 1.3-1.6`);
+    }
 
     risk = {
       entry: currentPrice,
@@ -778,8 +829,27 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
   }
 
   const { entry, stop, target, rr_ratio } = analysis.risk;
-  const positionSize = (settings.balance * settings.risk_per_trade) / Math.abs(entry - stop);
+  
+  // ✅ FASE 1: Dividir risco pelo número de posições simultâneas
+  const adjustedRisk = settings.risk_per_trade / settings.max_positions;
+  const positionSize = (settings.balance * adjustedRisk) / Math.abs(entry - stop);
   const projectedProfit = positionSize * Math.abs(target - entry);
+
+  // ✅ FASE 4: Log completo de gestão de risco
+  console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 ANÁLISE DE RISCO - ${asset}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💰 Saldo: $${settings.balance.toFixed(2)}
+🎯 Max Posições: ${settings.max_positions}
+📉 Risco Total: ${(settings.risk_per_trade * 100).toFixed(1)}%
+📊 Risco por Posição: ${(adjustedRisk * 100).toFixed(1)}%
+💵 Tamanho da Posição: ${positionSize.toFixed(4)} contratos
+📈 Entry: $${entry.toFixed(2)} | Stop: $${stop.toFixed(2)} | Target: $${target.toFixed(2)}
+🎲 R:R: ${rr_ratio.toFixed(2)}:1
+💎 Lucro Projetado: $${projectedProfit.toFixed(2)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`);
 
   // Check if position size is valid
   if (positionSize <= 0 || !isFinite(positionSize)) {
