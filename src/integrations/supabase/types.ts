@@ -108,6 +108,7 @@ export type Database = {
           max_losses: number | null
           projected_completion_time: string | null
           target_operations: number | null
+          target_pnl_percent: number | null
           total_operations: number | null
           total_pnl: number | null
           user_id: string | null
@@ -122,6 +123,7 @@ export type Database = {
           max_losses?: number | null
           projected_completion_time?: string | null
           target_operations?: number | null
+          target_pnl_percent?: number | null
           total_operations?: number | null
           total_pnl?: number | null
           user_id?: string | null
@@ -136,6 +138,7 @@ export type Database = {
           max_losses?: number | null
           projected_completion_time?: string | null
           target_operations?: number | null
+          target_pnl_percent?: number | null
           total_operations?: number | null
           total_pnl?: number | null
           user_id?: string | null

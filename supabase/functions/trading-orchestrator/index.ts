@@ -122,10 +122,14 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     .eq('date', new Date().toISOString().split('T')[0])
     .single();
 
-  // ✅ FASE 3: Verificar se atingiu meta diária de operações (45)
-  if (dailyGoal && dailyGoal.total_operations >= dailyGoal.target_operations) {
-    console.log(`✅ META DIÁRIA ATINGIDA para user ${userId}: ${dailyGoal.total_operations}/${dailyGoal.target_operations} operações`);
-    console.log(`Performance: ${dailyGoal.wins} wins | ${dailyGoal.losses} losses | P&L: $${dailyGoal.total_pnl}`);
+  // ✅ Verificar meta diária: 4% de P&L ou máximo de perdas
+  const currentPnlPercent = dailyGoal ? (dailyGoal.total_pnl / settings.balance) * 100 : 0;
+  const targetPnlPercent = dailyGoal?.target_pnl_percent || 4.0;
+  
+  if (dailyGoal && currentPnlPercent >= targetPnlPercent) {
+    console.log(`✅ META DIÁRIA DE ${targetPnlPercent}% ATINGIDA para user ${userId}!`);
+    console.log(`📊 P&L: $${dailyGoal.total_pnl} (${currentPnlPercent.toFixed(2)}%)`);
+    console.log(`📈 Performance: ${dailyGoal.wins} wins | ${dailyGoal.losses} losses | ${dailyGoal.total_operations} ops`);
     
     await supabase.from('user_settings').update({ 
       bot_status: 'stopped' 
@@ -137,12 +141,13 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
       asset: 'SYSTEM',
       status: 'success',
       data: {
-        message: 'Meta diária atingida',
+        message: 'Meta diária de P&L atingida',
+        pnl: dailyGoal.total_pnl,
+        pnl_percent: currentPnlPercent,
+        target_percent: targetPnlPercent,
         total_operations: dailyGoal.total_operations,
-        target_operations: dailyGoal.target_operations,
         wins: dailyGoal.wins,
         losses: dailyGoal.losses,
-        total_pnl: dailyGoal.total_pnl,
         win_rate: ((dailyGoal.wins / dailyGoal.total_operations) * 100).toFixed(1),
       }
     });
@@ -308,23 +313,47 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
         }
       }
 
-      // ✅ Execute trade em QUALQUER sessão (Oceania, Asia, London, NewYork)
-      // CRITICAL: Only execute with confidence >= 80% (0.8) e R:R 1.3-1.6
-      if (analysis.signal !== 'STAY_OUT' && analysis.confidence >= 0.8) {
-        console.log(`✅ High confidence signal (${(analysis.confidence * 100).toFixed(1)}%) - executing trade for ${asset} | Session: ${currentSession}`);
+      // ✅ Verificar se NÃO estamos nas últimas 2 velas ou primeiras velas da sessão
+      const isInvalidTradingTime = isNearSessionTransition(currentSession);
+      
+      if (isInvalidTradingTime) {
+        console.log(`⏸️ Aguardando transição de sessão - não operando nas primeiras/últimas velas`);
+        await supabase.from('agent_logs').insert({
+          user_id: userId,
+          agent_name: 'Session Filter',
+          asset: asset,
+          status: 'waiting',
+          data: {
+            reason: 'Aguardando fim de transição de sessão',
+            session: currentSession,
+          }
+        });
+        continue; // Pular para próximo asset
+      }
+      
+      // ✅ Execute trade em QUALQUER sessão com R:R flexível (1.15-1.6)
+      // CRITICAL: Aceitar R:R de 1.15 até 1.6 para maximizar oportunidades
+      const rrRatio = analysis.risk?.rr_ratio || 0;
+      
+      if (analysis.signal !== 'STAY_OUT' && analysis.confidence >= 0.8 && rrRatio >= 1.15 && rrRatio <= 1.6) {
+        console.log(`✅ EXECUTANDO TRADE: ${asset} | Conf: ${(analysis.confidence * 100).toFixed(1)}% | R:R: ${rrRatio.toFixed(2)} | Session: ${currentSession}`);
         await executeTradeSignal(supabase, asset, analysis, settings, currentSession, userId);
-      } else if (analysis.signal !== 'STAY_OUT' && analysis.confidence < 0.8) {
-        console.log(`Signal detected but confidence too low (${(analysis.confidence * 100).toFixed(1)}%) - skipping ${asset}`);
+      } else if (analysis.signal !== 'STAY_OUT') {
+        const reason = analysis.confidence < 0.8 
+          ? `Confidence baixa (${(analysis.confidence * 100).toFixed(1)}%)`
+          : `R:R fora do range (${rrRatio.toFixed(2)}, aceito: 1.15-1.6)`;
+        
+        console.log(`⚠️ Signal detectado mas não executado: ${reason} - skipping ${asset}`);
         await supabase.from('agent_logs').insert({
           user_id: userId,
           agent_name: 'Trade Filter',
           asset: asset,
           status: 'skipped',
           data: {
-            reason: 'Confidence below 80%',
+            reason,
             confidence: analysis.confidence,
+            risk_reward: rrRatio,
             signal: analysis.signal,
-            required_confidence: 0.8,
           }
         });
       }
@@ -345,6 +374,25 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     analysis: sessionAnalysis,
     activePositions: activePositions?.length || 0,
   };
+}
+
+// Check if we are near session transition (first or last 2 candles of 15min)
+function isNearSessionTransition(currentSession: string): boolean {
+  const now = new Date();
+  const utcHour = now.getUTCHours();
+  const utcMinute = now.getUTCMinutes();
+  
+  // Get current session times
+  const session = Object.values(SESSIONS).find(s => s.name === currentSession);
+  if (!session) return false;
+  
+  // Check if we're in the last 30 minutes (2 velas de 15min)
+  const isLastCandles = (utcHour === session.end - 1 && utcMinute >= 30) || utcHour >= session.end;
+  
+  // Check if we're in the first 30 minutes (2 velas de 15min)
+  const isFirstCandles = utcHour === session.start && utcMinute < 30;
+  
+  return isLastCandles || isFirstCandles;
 }
 
 // Detect current trading session based on UTC time

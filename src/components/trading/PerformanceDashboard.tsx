@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useOperations, useDailyGoals } from "@/hooks/useTradingData";
+import { useOperations, useDailyGoals, useUserSettings } from "@/hooks/useTradingData";
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { TrendingUp, Target, Award, Activity } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 export const PerformanceDashboard = () => {
   const { data: operations } = useOperations();
   const { data: dailyGoals } = useDailyGoals();
+  const { data: settings } = useUserSettings();
 
   // Prepare P&L over time data
   const pnlData = operations
@@ -56,6 +57,9 @@ export const PerformanceDashboard = () => {
     .slice(-6) || [];
 
   const totalPnl = dailyGoals?.total_pnl || 0;
+  const balance = settings?.balance || 10000;
+  const targetPnlPercent = dailyGoals?.target_pnl_percent || 4.0;
+  const currentPnlPercent = balance > 0 ? (totalPnl / balance) * 100 : 0;
 
   return (
     <div className="space-y-4">
@@ -103,10 +107,13 @@ export const PerformanceDashboard = () => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Meta Diária</p>
-                <p className="text-2xl font-bold text-primary">{progress.toFixed(0)}%</p>
+                <p className="text-sm text-muted-foreground">Meta de P&L</p>
+                <p className={`text-2xl font-bold ${currentPnlPercent >= targetPnlPercent ? 'text-profit' : 'text-primary'}`}>
+                  {currentPnlPercent.toFixed(2)}%
+                </p>
+                <p className="text-xs text-muted-foreground">Alvo: {targetPnlPercent}%</p>
               </div>
-              <Target className="h-8 w-8 text-primary" />
+              <Target className={`h-8 w-8 ${currentPnlPercent >= targetPnlPercent ? 'text-profit' : 'text-primary'}`} />
             </div>
           </CardContent>
         </Card>
@@ -226,23 +233,37 @@ export const PerformanceDashboard = () => {
         {/* Progress to Daily Goal */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Progresso da Meta Diária</CardTitle>
+            <CardTitle className="text-lg">Meta Diária de P&L</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6 pt-4">
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Operações Concluídas</span>
-                <span className="text-sm font-bold text-foreground">{totalOps} / {targetOps}</span>
+                <span className="text-sm text-muted-foreground">Lucro Alvo: {targetPnlPercent}%</span>
+                <span className={`text-sm font-bold ${currentPnlPercent >= targetPnlPercent ? 'text-profit' : 'text-foreground'}`}>
+                  {currentPnlPercent.toFixed(2)}% (${totalPnl.toFixed(2)})
+                </span>
               </div>
-              <Progress value={progress} className="h-3" />
+              <Progress 
+                value={Math.min((currentPnlPercent / targetPnlPercent) * 100, 100)} 
+                className="h-3" 
+              />
               <p className="text-xs text-muted-foreground mt-1">
-                {targetOps - totalOps > 0 ? `${targetOps - totalOps} operações restantes` : 'Meta atingida! 🎉'}
+                {currentPnlPercent >= targetPnlPercent 
+                  ? 'Meta de P&L atingida! 🎉' 
+                  : `${(targetPnlPercent - currentPnlPercent).toFixed(2)}% restante`}
               </p>
             </div>
 
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Perdas Toleradas</span>
+                <span className="text-sm text-muted-foreground">Operações Realizadas</span>
+                <span className="text-sm font-bold text-foreground">{totalOps}</span>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between mb-2">
+                <span className="text-sm text-muted-foreground">Limite de Perdas</span>
                 <span className="text-sm font-bold text-foreground">
                   {dailyGoals?.losses || 0} / {dailyGoals?.max_losses || 15}
                 </span>
