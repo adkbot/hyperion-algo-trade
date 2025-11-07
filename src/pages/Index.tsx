@@ -10,7 +10,6 @@ import { DailyGoals } from "@/components/trading/DailyGoals";
 import { DailyHistory } from "@/components/trading/DailyHistory";
 import { SessionCyclePanel } from "@/components/trading/SessionCyclePanel";
 import { SystemStatusPanel } from "@/components/trading/SystemStatusPanel";
-import { PerformanceDashboard } from "@/components/trading/PerformanceDashboard";
 import { useUserSettings } from "@/hooks/useTradingData";
 import { useTradingOrchestrator } from "@/hooks/useTradingOrchestrator";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
@@ -42,11 +41,6 @@ const Index = () => {
       <div className="container mx-auto p-4">
         {/* Alert Panel */}
         <AlertPanel />
-        
-        {/* Performance Dashboard - Full Width */}
-        <div className="mt-4">
-          <PerformanceDashboard />
-        </div>
         
         {/* Unified Grid - 3 Columns */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 items-start">
