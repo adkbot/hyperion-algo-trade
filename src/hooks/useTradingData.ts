@@ -6,12 +6,35 @@ export const useUserSettings = () => {
   return useQuery({
     queryKey: ["user-settings"],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
       const { data, error } = await supabase
         .from("user_settings")
         .select("*")
-        .single();
+        .eq("user_id", user.id)
+        .maybeSingle();
       
       if (error) throw error;
+      
+      // Create settings if they don't exist
+      if (!data) {
+        const { data: newSettings, error: insertError } = await supabase
+          .from("user_settings")
+          .insert({
+            user_id: user.id,
+            balance: 10000,
+            max_positions: 3,
+            risk_per_trade: 0.06,
+            paper_mode: true,
+          })
+          .select()
+          .single();
+        
+        if (insertError) throw insertError;
+        return newSettings;
+      }
+      
       return data;
     },
   });
@@ -23,10 +46,13 @@ export const useUpdateBotStatus = () => {
 
   return useMutation({
     mutationFn: async (status: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
       const { data, error } = await supabase
         .from("user_settings")
         .update({ bot_status: status })
-        .eq("id", (await supabase.from("user_settings").select("id").single()).data?.id)
+        .eq("user_id", user.id)
         .select()
         .single();
       
@@ -54,9 +80,13 @@ export const useActivePositions = () => {
   return useQuery({
     queryKey: ["active-positions"],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
       const { data, error } = await supabase
         .from("active_positions")
         .select("*")
+        .eq("user_id", user.id)
         .order("opened_at", { ascending: false });
       
       if (error) throw error;
@@ -70,9 +100,13 @@ export const useOperations = () => {
   return useQuery({
     queryKey: ["operations"],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
       const { data, error } = await supabase
         .from("operations")
         .select("*")
+        .eq("user_id", user.id)
         .order("entry_time", { ascending: false })
         .limit(20);
       
@@ -86,14 +120,18 @@ export const useDailyGoals = () => {
   return useQuery({
     queryKey: ["daily-goals"],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
       const today = new Date().toISOString().split('T')[0];
       const { data, error } = await supabase
         .from("daily_goals")
         .select("*")
         .eq("date", today)
-        .single();
+        .eq("user_id", user.id)
+        .maybeSingle();
       
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error) throw error;
       
       // If no goal exists for today, create one
       if (!data) {
@@ -101,6 +139,7 @@ export const useDailyGoals = () => {
           .from("daily_goals")
           .insert({
             date: today,
+            user_id: user.id,
             target_operations: 45,
             max_losses: 15,
           })
@@ -120,9 +159,13 @@ export const useAgentLogs = () => {
   return useQuery({
     queryKey: ["agent-logs"],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
       const { data, error } = await supabase
         .from("agent_logs")
         .select("*")
+        .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(50);
       
@@ -139,10 +182,13 @@ export const useUpdateSettings = () => {
 
   return useMutation({
     mutationFn: async (settings: { balance?: number; max_positions?: number; risk_per_trade?: number; paper_mode?: boolean; api_key?: string; api_secret?: string }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
       const { data, error } = await supabase
         .from("user_settings")
         .update(settings)
-        .eq("id", (await supabase.from("user_settings").select("id").single()).data?.id)
+        .eq("user_id", user.id)
         .select()
         .single();
       

@@ -12,9 +12,13 @@ export const AlertPanel = () => {
   const { data: signals } = useQuery({
     queryKey: ['active-signals'],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
       const { data, error } = await supabase
         .from('session_history')
         .select('*')
+        .eq('user_id', user.id)
         .neq('signal', 'STAY_OUT')
         .gte('confidence_score', 0.7)
         .order('timestamp', { ascending: false })
@@ -30,10 +34,14 @@ export const AlertPanel = () => {
   const { data: settings } = useQuery({
     queryKey: ['user-settings-alert'],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
       const { data } = await supabase
         .from('user_settings')
         .select('balance')
-        .single();
+        .eq('user_id', user.id)
+        .maybeSingle();
       return data;
     },
   });

@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
-import { Play, Pause, Square, Settings } from "lucide-react";
+import { Play, Pause, Square, Settings, LogOut } from "lucide-react";
 import { useState } from "react";
 import { SettingsModal } from "./SettingsModal";
 import { useUserSettings, useUpdateBotStatus } from "@/hooks/useTradingData";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface TradingHeaderProps {
   botStatus: "stopped" | "running" | "paused";
@@ -13,6 +14,7 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
   const [showSettings, setShowSettings] = useState(false);
   const { data: settings } = useUserSettings();
   const updateBotStatus = useUpdateBotStatus();
+  const { signOut, user } = useAuth();
 
   const handleStatusChange = (status: "stopped" | "running" | "paused") => {
     setBotStatus(status);
@@ -95,6 +97,15 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
                 size="icon"
               >
                 <Settings className="h-4 w-4" />
+              </Button>
+              
+              <Button
+                onClick={signOut}
+                variant="ghost"
+                size="icon"
+                title="Sair"
+              >
+                <LogOut className="h-4 w-4" />
               </Button>
             </div>
           </div>

@@ -22,9 +22,13 @@ export const SessionCyclePanel = () => {
   const { data: sessionData } = useQuery({
     queryKey: ['session-history'],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
       const { data, error } = await supabase
         .from('session_history')
         .select('*')
+        .eq('user_id', user.id)
         .order('timestamp', { ascending: false })
         .limit(3);
       
