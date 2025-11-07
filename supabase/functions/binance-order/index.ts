@@ -98,9 +98,18 @@ serve(async (req) => {
     }
 
     // REAL MODE: Execute on Binance
-    if (!BINANCE_API_KEY || !BINANCE_API_SECRET) {
-      throw new Error('Binance API credentials not configured');
+    console.log('🔴 REAL MODE ACTIVATED - Executing real order on Binance');
+    
+    // ✅ CRÍTICO: Usar credenciais do USUÁRIO, não globais
+    const userApiKey = settings.api_key;
+    const userApiSecret = settings.api_secret;
+    
+    if (!userApiKey || !userApiSecret) {
+      console.error('❌ User Binance credentials not configured');
+      throw new Error('Por favor, configure suas credenciais da Binance nas configurações do bot para operar em modo real');
     }
+
+    console.log(`Using user API key: ${userApiKey.substring(0, 8)}...`);
 
     const timestamp = Date.now();
     const params = new URLSearchParams({
@@ -113,11 +122,11 @@ serve(async (req) => {
       timestamp: timestamp.toString(),
     });
 
-    // Create HMAC signature
+    // Create HMAC signature with user's secret key
     const encoder = new TextEncoder();
     const key = await crypto.subtle.importKey(
       'raw',
-      encoder.encode(BINANCE_API_SECRET),
+      encoder.encode(userApiSecret),
       { name: 'HMAC', hash: 'SHA-256' },
       false,
       ['sign']
@@ -133,22 +142,43 @@ serve(async (req) => {
 
     params.append('signature', signatureHex);
 
-    // Send order to Binance
+    console.log(`📡 Sending order to Binance: ${asset} ${direction} @ ${price}`);
+
+    // Send order to Binance with user's API key
     const response = await fetch(`https://fapi.binance.com/fapi/v1/order?${params}`, {
       method: 'POST',
       headers: {
-        'X-MBX-APIKEY': BINANCE_API_KEY,
+        'X-MBX-APIKEY': userApiKey,
       },
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Binance API error:', errorText);
-      throw new Error(`Binance API error: ${errorText}`);
+      console.error('❌ Binance API error:', response.status, errorText);
+      
+      // Parse error for better user feedback
+      let errorMessage = 'Erro ao executar ordem na Binance';
+      try {
+        const errorData = JSON.parse(errorText);
+        errorMessage = errorData.msg || errorMessage;
+        
+        // Specific error handling
+        if (errorMessage.includes('API-key')) {
+          errorMessage = 'Credenciais da Binance inválidas. Verifique suas API keys nas configurações.';
+        } else if (errorMessage.includes('Signature')) {
+          errorMessage = 'Erro de autenticação. Verifique se suas credenciais estão corretas.';
+        } else if (errorMessage.includes('balance')) {
+          errorMessage = 'Saldo insuficiente na Binance para executar esta ordem.';
+        }
+      } catch (e) {
+        // Keep generic error message
+      }
+      
+      throw new Error(errorMessage);
     }
 
     const binanceResult = await response.json();
-    console.log('Order executed on Binance:', binanceResult);
+    console.log('✅ Order executed successfully on Binance:', binanceResult);
 
     // ✅ Save to database COM user_id
     const { error: insertError } = await supabase
@@ -196,7 +226,15 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         mode: 'real',
-        binanceOrder: binanceResult 
+        message: 'Ordem executada com sucesso na Binance',
+        binanceOrder: binanceResult,
+        data: {
+          asset,
+          direction,
+          price,
+          orderId: binanceResult.orderId,
+          status: binanceResult.status
+        }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
