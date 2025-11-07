@@ -34,7 +34,7 @@ export const ActivePositions = () => {
 
     return {
       asset: pos.asset,
-      type: pos.direction.toLowerCase(),
+      type: pos.direction.toLowerCase(), // 'buy' or 'sell'
       entry: pos.entry_price,
       current: pos.current_price || pos.entry_price,
       target: pos.take_profit,

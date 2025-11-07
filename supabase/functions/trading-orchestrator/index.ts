@@ -22,6 +22,23 @@ const SESSIONS = {
   NEW_YORK: { start: 12, end: 17, name: 'NewYork' },
 };
 
+// Map direction from LONG/SHORT to BUY/SELL for database
+function mapDirection(signal: string): 'BUY' | 'SELL' {
+  return signal === 'LONG' ? 'BUY' : 'SELL';
+}
+
+// Map session names to database format
+function mapSession(sessionName: string): 'OCEANIA' | 'ASIA' | 'LONDON' | 'NY' {
+  const sessionMap: Record<string, 'OCEANIA' | 'ASIA' | 'LONDON' | 'NY'> = {
+    'Oceania': 'OCEANIA',
+    'Asia': 'ASIA', 
+    'London': 'LONDON',
+    'NewYork': 'NY',
+    'NY': 'NY'
+  };
+  return sessionMap[sessionName] || 'NY';
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -206,7 +223,7 @@ serve(async (req) => {
       // CRITICAL: Only execute with confidence >= 80% (0.8)
       if ((currentSession === 'London' || currentSession === 'NewYork') && analysis.signal !== 'STAY_OUT' && analysis.confidence >= 0.8) {
         console.log(`High confidence signal (${(analysis.confidence * 100).toFixed(1)}%) - executing trade for ${asset}`);
-        await executeTradeSignal(supabase, asset, analysis, settings);
+        await executeTradeSignal(supabase, asset, analysis, settings, currentSession);
       } else if (analysis.signal !== 'STAY_OUT' && analysis.confidence < 0.8) {
         console.log(`Signal detected but confidence too low (${(analysis.confidence * 100).toFixed(1)}%) - skipping ${asset}`);
         await supabase.from('agent_logs').insert({
@@ -675,7 +692,7 @@ async function fetchCandlesFromBinance(symbol: string) {
 }
 
 // Execute trade signal
-async function executeTradeSignal(supabase: any, asset: string, analysis: any, settings: any) {
+async function executeTradeSignal(supabase: any, asset: string, analysis: any, settings: any, currentSession: string) {
   if (!analysis.risk) return;
 
   // CRITICAL: Validate balance before executing trade
@@ -765,7 +782,7 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
     .from('active_positions')
     .insert({
       asset,
-      direction: analysis.signal,
+      direction: mapDirection(analysis.signal),
       entry_price: entry,
       stop_loss: stop,
       take_profit: target,
@@ -774,7 +791,7 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
       current_pnl: 0,
       projected_profit: projectedProfit,
       agents: { 'Cycle Orchestrator': analysis.confirmation },
-      session: 'auto',
+      session: mapSession(currentSession),
     })
     .select();
 
@@ -815,13 +832,13 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
 
   const { error: opError } = await supabase.from('operations').insert({
     asset,
-    direction: analysis.signal,
+    direction: mapDirection(analysis.signal),
     entry_price: entry,
     stop_loss: stop,
     take_profit: target,
     risk_reward: rr_ratio,
     agents: { 'Cycle Orchestrator': analysis.confirmation },
-    session: 'auto',
+    session: mapSession(currentSession),
     result: 'OPEN',
   });
 
@@ -860,7 +877,7 @@ async function executeTradeSignal(supabase: any, asset: string, analysis: any, s
       },
       body: JSON.stringify({
         asset,
-        direction: analysis.signal,
+        direction: mapDirection(analysis.signal),
         entry_price: entry,
         stop_loss: stop,
         take_profit: target,

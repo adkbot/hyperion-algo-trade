@@ -37,7 +37,7 @@ serve(async (req) => {
     if (settings.paper_mode) {
       console.log('PAPER MODE: Simulating order');
       
-      // Save to active_positions
+      // Save to active_positions (direction already mapped to BUY/SELL by orchestrator)
       const { error: insertError } = await supabase
         .from('active_positions')
         .insert({
@@ -59,7 +59,7 @@ serve(async (req) => {
         throw insertError;
       }
 
-      // Save to operations
+      // Save to operations (direction already mapped to BUY/SELL by orchestrator)
       const { error: opError } = await supabase
         .from('operations')
         .insert({
@@ -142,7 +142,7 @@ serve(async (req) => {
     const binanceResult = await response.json();
     console.log('Order executed on Binance:', binanceResult);
 
-    // Save to database
+    // Save to database (direction already mapped to BUY/SELL by orchestrator)
     const { error: insertError } = await supabase
       .from('active_positions')
       .insert({

@@ -11,7 +11,7 @@ export const OperationHistory = () => {
     id: op.id,
     time: new Date(op.entry_time).toLocaleTimeString('pt-BR'),
     asset: op.asset,
-    type: op.direction.toLowerCase(),
+    type: op.direction.toLowerCase(), // 'buy' or 'sell'
     entry: op.entry_price,
     exit: op.exit_price || 0,
     pnl: op.pnl || 0,
