@@ -30,6 +30,7 @@ export type Database = {
           stop_loss: number
           take_profit: number
           updated_at: string | null
+          user_id: string | null
         }
         Insert: {
           agents?: Json | null
@@ -46,6 +47,7 @@ export type Database = {
           stop_loss: number
           take_profit: number
           updated_at?: string | null
+          user_id?: string | null
         }
         Update: {
           agents?: Json | null
@@ -62,6 +64,7 @@ export type Database = {
           stop_loss?: number
           take_profit?: number
           updated_at?: string | null
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -73,6 +76,7 @@ export type Database = {
           data: Json | null
           id: string
           status: string
+          user_id: string | null
         }
         Insert: {
           agent_name: string
@@ -81,6 +85,7 @@ export type Database = {
           data?: Json | null
           id?: string
           status: string
+          user_id?: string | null
         }
         Update: {
           agent_name?: string
@@ -89,6 +94,7 @@ export type Database = {
           data?: Json | null
           id?: string
           status?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -104,6 +110,7 @@ export type Database = {
           target_operations: number | null
           total_operations: number | null
           total_pnl: number | null
+          user_id: string | null
           wins: number | null
         }
         Insert: {
@@ -117,6 +124,7 @@ export type Database = {
           target_operations?: number | null
           total_operations?: number | null
           total_pnl?: number | null
+          user_id?: string | null
           wins?: number | null
         }
         Update: {
@@ -130,6 +138,7 @@ export type Database = {
           target_operations?: number | null
           total_operations?: number | null
           total_pnl?: number | null
+          user_id?: string | null
           wins?: number | null
         }
         Relationships: []
@@ -151,6 +160,7 @@ export type Database = {
           session: string | null
           stop_loss: number
           take_profit: number
+          user_id: string | null
         }
         Insert: {
           agents?: Json | null
@@ -168,6 +178,7 @@ export type Database = {
           session?: string | null
           stop_loss: number
           take_profit: number
+          user_id?: string | null
         }
         Update: {
           agents?: Json | null
@@ -185,6 +196,28 @@ export type Database = {
           session?: string | null
           stop_loss?: number
           take_profit?: number
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string | null
+          email: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string | null
+          email: string
+          id: string
+          name: string
+        }
+        Update: {
+          created_at?: string | null
+          email?: string
+          id?: string
+          name?: string
         }
         Relationships: []
       }
@@ -206,6 +239,7 @@ export type Database = {
           session: string
           signal: string | null
           timestamp: string
+          user_id: string | null
           volume_factor: number | null
         }
         Insert: {
@@ -225,6 +259,7 @@ export type Database = {
           session: string
           signal?: string | null
           timestamp: string
+          user_id?: string | null
           volume_factor?: number | null
         }
         Update: {
@@ -244,6 +279,7 @@ export type Database = {
           session?: string
           signal?: string | null
           timestamp?: string
+          user_id?: string | null
           volume_factor?: number | null
         }
         Relationships: []
@@ -260,6 +296,7 @@ export type Database = {
           paper_mode: boolean | null
           risk_per_trade: number | null
           updated_at: string | null
+          user_id: string | null
         }
         Insert: {
           api_key?: string | null
@@ -272,6 +309,7 @@ export type Database = {
           paper_mode?: boolean | null
           risk_per_trade?: number | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Update: {
           api_key?: string | null
@@ -284,6 +322,7 @@ export type Database = {
           paper_mode?: boolean | null
           risk_per_trade?: number | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Relationships: []
       }
