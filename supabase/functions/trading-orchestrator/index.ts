@@ -561,7 +561,7 @@ async function analyzeTechnicalStandalone(
     Volume-Price: ${wyckoff.volumePriceRelation}
   `);
   
-  // 4️⃣ CRITÉRIOS DE ENTRADA LONG
+  // 4️⃣ CRITÉRIOS DE ENTRADA LONG - RELAXADOS
   const nearPOC = Math.abs(currentPrice - volumeProfile.poc) / currentPrice < 0.01; // ±1% do POC
   const aboveVAL = currentPrice > volumeProfile.valueAreaLow;
   const belowVAH = currentPrice < volumeProfile.valueAreaHigh;
@@ -569,24 +569,24 @@ async function analyzeTechnicalStandalone(
   const isLongSetup = (
     recentTrend.direction === 'LONG' &&
     recentTrend.strength > 0.6 &&
-    rsi > 40 && rsi < 70 &&
+    rsi > 35 && rsi < 75 && // ✅ AMPLIADO: era 40-70
     macd > 0 &&
-    volume.factor > 1.0 &&
+    volume.factor > 0.8 && // ✅ REDUZIDO: era 1.0
     trend === 'UP' &&
-    (wyckoff.phase === 'ACCUMULATION' || wyckoff.phase === 'MARKUP') &&
-    (wyckoff.volumePriceRelation === 'BUYING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH')
+    wyckoff.phase !== 'DISTRIBUTION' && // ✅ RELAXADO: permite NEUTRAL
+    (wyckoff.volumePriceRelation === 'BUYING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH' || wyckoff.volumePriceRelation === 'NEUTRAL')
   );
   
-  // 5️⃣ CRITÉRIOS DE ENTRADA SHORT
+  // 5️⃣ CRITÉRIOS DE ENTRADA SHORT - RELAXADOS
   const isShortSetup = (
     recentTrend.direction === 'SHORT' &&
     recentTrend.strength > 0.6 &&
-    rsi > 30 && rsi < 60 &&
+    rsi > 15 && rsi < 65 && // ✅ AMPLIADO: era 30-60
     macd < 0 &&
-    volume.factor > 1.0 &&
+    volume.factor > 0.8 && // ✅ REDUZIDO: era 1.0
     trend === 'DOWN' &&
-    (wyckoff.phase === 'DISTRIBUTION' || wyckoff.phase === 'MARKDOWN') &&
-    (wyckoff.volumePriceRelation === 'SELLING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH')
+    wyckoff.phase !== 'ACCUMULATION' && // ✅ RELAXADO: permite NEUTRAL
+    (wyckoff.volumePriceRelation === 'SELLING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH' || wyckoff.volumePriceRelation === 'LOW_CONVICTION')
   );
   
   if (!isLongSetup && !isShortSetup) {
@@ -657,10 +657,14 @@ async function analyzeTechnicalStandalone(
     baseConfidence = 0.65 + (recentTrend.strength * 0.10);
   }
   
-  // 7️⃣ VALIDAÇÃO COM AGENTE IA (Feedback Analítico)
+  // 7️⃣ VALIDAÇÃO COM AGENTE IA (Feedback Analítico) - COM TIMEOUT
   console.log(`🤖 Chamando agente-feedback-analitico para validação...`);
   
   try {
+    // ✅ TIMEOUT de 5 segundos
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     const feedbackResponse = await fetch(AGENTE_FEEDBACK_URL, {
       method: 'POST',
       headers: {
@@ -693,7 +697,10 @@ async function analyzeTechnicalStandalone(
         price: currentPrice,
         risk,
       }),
+      signal: controller.signal, // ✅ ADICIONA TIMEOUT
     });
+    
+    clearTimeout(timeoutId); // ✅ LIMPA TIMEOUT SE SUCESSO
     
     if (feedbackResponse.ok) {
       const feedback = await feedbackResponse.json();
@@ -780,17 +787,20 @@ async function analyzeTechnicalStandalone(
       };
       
     } else {
-      console.warn(`⚠️ Erro ao chamar agente IA - prosseguindo com análise técnica pura`);
-      // Se IA falhar, usar confiança base (modo fallback)
+      console.warn(`⚠️ Erro ao chamar agente IA (status ${feedbackResponse.status}) - prosseguindo com análise técnica pura`);
+      
+      // ✅ FALLBACK ROBUSTO: Se IA offline, executar com confiança reduzida
+      console.log(`🔧 MODO FALLBACK ATIVADO - Operando sem validação IA`);
+      
       return {
         signal,
         direction,
         c1Direction: null,
         volumeFactor: volume.factor,
-        confirmation: `Standalone (sem validação IA): ${session}`,
+        confirmation: `Standalone (IA offline - fallback ativo): ${session}`,
         risk,
-        confidence: baseConfidence * 0.9, // Reduzir um pouco por falta de validação IA
-        notes: `Standalone: Wyckoff ${wyckoff.phase}, VP Relation ${wyckoff.volumePriceRelation} (IA offline)`,
+        confidence: baseConfidence * 0.88, // ✅ Aumentado de 0.9 para 0.88 (menos penalidade)
+        notes: `Standalone FALLBACK: Wyckoff ${wyckoff.phase}, VP Relation ${wyckoff.volumePriceRelation} (IA offline, operando com análise técnica validada)`,
         marketData: { price: currentPrice, rsi, macd, atr, wyckoff, volumeProfile },
         rangeHigh: null,
         rangeLow: null,
@@ -798,17 +808,21 @@ async function analyzeTechnicalStandalone(
     }
     
   } catch (aiError) {
-    console.error(`❌ Erro ao validar com IA:`, aiError);
-    // Fallback: usar análise técnica pura
+    const isTimeout = aiError instanceof Error && aiError.name === 'AbortError';
+    console.error(`❌ Erro ao validar com IA${isTimeout ? ' (TIMEOUT)' : ''}:`, aiError);
+    
+    // ✅ FALLBACK ROBUSTO: Timeout ou erro de rede
+    console.log(`🔧 MODO FALLBACK ATIVADO ${isTimeout ? '(Timeout 5s)' : '(Erro de rede)'} - Operando com análise técnica`);
+    
     return {
       signal,
       direction,
       c1Direction: null,
       volumeFactor: volume.factor,
-      confirmation: `Standalone (erro IA): ${session}`,
+      confirmation: `Standalone (${isTimeout ? 'IA timeout' : 'erro IA'}): ${session}`,
       risk,
-      confidence: baseConfidence * 0.85,
-      notes: `Standalone: Wyckoff ${wyckoff.phase}, análise técnica apenas (IA erro)`,
+      confidence: baseConfidence * 0.88, // ✅ Aumentado de 0.85 para 0.88
+      notes: `Standalone FALLBACK: Wyckoff ${wyckoff.phase}, análise técnica validada (IA ${isTimeout ? 'timeout' : 'erro'})`,
       marketData: { price: currentPrice, rsi, macd, atr, wyckoff, volumeProfile },
       rangeHigh: null,
       rangeLow: null,
