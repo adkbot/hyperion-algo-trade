@@ -346,6 +346,7 @@ export type Database = {
           max_positions: number | null
           paper_mode: boolean | null
           risk_per_trade: number | null
+          single_position_mode: boolean | null
           updated_at: string | null
           user_id: string | null
         }
@@ -359,6 +360,7 @@ export type Database = {
           max_positions?: number | null
           paper_mode?: boolean | null
           risk_per_trade?: number | null
+          single_position_mode?: boolean | null
           updated_at?: string | null
           user_id?: string | null
         }
@@ -372,6 +374,7 @@ export type Database = {
           max_positions?: number | null
           paper_mode?: boolean | null
           risk_per_trade?: number | null
+          single_position_mode?: boolean | null
           updated_at?: string | null
           user_id?: string | null
         }

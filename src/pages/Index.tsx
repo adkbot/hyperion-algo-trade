@@ -41,10 +41,12 @@ const Index = () => {
       
       <div className="container mx-auto p-4">
         {/* Alert Panel */}
-        <AlertPanel />
+        <div className="mb-4">
+          <AlertPanel />
+        </div>
         
         {/* Unified Grid - 3 Columns */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start auto-rows-min">
           {/* Left Column (2/3) - Chart, Positions, and History */}
           <div className="lg:col-span-2 grid grid-rows-[auto_auto_auto] gap-4">
             <TradingChart />

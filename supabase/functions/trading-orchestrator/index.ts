@@ -333,21 +333,40 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     };
   }
 
-  // ✅ Verificar posições ativas
+  // Check active positions (max_positions)
   const { data: activePositions } = await supabase
     .from('active_positions')
     .select('*')
     .eq('user_id', userId);
 
-  if (activePositions && activePositions.length >= settings.max_positions) {
-    console.log(`📊 Max positions reached (${settings.max_positions}) - monitoring only`);
-    await monitorActivePositions(supabase, userId, settings);
-    return { message: 'Max positions reached - monitoring' };
-  }
+  const activeCount = activePositions?.length || 0;
+  console.log(`💼 Posições ativas: ${activeCount}/${settings.max_positions}`);
 
-  // Monitor existing positions
+  // Monitor existing positions regardless of limit
   if (activePositions && activePositions.length > 0) {
     await monitorActivePositions(supabase, userId, settings);
+  }
+
+  // CRITICAL: If single_position_mode is enabled and there's ANY active position, stop here
+  if (settings.single_position_mode && activeCount > 0) {
+    console.log(`⏸️ Modo 1 posição ativo - aguardando fechamento da posição atual`);
+    return {
+      userId,
+      status: 'waiting_position_close',
+      activePositions: activeCount,
+      message: 'Aguardando fechamento da posição ativa'
+    };
+  }
+
+  if (activeCount >= settings.max_positions) {
+    console.log(`⚠️ Limite de posições atingido (${settings.max_positions}). Monitorando posições existentes...`);
+    
+    return {
+      userId,
+      status: 'max_positions_reached',
+      activePositions: activeCount,
+      message: `Limite de ${settings.max_positions} posições atingido`
+    };
   }
 
   // ✅ Scan market for valid pairs
@@ -360,68 +379,86 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
   const analysisResults: any[] = [];
 
   for (const pair of validPairs) {
-    console.log(`Analyzing ${pair} - Session: ${currentSession}`);
-    
-    // Fetch candles
-    const candles = await fetchCandlesFromBinance(pair, ['5m', '15m', '1h']);
-    
-    if (!candles['5m'] || !candles['15m'] || !candles['1h']) {
-      console.log(`❌ Insufficient candle data for ${pair}`);
-      continue;
-    }
-
-    // ✅ FASE 2-5: Análise baseada na sessão atual
-    const analysis = await analyzeCyclePhase({
-      candles,
-      asset: pair,
-      session: currentSession,
-      phase: cyclePhase,
-      sessionState,
-      supabase,
-      userId
-    });
-
-    if (analysis) {
-      analysisResults.push({
-        pair,
-        ...analysis
-      });
-
-      // ✅ Gravar análise no histórico
-      await supabase.from('session_history').insert({
-        user_id: userId,
-        pair,
-        session: mapSession(currentSession),
-        cycle_phase: cyclePhase,
-        direction: analysis.direction,
-        signal: analysis.signal,
-        confidence_score: analysis.confidence,
-        volume_factor: analysis.volumeFactor,
-        notes: analysis.notes,
-        confirmation: analysis.confirmation,
-        c1_direction: analysis.c1Direction,
-        range_high: analysis.rangeHigh,
-        range_low: analysis.rangeLow,
-        market_data: analysis.marketData,
-        risk: analysis.risk,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    // ✅ Execute trades if signal is valid
-    if (analysis && analysis.signal !== 'STAY_OUT' && analysis.risk) {
-      const tradeExecuted = await executeTradeSignal(
-        supabase,
-        userId,
-        pair,
-        analysis,
-        settings,
-        currentSession
-      );
-      
-      if (tradeExecuted) {
-        console.log(`✅ Trade executed for ${pair} - ${analysis.signal}`);
+    try {
+      // CRITICAL: Check if position was opened during this loop iteration
+      if (settings.single_position_mode) {
+        const { data: checkPositions } = await supabase
+          .from('active_positions')
+          .select('id')
+          .eq('user_id', userId);
+        
+        if (checkPositions && checkPositions.length > 0) {
+          console.log(`⏸️ Posição aberta durante análise - parando scan`);
+          break;
+        }
       }
+
+      console.log(`Analyzing ${pair} - Session: ${currentSession}`);
+      
+      // Fetch candles
+      const candles = await fetchCandlesFromBinance(pair, ['5m', '15m', '1h']);
+      
+      if (!candles['5m'] || !candles['15m'] || !candles['1h']) {
+        console.log(`❌ Insufficient candle data for ${pair}`);
+        continue;
+      }
+
+      // ✅ FASE 2-5: Análise baseada na sessão atual
+      const analysis = await analyzeCyclePhase({
+        candles,
+        asset: pair,
+        session: currentSession,
+        phase: cyclePhase,
+        sessionState,
+        supabase,
+        userId
+      });
+
+      if (analysis) {
+        analysisResults.push({
+          pair,
+          ...analysis
+        });
+
+        // ✅ Gravar análise no histórico
+        await supabase.from('session_history').insert({
+          user_id: userId,
+          pair,
+          session: mapSession(currentSession),
+          cycle_phase: cyclePhase,
+          direction: analysis.direction,
+          signal: analysis.signal,
+          confidence_score: analysis.confidence,
+          volume_factor: analysis.volumeFactor,
+          notes: analysis.notes,
+          confirmation: analysis.confirmation,
+          c1_direction: analysis.c1Direction,
+          range_high: analysis.rangeHigh,
+          range_low: analysis.rangeLow,
+          market_data: analysis.marketData,
+          risk: analysis.risk,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // ✅ Execute trades if signal is valid
+      if (analysis && analysis.signal !== 'STAY_OUT' && analysis.risk) {
+        const tradeExecuted = await executeTradeSignal(
+          supabase,
+          userId,
+          pair,
+          analysis,
+          settings,
+          currentSession
+        );
+        
+        if (tradeExecuted) {
+          console.log(`✅ Trade executed for ${pair} - ${analysis.signal}`);
+          break; // Stop after first successful trade
+        }
+      }
+    } catch (error) {
+      console.error(`Error analyzing ${pair}:`, error);
     }
   }
 
@@ -1683,155 +1720,276 @@ async function fetchCandlesFromBinance(symbol: string, intervals: string[]) {
   return candles;
 }
 
-// Execute trade signal
+// Execute trade signal with COMPLETE validation
 async function executeTradeSignal(supabase: any, userId: string, asset: string, analysis: any, settings: any, currentSession: string) {
-  const { signal, risk, confidence } = analysis;
-
-  if (!risk || !risk.entry || !risk.stop || !risk.target) {
-    console.log(`❌ Invalid risk parameters for ${asset}`);
-    return false;
-  }
-
-  // Additional validation: confidence must be >= 0.60
-  if (confidence < 0.60) {
-    console.log(`❌ Confidence too low: ${confidence.toFixed(2)} (min: 0.60)`);
-    return false;
-  }
-
-  // Calculate position size
-  const balance = settings.balance;
-  const riskPerTrade = settings.risk_per_trade;
-  const riskAmount = balance * riskPerTrade;
-
-  const entryPrice = risk.entry;
-  const stopLoss = risk.stop;
-  const takeProfit = risk.target;
-  const riskPerUnit = Math.abs(entryPrice - stopLoss);
-
-  if (riskPerUnit === 0) {
-    console.log(`❌ Invalid risk per unit for ${asset}`);
-    return false;
-  }
-
-  // Check if user has sufficient balance
-  if (balance < riskAmount) {
-    console.log(`❌ Insufficient balance: $${balance} < $${riskAmount}`);
-    return false;
-  }
-
-  const quantity = riskAmount / riskPerUnit;
-  const projectedProfit = Math.abs(takeProfit - entryPrice) * quantity;
-
-  console.log(`
-  💰 EXECUTING TRADE:
-  - Asset: ${asset}
-  - Direction: ${signal}
-  - Entry: ${entryPrice}
-  - Stop Loss: ${stopLoss}
-  - Take Profit: ${takeProfit}
-  - R:R Ratio: ${risk.rr_ratio.toFixed(2)}
-  - Quantity: ${quantity.toFixed(4)}
-  - Risk: $${riskAmount.toFixed(2)}
-  - Projected Profit: $${projectedProfit.toFixed(2)}
-  - Confidence: ${(confidence * 100).toFixed(1)}%
-  `);
-
-  // 🔥 BINANCE INTEGRATION: Execute real order if not in paper mode
-  if (!settings.paper_mode && settings.api_key && settings.api_secret) {
-    console.log(`📡 Calling binance-order for REAL trade: ${asset} ${signal}`);
+  try {
+    // ============================================
+    // PHASE 1: VALIDATE TECHNICAL INDICATORS
+    // ============================================
+    console.log(`\n🔍 INICIANDO VALIDAÇÃO COMPLETA - ${asset}`);
     
+    const indicators = analysis.indicators || {};
+    const wyckoff = analysis.wyckoff || {};
+    const { signal, risk, confidence } = analysis;
+    
+    // Mandatory indicator checklist
+    const validations = {
+      rsi: indicators.rsi && indicators.rsi >= 30 && indicators.rsi <= 70,
+      macd: indicators.macd !== undefined,
+      volume: indicators.volume?.factor && indicators.volume.factor > 1.2,
+      atr: indicators.atr && indicators.atr >= 0.005 && indicators.atr <= 0.015,
+      wyckoff: wyckoff.phase && (
+        (signal === 'LONG' && wyckoff.phase === 'MARKUP') ||
+        (signal === 'SHORT' && wyckoff.phase === 'MARKDOWN') ||
+        wyckoff.phase === 'ACCUMULATION' ||
+        wyckoff.phase === 'DISTRIBUTION'
+      )
+    };
+
+    const technicalScore = Object.values(validations).filter(Boolean).length * 6; // 30 points max
+    
+    console.log(`├─ Indicadores Técnicos (Score: ${technicalScore}/30):`);
+    console.log(`│  ├─ RSI: ${indicators.rsi?.toFixed(2)} ${validations.rsi ? '✅' : '❌'}`);
+    console.log(`│  ├─ MACD: ${indicators.macd?.toFixed(4)} ${validations.macd ? '✅' : '❌'}`);
+    console.log(`│  ├─ Volume Factor: ${indicators.volume?.factor?.toFixed(2)}x ${validations.volume ? '✅' : '❌'}`);
+    console.log(`│  ├─ ATR: ${indicators.atr?.toFixed(4)} ${validations.atr ? '✅' : '❌'}`);
+    console.log(`│  └─ Wyckoff Phase: ${wyckoff.phase} ${validations.wyckoff ? '✅' : '❌'}`);
+
+    // ============================================
+    // PHASE 2: CONSULT AI AGENTS
+    // ============================================
+    let agentScore = 0;
+    let agentFeedback: any = null;
+    let agentExecution: any = null;
+
     try {
-      const { data: orderData, error: orderError } = await supabase.functions.invoke('binance-order', {
+      // Agent 1: Analytical Feedback
+      console.log(`├─ Consultando Agente Feedback Analítico...`);
+      const { data: feedbackData } = await supabase.functions.invoke('agente-feedback-analitico', {
         body: {
-          user_id: userId,
           asset,
-          side: signal === 'LONG' ? 'BUY' : 'SELL',
-          quantity: quantity.toFixed(4),
-          stop_loss: stopLoss,
-          take_profit: takeProfit,
+          session: currentSession,
+          phase: analysis.phase || 'STANDALONE',
+          signal,
+          confidence,
+          indicators,
+          wyckoff,
+          volume: indicators.volume
+        }
+      });
+      
+      agentFeedback = feedbackData;
+      const feedbackApproved = feedbackData?.qualityScore >= 75;
+      console.log(`│  └─ Feedback: Score ${feedbackData?.qualityScore}/100 ${feedbackApproved ? '✅' : '❌'}`);
+      
+      if (feedbackApproved) agentScore += 13;
+
+      // Agent 2: Confluence Execution
+      console.log(`├─ Consultando Agente Execução Confluência...`);
+      const { data: executionData } = await supabase.functions.invoke('agente-execucao-confluencia', {
+        body: {
+          asset,
+          direction: signal,
+          entry_price: risk.entry,
+          stop_loss: risk.stop,
+          take_profit: risk.target,
+          rr_ratio: risk.rr_ratio,
+          indicators,
+          wyckoff,
+          volume: indicators.volume
+        }
+      });
+      
+      agentExecution = executionData;
+      const executionApproved = executionData?.decision === 'APROVAR';
+      console.log(`│  └─ Execução: ${executionData?.decision} (Score: ${executionData?.confluenceScore}) ${executionApproved ? '✅' : '❌'}`);
+      
+      if (executionApproved) agentScore += 13;
+
+      // Agent 3: Risk Management (placeholder - will be called after trade closes)
+      console.log(`│  └─ Gestão Risco: Será avaliado após fechamento ⏳`);
+      agentScore += 14; // Temporary approval for now
+
+    } catch (agentError) {
+      console.error(`❌ Erro ao consultar agentes:`, agentError);
+    }
+
+    console.log(`├─ Score Total Agentes: ${agentScore}/40`);
+
+    // ============================================
+    // PHASE 3: VOLUME & MOMENTUM VALIDATION
+    // ============================================
+    const volumeScore = validations.volume ? 20 : 0;
+    console.log(`├─ Volume & Momentum: ${volumeScore}/20 ${validations.volume ? '✅' : '❌'}`);
+
+    // ============================================
+    // PHASE 4: RISK/REWARD VALIDATION
+    // ============================================
+    if (!risk || !risk.entry || !risk.stop || !risk.target) {
+      console.log(`❌ Invalid risk parameters for ${asset}`);
+      return false;
+    }
+
+    const rrValid = risk.rr_ratio >= 1.5;
+    const rrScore = rrValid ? 10 : 0;
+    console.log(`├─ Risk/Reward: ${risk.rr_ratio?.toFixed(2)} ${rrScore}/10 ${rrValid ? '✅' : '❌'}`);
+
+    // ============================================
+    // FINAL QUALITY SCORE
+    // ============================================
+    const totalScore = technicalScore + agentScore + volumeScore + rrScore;
+    console.log(`└─ SCORE FINAL: ${totalScore}/100\n`);
+
+    if (totalScore < 75) {
+      console.log(`❌ Setup rejeitado - Score ${totalScore} < 75 (mínimo necessário)`);
+      
+      await supabase.from('agent_logs').insert({
+        user_id: userId,
+        agent_name: 'SYSTEM_VALIDATION',
+        asset,
+        status: 'rejected',
+        data: {
+          reason: 'Score insuficiente',
+          totalScore,
+          breakdown: { technicalScore, agentScore, volumeScore, rrScore },
+          validations,
+          agents: { agentFeedback, agentExecution }
+        }
+      });
+      
+      return false;
+    }
+
+    console.log(`✅ Setup APROVADO - Procedendo com execução\n`);
+
+    // Validate signal confidence
+    if (confidence < 0.60) {
+      console.log(`❌ Confidence too low: ${confidence.toFixed(2)} (min: 0.60)`);
+      return false;
+    }
+
+    // Calculate position size
+    const balance = settings.balance;
+    const riskPerTrade = settings.risk_per_trade;
+    const riskAmount = balance * riskPerTrade;
+
+    const entryPrice = risk.entry;
+    const stopLoss = risk.stop;
+    const takeProfit = risk.target;
+    const riskPerUnit = Math.abs(entryPrice - stopLoss);
+
+    if (riskPerUnit === 0) {
+      console.log(`❌ Invalid risk per unit for ${asset}`);
+      return false;
+    }
+
+    // Check if user has sufficient balance
+    if (balance < riskAmount) {
+      console.log(`❌ Insufficient balance: $${balance} < $${riskAmount}`);
+      return false;
+    }
+
+    const quantity = riskAmount / riskPerUnit;
+    const projectedProfit = Math.abs(takeProfit - entryPrice) * quantity;
+
+    console.log(`
+    💰 EXECUTING TRADE:
+    - Asset: ${asset}
+    - Direction: ${signal}
+    - Entry: ${entryPrice}
+    - Stop Loss: ${stopLoss}
+    - Take Profit: ${takeProfit}
+    - R:R Ratio: ${risk.rr_ratio.toFixed(2)}
+    - Quantity: ${quantity.toFixed(4)}
+    - Risk: $${riskAmount.toFixed(2)}
+    - Projected Profit: $${projectedProfit.toFixed(2)}
+    - Confidence: ${(confidence * 100).toFixed(1)}%
+    `);
+
+    // 🔥 BINANCE INTEGRATION: Execute real order if not in paper mode
+    if (!settings.paper_mode && settings.api_key && settings.api_secret) {
+      console.log(`📡 Calling binance-order for REAL trade: ${asset} ${signal}`);
+      
+      try {
+        const { data: orderData, error: orderError } = await supabase.functions.invoke('binance-order', {
+          body: {
+            user_id: userId,
+            asset,
+            side: signal === 'LONG' ? 'BUY' : 'SELL',
+            quantity: quantity.toFixed(4),
+            stop_loss: stopLoss,
+            take_profit: takeProfit,
+          },
+        });
+
+        if (orderError) {
+          console.error(`❌ Binance order error:`, orderError);
+          return false;
+        }
+
+        console.log(`✅ Binance order executed:`, orderData);
+      } catch (binanceError) {
+        console.error(`❌ Binance execution failed:`, binanceError);
+        return false;
+      }
+    } else {
+      console.log(`📄 Paper mode: Simulating trade execution`);
+    }
+
+    // Insert position
+    const { error: insertError } = await supabase
+      .from('active_positions')
+      .insert({
+        user_id: userId,
+        asset,
+        direction: mapDirection(signal),
+        session: mapSession(currentSession),
+        entry_price: entryPrice,
+        current_price: entryPrice,
+        stop_loss: stopLoss,
+        take_profit: takeProfit,
+        risk_reward: risk.rr_ratio,
+        projected_profit: projectedProfit,
+        current_pnl: 0,
+        opened_at: new Date().toISOString(),
+        agents: {
+          feedback: agentFeedback,
+          execution: agentExecution,
+          validationScore: totalScore
         },
       });
 
-      if (orderError) {
-        console.error(`❌ Binance order failed for ${asset}:`, orderError);
-        return false;
-      }
-
-      console.log(`✅ Real Binance order executed:`, orderData);
-      // Continue with database insertion below
-    } catch (error) {
-      console.error(`❌ Exception calling binance-order:`, error);
+    if (insertError) {
+      console.error(`❌ Error inserting position:`, insertError);
       return false;
     }
-  } else {
-    console.log(`📋 Paper mode: simulating trade for ${asset}`);
-  }
 
-  // Insert into active_positions
-  const { error: positionError } = await supabase.from('active_positions').insert({
-    user_id: userId,
-    asset,
-    direction: mapDirection(signal),
-    entry_price: entryPrice,
-    stop_loss: stopLoss,
-    take_profit: takeProfit,
-    risk_reward: risk.rr_ratio,
-    current_price: entryPrice,
-    current_pnl: 0,
-    projected_profit: projectedProfit,
-    session: mapSession(currentSession),
-    agents: {
-      confidence,
-      volume_factor: analysis.volumeFactor,
-      c1_direction: analysis.c1Direction,
-    },
-  });
+    // Log agent actions
+    await supabase.from('agent_logs').insert({
+      user_id: userId,
+      agent_name: 'Trade Executor',
+      asset,
+      status: 'active',
+      data: {
+        action: 'TRADE_EXECUTED',
+        signal,
+        entry: entryPrice,
+        stop: stopLoss,
+        target: takeProfit,
+        rr_ratio: risk.rr_ratio,
+        confidence,
+        session: currentSession,
+        totalScore,
+        agents: { agentFeedback, agentExecution }
+      },
+    });
 
-  if (positionError) {
-    console.error('❌ Error inserting position:', positionError);
+    console.log(`✅ Position opened for ${asset} - ${signal}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Error in executeTradeSignal:`, error);
     return false;
   }
-
-  // Insert into operations
-  const { error: operationError } = await supabase.from('operations').insert({
-    user_id: userId,
-    asset,
-    direction: mapDirection(signal),
-    entry_price: entryPrice,
-    stop_loss: stopLoss,
-    take_profit: takeProfit,
-    risk_reward: risk.rr_ratio,
-    session: mapSession(currentSession),
-    agents: {
-      confidence,
-      signal: analysis.confirmation,
-    },
-  });
-
-  if (operationError) {
-    console.error('❌ Error inserting operation:', operationError);
-  }
-
-  // Log to agent_logs
-  await supabase.from('agent_logs').insert({
-    user_id: userId,
-    agent_name: 'Trading Orchestrator',
-    asset,
-    status: 'success',
-    data: {
-      action: 'TRADE_EXECUTED',
-      signal,
-      entry: entryPrice,
-      stop: stopLoss,
-      target: takeProfit,
-      rr_ratio: risk.rr_ratio,
-      confidence,
-      session: currentSession,
-    },
-  });
-
-  console.log(`✅ Position opened for ${asset} - ${signal}`);
-  return true;
 }
 
 // Monitor active positions

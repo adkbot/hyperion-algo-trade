@@ -54,7 +54,7 @@ export const TradingChart = () => {
   }, [currentAsset]);
 
   return (
-    <Card className="h-[600px]">
+    <Card className="h-[500px]">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">Gráfico de Trading - M15</CardTitle>
