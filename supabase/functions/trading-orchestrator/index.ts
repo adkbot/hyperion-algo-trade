@@ -163,21 +163,111 @@ async function updateSessionState(supabase: any, userId: string, updates: any): 
   console.log(`✅ Session state updated: ${Object.keys(updates).join(', ')}`);
 }
 
+// ✅ BUFFER: Verificar se estamos na janela operacional
+function isInOperatingWindow(session: string): { canOperate: boolean; message: string } {
+  const now = new Date();
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  
+  let sessionStart: number;
+  let sessionEnd: number;
+  
+  switch(session) {
+    case 'Oceania':
+      sessionStart = 0;
+      sessionEnd = 180;
+      break;
+    case 'Asia':
+      sessionStart = 180;
+      sessionEnd = 480;
+      break;
+    case 'London':
+      sessionStart = 480;
+      sessionEnd = 780;
+      break;
+    case 'NewYork':
+      sessionStart = 780;
+      sessionEnd = 1440;
+      break;
+    default:
+      return { canOperate: false, message: 'Unknown session' };
+  }
+  
+  const BUFFER_START = 30; // 2 velas x 15min
+  const BUFFER_END = 60;   // 4 velas x 15min
+  
+  const minutesIntoSession = utcMinutes - sessionStart;
+  const sessionDuration = sessionEnd - sessionStart;
+  
+  // ❌ Pular 2 primeiras velas (30 min)
+  if (minutesIntoSession < BUFFER_START) {
+    const remaining = BUFFER_START - minutesIntoSession;
+    return { 
+      canOperate: false, 
+      message: `⏸️ BUFFER INICIAL - Aguardando análise de tendência (${remaining} min restantes)` 
+    };
+  }
+  
+  // ❌ Pular 4 últimas velas (60 min)
+  if (minutesIntoSession > sessionDuration - BUFFER_END) {
+    const inTransition = minutesIntoSession - (sessionDuration - BUFFER_END);
+    return { 
+      canOperate: false, 
+      message: `⏸️ BUFFER FINAL - Transição para próxima sessão (${inTransition} min em transição)` 
+    };
+  }
+  
+  return { canOperate: true, message: '✅ Janela operacional ativa' };
+}
+
 // ✅ NOVA FUNÇÃO: Processar ciclo de trading para um usuário específico
 async function processUserTradingCycle(supabase: any, settings: any, currentSession: string, cyclePhase: string) {
   const userId = settings.user_id;
+  const now = new Date();
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
 
   // ✅ FASE 7: Carregar session state
-  const sessionState = await getSessionState(supabase, userId);
+  let sessionState = await getSessionState(supabase, userId);
+  
+  // ✅ FALLBACK: Se não há session_state e não é Oceania, criar placeholder
+  if (!sessionState && currentSession !== 'Oceania') {
+    console.warn(`⚠️ Session State não encontrado - criando fallback para ${currentSession}`);
+    
+    await updateSessionState(supabase, userId, {
+      c1_direction: 'NEUTRAL',
+      c1_confidence: 0.5,
+      asia_confirmation: 'PENDING'
+    });
+    
+    sessionState = await getSessionState(supabase, userId);
+  }
+  
+  // ✅ VERIFICAR BUFFER DE VELAS
+  const bufferCheck = isInOperatingWindow(currentSession);
   
   // ✅ FASE 7: Log detalhado do estado
   console.log(`
-📊 SESSION STATE for ${userId}:
+📊 CYCLE START - User ${userId}
+- UTC Time: ${now.toISOString()}
+- Session: ${currentSession} (${cyclePhase})
+- Operating Window: ${bufferCheck.message}
+- Minutes into session: ${utcMinutes - (currentSession === 'Oceania' ? 0 : currentSession === 'Asia' ? 180 : currentSession === 'London' ? 480 : 780)}
+- Session State: ${sessionState ? '✅ EXISTS' : '❌ MISSING'}
 - C1 Direction: ${sessionState?.c1_direction || 'NOT SET'} (confidence: ${sessionState?.c1_confidence || 0})
 - Asia Status: ${sessionState?.asia_confirmation || 'NOT SET'}
 - London Range: ${sessionState?.london_range_low || 'N/A'} - ${sessionState?.london_range_high || 'N/A'}
-- Current Session: ${currentSession}
   `);
+
+  // ✅ SE ESTAMOS NO BUFFER, NÃO OPERAR
+  if (!bufferCheck.canOperate) {
+    console.log(`🛑 Fora da janela operacional - Buffer ativo`);
+    return {
+      session: currentSession,
+      phase: cyclePhase,
+      analysis: [],
+      activePositions: 0,
+      message: bufferCheck.message
+    };
+  }
 
   // ✅ Check daily goals POR USUÁRIO
   const { data: dailyGoal } = await supabase
@@ -479,8 +569,18 @@ async function analyzeOceaniaPhase(candles15m: any[], indicators: any, currentPr
     // Confirmar se movimento está alinhado com C1
     const isAligned = trend.direction === c1Direction;
     const hasVolume = volume.factor > 1.1;
+    const hasModerateVolume = volume.factor > 0.8; // ✅ Fallback para volume moderado
     
-    if (isAligned && hasVolume && trend.strength > 0.5) {
+    console.log(`🔍 Oceania Confirmation Check:
+  - C1 Direction: ${c1Direction}
+  - Trend Direction: ${trend.direction}
+  - Aligned: ${isAligned}
+  - Volume Factor: ${volume.factor.toFixed(2)}
+  - Trend Strength: ${trend.strength.toFixed(2)}
+    `);
+    
+    // ✅ CRITÉRIOS MAIS PERMISSIVOS: trend.strength > 0.4 (era 0.5)
+    if (isAligned && (hasVolume || hasModerateVolume) && trend.strength > 0.4) {
       const stopLoss = c1Direction === 'LONG' 
         ? currentPrice - (atr * 0.8)
         : currentPrice + (atr * 0.8);
@@ -491,8 +591,11 @@ async function analyzeOceaniaPhase(candles15m: any[], indicators: any, currentPr
       
       const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
       
+      console.log(`  - R:R Ratio: ${rrRatio.toFixed(2)} (range: ${RR_RANGES.OCEANIA_CONFIRMATION.min}-${RR_RANGES.OCEANIA_CONFIRMATION.max})`);
+      
       // ✅ FASE 6: Validar R:R específico para Oceania
       if (rrRatio >= RR_RANGES.OCEANIA_CONFIRMATION.min && rrRatio <= RR_RANGES.OCEANIA_CONFIRMATION.max) {
+        console.log(`✅ Oceania confirmation trade APPROVED - ${c1Direction}`);
         return {
           signal: c1Direction,
           direction: c1Direction,
@@ -505,13 +608,17 @@ async function analyzeOceaniaPhase(candles15m: any[], indicators: any, currentPr
             target: takeProfit,
             rr_ratio: rrRatio,
           },
-          confidence: 0.68,
-          notes: `Confirming C1 ${c1Direction} with volume ${volume.factor.toFixed(2)}x`,
+          confidence: 0.72, // ✅ Aumentado de 0.68
+          notes: `Confirming C1 ${c1Direction} with volume ${volume.factor.toFixed(2)}x, strength ${trend.strength.toFixed(2)}`,
           marketData: { price: currentPrice, atr },
           rangeHigh: null,
           rangeLow: null,
         };
+      } else {
+        console.log(`❌ R:R fora do range - rejeitando operação`);
       }
+    } else {
+      console.log(`❌ Critérios não atendidos - aguardando melhor setup`);
     }
   }
   
