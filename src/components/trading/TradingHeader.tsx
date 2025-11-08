@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Play, Pause, Square, Settings, LogOut } from "lucide-react";
 import { useState } from "react";
 import { SettingsModal } from "./SettingsModal";
+import { ClearHistoryButton } from "./ClearHistoryButton";
 import { useUserSettings, useUpdateBotStatus } from "@/hooks/useTradingData";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -90,6 +91,8 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
                   </Button>
                 </>
               )}
+              
+              <ClearHistoryButton />
               
               <Button
                 onClick={() => setShowSettings(true)}
