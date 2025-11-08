@@ -779,12 +779,46 @@ async function analyzeTechnicalStandalone(
         rangeLow: null,
       };
       
+    } else if (feedbackResponse.status === 402) {
+      // 🆕 DETECÇÃO ESPECÍFICA DE FALTA DE CRÉDITOS LOVABLE AI
+      console.warn(`⚠️ Lovable AI sem créditos (402) - OPERANDO EM MODO FALLBACK AUTOMÁTICO`);
+      console.log(`
+🔧 ========================================
+   MODO FALLBACK ATIVADO - IA OFFLINE
+   Razão: Sem créditos Lovable AI (402)
+   Operando com: Análise Técnica Pura
+   Confiança: ${(baseConfidence * 0.90).toFixed(1)}%
+========================================
+      `);
+      
+      // ✅ OPERAR IMEDIATAMENTE com análise técnica (90% da confiança base)
+      return {
+        signal,
+        direction,
+        c1Direction: null,
+        volumeFactor: volume.factor,
+        confirmation: `Standalone (IA sem créditos - operando técnico puro): ${session}`,
+        risk,
+        confidence: baseConfidence * 0.90, // 90% de confiança sem IA (melhor que outros erros)
+        notes: `Standalone FALLBACK AUTO: Wyckoff ${wyckoff.phase}, análise técnica validada (IA 402 - sem créditos)`,
+        marketData: { price: currentPrice, rsi, macd, atr, wyckoff, volumeProfile },
+        rangeHigh: null,
+        rangeLow: null,
+      };
+      
     } else {
-      console.warn(`⚠️ Erro ao chamar agente IA (status ${feedbackResponse.status}) - prosseguindo com análise técnica pura`);
+      // Outros erros HTTP (500, 503, etc)
+      console.warn(`⚠️ Erro ao chamar agente IA (status ${feedbackResponse.status}) - fallback ativo`);
+      console.log(`
+🔧 ========================================
+   MODO FALLBACK ATIVADO - IA OFFLINE
+   Razão: Erro de conexão (${feedbackResponse.status})
+   Operando com: Análise Técnica Pura
+   Confiança: ${(baseConfidence * 0.88).toFixed(1)}%
+========================================
+      `);
       
       // ✅ FALLBACK ROBUSTO: Se IA offline, executar com confiança reduzida
-      console.log(`🔧 MODO FALLBACK ATIVADO - Operando sem validação IA`);
-      
       return {
         signal,
         direction,
@@ -792,7 +826,7 @@ async function analyzeTechnicalStandalone(
         volumeFactor: volume.factor,
         confirmation: `Standalone (IA offline - fallback ativo): ${session}`,
         risk,
-        confidence: baseConfidence * 0.88, // ✅ Aumentado de 0.9 para 0.88 (menos penalidade)
+        confidence: baseConfidence * 0.88, // 88% de confiança (penalidade maior para erros desconhecidos)
         notes: `Standalone FALLBACK: Wyckoff ${wyckoff.phase}, VP Relation ${wyckoff.volumePriceRelation} (IA offline, operando com análise técnica validada)`,
         marketData: { price: currentPrice, rsi, macd, atr, wyckoff, volumeProfile },
         rangeHigh: null,
