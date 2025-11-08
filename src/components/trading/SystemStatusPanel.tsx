@@ -48,6 +48,12 @@ export const SystemStatusPanel = () => {
 
   const StatusIcon = getStatusIcon();
 
+  const isBuffer = lastExecution?.data && 
+    ((lastExecution.data as any)?.phase === 'BUFFER FINAL' || 
+     (lastExecution.data as any)?.phase === 'BUFFER INICIAL');
+  
+  const canTrade = botRunning && !isBuffer;
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -57,6 +63,41 @@ export const SystemStatusPanel = () => {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* INDICADOR PRINCIPAL DE OPERAÇÃO */}
+        <div className="p-3 rounded-lg border-2" style={{
+          borderColor: canTrade ? 'hsl(var(--success))' : isBuffer ? 'hsl(var(--warning))' : 'hsl(var(--muted))',
+          backgroundColor: canTrade ? 'hsl(var(--success) / 0.1)' : isBuffer ? 'hsl(var(--warning) / 0.1)' : 'hsl(var(--muted) / 0.1)'
+        }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium">Status de Operação</span>
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full animate-pulse`} style={{
+                backgroundColor: canTrade ? 'hsl(var(--success))' : isBuffer ? 'hsl(var(--warning))' : 'hsl(var(--muted-foreground))'
+              }} />
+              <span className="text-xs font-bold" style={{
+                color: canTrade ? 'hsl(var(--success))' : isBuffer ? 'hsl(var(--warning))' : 'hsl(var(--muted-foreground))'
+              }}>
+                {canTrade ? '🟢 OPERANDO' : isBuffer ? '🟡 BUFFER' : '⚫ PARADO'}
+              </span>
+            </div>
+          </div>
+          {isBuffer && (
+            <p className="text-xs" style={{ color: 'hsl(var(--warning))' }}>
+              ⏳ Período de transição - Sem execução de trades
+            </p>
+          )}
+          {canTrade && (
+            <p className="text-xs text-success">
+              ✅ Sistema ativo - Pode executar trades
+            </p>
+          )}
+          {!botRunning && (
+            <p className="text-xs text-muted-foreground">
+              Bot desligado - Clique em "Iniciar Bot" para operar
+            </p>
+          )}
+        </div>
+
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Orchestrator</span>
           <Badge variant={botRunning ? "default" : "secondary"}>
@@ -67,16 +108,6 @@ export const SystemStatusPanel = () => {
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Última Execução</span>
           <span className="text-xs font-mono">{lastRun}</span>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Status Geral</span>
-          <div className="flex items-center gap-1">
-            <StatusIcon className={`h-4 w-4 ${getStatusColor()}`} />
-            <span className={`text-xs font-medium ${getStatusColor()}`}>
-              {botRunning ? (lastExecution?.status === 'active' ? 'ATIVO' : 'AGUARDANDO') : 'OFFLINE'}
-            </span>
-          </div>
         </div>
 
         <div className="flex items-center justify-between">
