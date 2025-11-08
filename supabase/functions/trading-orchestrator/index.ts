@@ -228,17 +228,9 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
   // ✅ FASE 7: Carregar session state
   let sessionState = await getSessionState(supabase, userId);
   
-  // ✅ FALLBACK: Se não há session_state e não é Oceania, criar placeholder
-  if (!sessionState && currentSession !== 'Oceania') {
-    console.warn(`⚠️ Session State não encontrado - criando fallback para ${currentSession}`);
-    
-    await updateSessionState(supabase, userId, {
-      c1_direction: 'NEUTRAL',
-      c1_confidence: 0.5,
-      asia_confirmation: 'PENDING'
-    });
-    
-    sessionState = await getSessionState(supabase, userId);
+  // Session State ausente - sistema usará análise técnica standalone
+  if (!sessionState) {
+    console.log(`ℹ️ Session State ausente - modo STANDALONE HÍBRIDO será ativado`);
   }
   
   // ✅ VERIFICAR BUFFER DE VELAS
@@ -249,11 +241,11 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
 📊 CYCLE START - User ${userId}
 - UTC Time: ${now.toISOString()}
 - Session: ${currentSession} (${cyclePhase})
+- Trading Mode: ${sessionState?.c1_direction ? '🎯 FIMATHE' : '🔧 STANDALONE HÍBRIDO'}
 - Operating Window: ${bufferCheck.message}
 - Minutes into session: ${utcMinutes - (currentSession === 'Oceania' ? 0 : currentSession === 'Asia' ? 180 : currentSession === 'London' ? 480 : 780)}
-- Session State: ${sessionState ? '✅ EXISTS' : '❌ MISSING'}
-- C1 Direction: ${sessionState?.c1_direction || 'NOT SET'} (confidence: ${sessionState?.c1_confidence || 0})
-- Asia Status: ${sessionState?.asia_confirmation || 'NOT SET'}
+- Session State: ${sessionState ? `✅ C1=${sessionState.c1_direction}` : '⚙️ Using Wyckoff + Volume Profile + IA'}
+- Asia Status: ${sessionState?.asia_confirmation || 'N/A'}
 - London Range: ${sessionState?.london_range_low || 'N/A'} - ${sessionState?.london_range_high || 'N/A'}
   `);
 
@@ -495,27 +487,333 @@ async function analyzeCyclePhase(params: any) {
   const currentPrice = parseFloat(candles5m[candles5m.length - 1].close);
   const indicators = calculateIndicators(candles5m, candles15m, candles1h);
 
-  // ✅ FASE 2: Oceania - O Desenhista
-  if (phase === 'Projection_Oceania') {
-    return await analyzeOceaniaPhase(candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
+  // ✅ MODO FIMATHE (quando session_state existe com C1)
+  if (sessionState?.c1_direction) {
+    
+    if (phase === 'Projection_Oceania') {
+      return await analyzeOceaniaPhase(candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
+    }
+    
+    if (phase === 'Projection_Asia') {
+      return await analyzeAsiaPhase(candles5m, candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
+    }
+    
+    if (phase === 'Consolidation') {
+      return await analyzeLondonPhase(candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
+    }
+    
+    if (phase === 'Execution') {
+      return await analyzeNYPhase(candles5m, candles15m, indicators, currentPrice, asset, sessionState);
+    }
   }
   
-  // ✅ FASE 3: Asia - O Confirmador
-  if (phase === 'Projection_Asia') {
-    return await analyzeAsiaPhase(candles5m, candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
-  }
-  
-  // ✅ FASE 4: London - O Precificador
-  if (phase === 'Consolidation') {
-    return await analyzeLondonPhase(candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
-  }
-  
-  // ✅ FASE 5: NY - O Executor
-  if (phase === 'Execution') {
-    return await analyzeNYPhase(candles5m, candles15m, indicators, currentPrice, asset, sessionState);
+  // ✅ MODO STANDALONE HÍBRIDO (quando NÃO há session_state)
+  else {
+    console.log(`🔧 Modo STANDALONE HÍBRIDO ativado - ${session}`);
+    return await analyzeTechnicalStandalone(
+      candles5m,
+      candles15m,
+      candles1h,
+      indicators,
+      currentPrice,
+      asset,
+      session,
+      supabase,
+      userId
+    );
   }
 
   return null;
+}
+
+// ✅ ANÁLISE TÉCNICA STANDALONE HÍBRIDA (com Wyckoff + Volume Profile + validação IA)
+async function analyzeTechnicalStandalone(
+  candles5m: any[],
+  candles15m: any[],
+  candles1h: any[],
+  indicators: any,
+  currentPrice: number,
+  asset: string,
+  session: string,
+  supabase: any,
+  userId: string
+): Promise<any> {
+  
+  const { rsi, macd, volume, atr, trend } = indicators;
+  
+  // 1️⃣ DETECTAR TENDÊNCIA
+  const recentTrend = detectTrend(candles15m.slice(-20));
+  
+  // 2️⃣ CALCULAR VOLUME PROFILE
+  const volumeProfile = calculateVolumeProfile(candles15m.slice(-50));
+  
+  // 3️⃣ DETECTAR FASE WYCKOFF
+  const wyckoff = detectWyckoffPhase(candles15m.slice(-20), volumeProfile);
+  
+  console.log(`📊 Standalone Analysis - ${asset}:
+    Trend: ${recentTrend.direction} (${recentTrend.strength.toFixed(2)})
+    RSI: ${rsi.toFixed(2)}
+    MACD: ${macd.toFixed(4)}
+    Volume Factor: ${volume.factor.toFixed(2)}
+    POC: ${volumeProfile.poc.toFixed(2)}
+    Value Area: ${volumeProfile.valueAreaLow.toFixed(2)} - ${volumeProfile.valueAreaHigh.toFixed(2)}
+    Wyckoff Phase: ${wyckoff.phase}
+    Volume-Price: ${wyckoff.volumePriceRelation}
+  `);
+  
+  // 4️⃣ CRITÉRIOS DE ENTRADA LONG
+  const nearPOC = Math.abs(currentPrice - volumeProfile.poc) / currentPrice < 0.01; // ±1% do POC
+  const aboveVAL = currentPrice > volumeProfile.valueAreaLow;
+  const belowVAH = currentPrice < volumeProfile.valueAreaHigh;
+  
+  const isLongSetup = (
+    recentTrend.direction === 'LONG' &&
+    recentTrend.strength > 0.6 &&
+    rsi > 40 && rsi < 70 &&
+    macd > 0 &&
+    volume.factor > 1.0 &&
+    trend === 'UP' &&
+    (wyckoff.phase === 'ACCUMULATION' || wyckoff.phase === 'MARKUP') &&
+    (wyckoff.volumePriceRelation === 'BUYING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH')
+  );
+  
+  // 5️⃣ CRITÉRIOS DE ENTRADA SHORT
+  const isShortSetup = (
+    recentTrend.direction === 'SHORT' &&
+    recentTrend.strength > 0.6 &&
+    rsi > 30 && rsi < 60 &&
+    macd < 0 &&
+    volume.factor > 1.0 &&
+    trend === 'DOWN' &&
+    (wyckoff.phase === 'DISTRIBUTION' || wyckoff.phase === 'MARKDOWN') &&
+    (wyckoff.volumePriceRelation === 'SELLING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH')
+  );
+  
+  if (!isLongSetup && !isShortSetup) {
+    console.log(`❌ Sem setup válido - aguardando condições`);
+    return {
+      signal: 'STAY_OUT',
+      direction: 'NEUTRAL',
+      c1Direction: null,
+      volumeFactor: volume.factor,
+      confirmation: 'Aguardando setup técnico válido',
+      risk: null,
+      confidence: 0.3,
+      notes: `Standalone: Sem confluência. Wyckoff: ${wyckoff.phase}, VP Relation: ${wyckoff.volumePriceRelation}`,
+      marketData: { price: currentPrice, rsi, macd, atr, wyckoff, volumeProfile },
+      rangeHigh: null,
+      rangeLow: null,
+    };
+  }
+  
+  // 6️⃣ CALCULAR STOP/TARGET COM ATR
+  let signal = 'STAY_OUT';
+  let direction = 'NEUTRAL';
+  let risk = null;
+  let baseConfidence = 0.65;
+  
+  if (isLongSetup) {
+    signal = 'LONG';
+    direction = 'LONG';
+    
+    // Stop logo abaixo do VAL ou 1.2 ATR
+    const stopLoss = Math.min(
+      volumeProfile.valueAreaLow * 0.998,
+      currentPrice - (atr * 1.2)
+    );
+    
+    const takeProfit = currentPrice + (atr * 1.8);
+    const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
+    
+    risk = {
+      entry: currentPrice,
+      stop: stopLoss,
+      target: takeProfit,
+      rr_ratio: rrRatio,
+    };
+    
+    baseConfidence = 0.65 + (recentTrend.strength * 0.10);
+    
+  } else if (isShortSetup) {
+    signal = 'SHORT';
+    direction = 'SHORT';
+    
+    // Stop logo acima do VAH ou 1.2 ATR
+    const stopLoss = Math.max(
+      volumeProfile.valueAreaHigh * 1.002,
+      currentPrice + (atr * 1.2)
+    );
+    
+    const takeProfit = currentPrice - (atr * 1.8);
+    const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
+    
+    risk = {
+      entry: currentPrice,
+      stop: stopLoss,
+      target: takeProfit,
+      rr_ratio: rrRatio,
+    };
+    
+    baseConfidence = 0.65 + (recentTrend.strength * 0.10);
+  }
+  
+  // 7️⃣ VALIDAÇÃO COM AGENTE IA (Feedback Analítico)
+  console.log(`🤖 Chamando agente-feedback-analitico para validação...`);
+  
+  try {
+    const feedbackResponse = await fetch(AGENTE_FEEDBACK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+      body: JSON.stringify({
+        asset,
+        session,
+        phase: 'STANDALONE',
+        signal: direction,
+        confidence: baseConfidence,
+        indicators: {
+          rsi,
+          macd,
+          volume_factor: volume.factor,
+          atr,
+          trend: recentTrend,
+        },
+        volumeProfile: {
+          poc: volumeProfile.poc,
+          valueAreaHigh: volumeProfile.valueAreaHigh,
+          valueAreaLow: volumeProfile.valueAreaLow,
+        },
+        wyckoff: {
+          phase: wyckoff.phase,
+          events: wyckoff.events,
+          volumePriceRelation: wyckoff.volumePriceRelation,
+        },
+        price: currentPrice,
+        risk,
+      }),
+    });
+    
+    if (feedbackResponse.ok) {
+      const feedback = await feedbackResponse.json();
+      
+      console.log(`✅ Feedback IA recebido:
+        Quality Score: ${feedback.qualityScore}
+        Adjusted Confidence: ${feedback.adjustedConfidence}
+        Recommendation: ${feedback.recommendation}
+      `);
+      
+      // Registrar log do agente
+      await supabase.from('agent_logs').insert({
+        user_id: userId,
+        agent_name: 'agente-feedback-analitico',
+        asset,
+        status: 'completed',
+        data: {
+          analysis: feedback.analysis,
+          qualityScore: feedback.qualityScore,
+          recommendation: feedback.recommendation,
+        },
+      });
+      
+      // Se IA rejeitar, não operar
+      if (feedback.recommendation === 'REJEITAR') {
+        console.log(`🚫 IA rejeitou o sinal - aguardando melhor oportunidade`);
+        return {
+          signal: 'STAY_OUT',
+          direction: 'NEUTRAL',
+          c1Direction: null,
+          volumeFactor: volume.factor,
+          confirmation: `IA rejeitou: ${feedback.analysis}`,
+          risk: null,
+          confidence: feedback.adjustedConfidence,
+          notes: `Standalone rejeitado por IA. Quality: ${feedback.qualityScore}`,
+          marketData: { price: currentPrice, rsi, macd, wyckoff, volumeProfile, aiAnalysis: feedback.analysis },
+          rangeHigh: null,
+          rangeLow: null,
+        };
+      }
+      
+      // Se IA pedir para aguardar
+      if (feedback.recommendation === 'AGUARDAR') {
+        console.log(`⏳ IA sugere aguardar - setup não está ideal`);
+        return {
+          signal: 'STAY_OUT',
+          direction,
+          c1Direction: null,
+          volumeFactor: volume.factor,
+          confirmation: `IA sugere aguardar: ${feedback.analysis}`,
+          risk,
+          confidence: feedback.adjustedConfidence,
+          notes: `Standalone: IA pediu espera. Quality: ${feedback.qualityScore}`,
+          marketData: { price: currentPrice, rsi, macd, wyckoff, volumeProfile, aiAnalysis: feedback.analysis },
+          rangeHigh: null,
+          rangeLow: null,
+        };
+      }
+      
+      // IA APROVOU - Executar com confiança ajustada
+      console.log(`✅ IA aprovou sinal ${direction} - executando!`);
+      
+      return {
+        signal,
+        direction,
+        c1Direction: null,
+        volumeFactor: volume.factor,
+        confirmation: `Standalone híbrido validado por IA: ${feedback.analysis}`,
+        risk,
+        confidence: feedback.adjustedConfidence, // Usar confiança ajustada pela IA
+        notes: `Standalone: Wyckoff ${wyckoff.phase}, VP near POC, IA Quality ${feedback.qualityScore}`,
+        marketData: { 
+          price: currentPrice, 
+          rsi, 
+          macd, 
+          atr, 
+          wyckoff, 
+          volumeProfile,
+          aiAnalysis: feedback.analysis,
+          aiQuality: feedback.qualityScore,
+        },
+        rangeHigh: null,
+        rangeLow: null,
+      };
+      
+    } else {
+      console.warn(`⚠️ Erro ao chamar agente IA - prosseguindo com análise técnica pura`);
+      // Se IA falhar, usar confiança base (modo fallback)
+      return {
+        signal,
+        direction,
+        c1Direction: null,
+        volumeFactor: volume.factor,
+        confirmation: `Standalone (sem validação IA): ${session}`,
+        risk,
+        confidence: baseConfidence * 0.9, // Reduzir um pouco por falta de validação IA
+        notes: `Standalone: Wyckoff ${wyckoff.phase}, VP Relation ${wyckoff.volumePriceRelation} (IA offline)`,
+        marketData: { price: currentPrice, rsi, macd, atr, wyckoff, volumeProfile },
+        rangeHigh: null,
+        rangeLow: null,
+      };
+    }
+    
+  } catch (aiError) {
+    console.error(`❌ Erro ao validar com IA:`, aiError);
+    // Fallback: usar análise técnica pura
+    return {
+      signal,
+      direction,
+      c1Direction: null,
+      volumeFactor: volume.factor,
+      confirmation: `Standalone (erro IA): ${session}`,
+      risk,
+      confidence: baseConfidence * 0.85,
+      notes: `Standalone: Wyckoff ${wyckoff.phase}, análise técnica apenas (IA erro)`,
+      marketData: { price: currentPrice, rsi, macd, atr, wyckoff, volumeProfile },
+      rangeHigh: null,
+      rangeLow: null,
+    };
+  }
 }
 
 // ✅ FASE 2: Oceania - O Desenhista (CRÍTICO)
@@ -1019,6 +1317,153 @@ function detectTrend(candles: any[]): { direction: string; strength: number } {
   }
   
   return { direction: 'NEUTRAL', strength: 0 };
+}
+
+// ✅ Volume Profile: Calcular POC, Value Area e zonas HVN/LVN
+function calculateVolumeProfile(candles: any[]): {
+  poc: number;
+  valueAreaHigh: number;
+  valueAreaLow: number;
+  hvnZones: number[];
+  lvnZones: number[];
+} {
+  if (candles.length < 20) {
+    const mid = parseFloat(candles[candles.length - 1].close);
+    return { poc: mid, valueAreaHigh: mid, valueAreaLow: mid, hvnZones: [], lvnZones: [] };
+  }
+
+  // Agrupar volume por níveis de preço
+  const priceVolumes = new Map<string, number>();
+  const allPrices: number[] = [];
+
+  for (const candle of candles) {
+    const high = parseFloat(candle.high);
+    const low = parseFloat(candle.low);
+    const volume = parseFloat(candle.volume);
+    
+    // Dividir range do candle em níveis
+    const levels = 5;
+    const step = (high - low) / levels;
+    
+    for (let i = 0; i < levels; i++) {
+      const price = low + (step * i);
+      const priceKey = price.toFixed(2);
+      priceVolumes.set(priceKey, (priceVolumes.get(priceKey) || 0) + (volume / levels));
+      allPrices.push(price);
+    }
+  }
+
+  // Encontrar POC (Point of Control) - preço com maior volume
+  let maxVolume = 0;
+  let poc = 0;
+  
+  priceVolumes.forEach((vol, priceStr) => {
+    if (vol > maxVolume) {
+      maxVolume = vol;
+      poc = parseFloat(priceStr);
+    }
+  });
+
+  // Calcular Value Area (70% do volume)
+  const sortedByVolume = Array.from(priceVolumes.entries())
+    .sort((a, b) => b[1] - a[1]);
+  
+  const totalVolume = Array.from(priceVolumes.values()).reduce((a, b) => a + b, 0);
+  const targetVolume = totalVolume * 0.7;
+  
+  let accumulatedVolume = 0;
+  const valueAreaPrices: number[] = [];
+  
+  for (const [priceStr, vol] of sortedByVolume) {
+    accumulatedVolume += vol;
+    valueAreaPrices.push(parseFloat(priceStr));
+    if (accumulatedVolume >= targetVolume) break;
+  }
+  
+  const valueAreaHigh = Math.max(...valueAreaPrices);
+  const valueAreaLow = Math.min(...valueAreaPrices);
+
+  // Detectar HVN (High Volume Nodes) e LVN (Low Volume Nodes)
+  const avgVolume = totalVolume / priceVolumes.size;
+  const hvnZones: number[] = [];
+  const lvnZones: number[] = [];
+  
+  priceVolumes.forEach((vol, priceStr) => {
+    if (vol > avgVolume * 1.5) {
+      hvnZones.push(parseFloat(priceStr));
+    } else if (vol < avgVolume * 0.5) {
+      lvnZones.push(parseFloat(priceStr));
+    }
+  });
+
+  return { poc, valueAreaHigh, valueAreaLow, hvnZones, lvnZones };
+}
+
+// ✅ Wyckoff: Detectar fase do ciclo e eventos
+function detectWyckoffPhase(candles: any[], volumeProfile: any): {
+  phase: string;
+  events: string[];
+  volumePriceRelation: string;
+} {
+  if (candles.length < 10) {
+    return { phase: 'NEUTRAL', events: [], volumePriceRelation: 'NEUTRAL' };
+  }
+
+  const recentCandles = candles.slice(-10);
+  const volumes = recentCandles.map((c: any) => parseFloat(c.volume));
+  const closes = recentCandles.map((c: any) => parseFloat(c.close));
+  const highs = recentCandles.map((c: any) => parseFloat(c.high));
+  const lows = recentCandles.map((c: any) => parseFloat(c.low));
+  
+  const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
+  const currentVolume = volumes[volumes.length - 1];
+  const priceChange = closes[closes.length - 1] - closes[0];
+  const priceRange = Math.max(...highs) - Math.min(...lows);
+  
+  const events: string[] = [];
+  let phase = 'NEUTRAL';
+  let volumePriceRelation = 'NEUTRAL';
+
+  // Detectar acumulação/distribuição
+  const isRangebound = priceRange / closes[0] < 0.02; // Variação < 2%
+  const highVolume = currentVolume > avgVolume * 1.3;
+  
+  if (isRangebound && highVolume) {
+    // Possível acumulação ou distribuição
+    if (closes[closes.length - 1] > volumeProfile.poc) {
+      phase = 'ACCUMULATION';
+      events.push('Spring/Shakeout possível');
+    } else {
+      phase = 'DISTRIBUTION';
+      events.push('UTAD (Upthrust) possível');
+    }
+  }
+  
+  // Detectar markup/markdown
+  const strongTrend = Math.abs(priceChange) / closes[0] > 0.03; // Variação > 3%
+  
+  if (strongTrend && !isRangebound) {
+    if (priceChange > 0) {
+      phase = 'MARKUP';
+      events.push('Fase bullish');
+      volumePriceRelation = highVolume ? 'STRENGTH' : 'WEAKNESS';
+    } else {
+      phase = 'MARKDOWN';
+      events.push('Fase bearish');
+      volumePriceRelation = highVolume ? 'STRENGTH' : 'WEAKNESS';
+    }
+  }
+
+  // Relação Volume-Preço
+  if (Math.abs(priceChange) > closes[0] * 0.01) {
+    if (currentVolume > avgVolume * 1.2) {
+      volumePriceRelation = priceChange > 0 ? 'BUYING_PRESSURE' : 'SELLING_PRESSURE';
+    } else {
+      volumePriceRelation = 'LOW_CONVICTION';
+    }
+  }
+
+  return { phase, events, volumePriceRelation };
 }
 
 // Calculate technical indicators
