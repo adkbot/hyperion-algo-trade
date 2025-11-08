@@ -1736,6 +1736,37 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
   - Confidence: ${(confidence * 100).toFixed(1)}%
   `);
 
+  // 🔥 BINANCE INTEGRATION: Execute real order if not in paper mode
+  if (!settings.paper_mode && settings.api_key && settings.api_secret) {
+    console.log(`📡 Calling binance-order for REAL trade: ${asset} ${signal}`);
+    
+    try {
+      const { data: orderData, error: orderError } = await supabase.functions.invoke('binance-order', {
+        body: {
+          user_id: userId,
+          asset,
+          side: signal === 'LONG' ? 'BUY' : 'SELL',
+          quantity: quantity.toFixed(4),
+          stop_loss: stopLoss,
+          take_profit: takeProfit,
+        },
+      });
+
+      if (orderError) {
+        console.error(`❌ Binance order failed for ${asset}:`, orderError);
+        return false;
+      }
+
+      console.log(`✅ Real Binance order executed:`, orderData);
+      // Continue with database insertion below
+    } catch (error) {
+      console.error(`❌ Exception calling binance-order:`, error);
+      return false;
+    }
+  } else {
+    console.log(`📋 Paper mode: simulating trade for ${asset}`);
+  }
+
   // Insert into active_positions
   const { error: positionError } = await supabase.from('active_positions').insert({
     user_id: userId,
@@ -1916,7 +1947,33 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
       }
 
       if (closePosition) {
-        // Close position
+        // 🔥 BINANCE INTEGRATION: Close real order if not in paper mode
+        if (!settings.paper_mode && settings.api_key && settings.api_secret) {
+          console.log(`📡 Calling binance-close-order for REAL close: ${symbol}`);
+          
+          try {
+            const { data: closeData, error: closeError } = await supabase.functions.invoke('binance-close-order', {
+              body: {
+                user_id: userId,
+                asset: symbol,
+                side: direction === 'BUY' ? 'SELL' : 'BUY', // Opposite side to close
+                quantity: quantity.toFixed(4),
+              },
+            });
+
+            if (closeError) {
+              console.error(`❌ Binance close order failed for ${symbol}:`, closeError);
+              // Continue anyway to update database
+            } else {
+              console.log(`✅ Real Binance position closed:`, closeData);
+            }
+          } catch (error) {
+            console.error(`❌ Exception calling binance-close-order:`, error);
+            // Continue anyway to update database
+          }
+        }
+
+        // Close position in database
         await supabase.from('active_positions').delete().eq('id', position.id);
 
         // Update operation
