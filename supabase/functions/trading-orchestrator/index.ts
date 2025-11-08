@@ -1915,10 +1915,20 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
           body: {
             user_id: userId,
             asset,
+            direction: signal,
             side: signal === 'LONG' ? 'BUY' : 'SELL',
             quantity: quantity.toFixed(4),
+            price: entryPrice,
             stop_loss: stopLoss,
             take_profit: takeProfit,
+            riskReward: risk.rr_ratio,
+            agents: {
+              confidence,
+              agentFeedback,
+              agentExecution,
+              totalScore
+            },
+            session: currentSession,
           },
         });
 
@@ -1928,6 +1938,21 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
         }
 
         console.log(`✅ Binance order executed:`, orderData);
+        
+        // ✅ Validar status da ordem real
+        if (orderData?.mode === 'real') {
+          const binanceOrder = orderData.binanceOrder;
+          
+          if (!binanceOrder || (binanceOrder.status !== 'FILLED' && binanceOrder.status !== 'NEW')) {
+            console.error(`⚠️ Ordem não executada completamente. Status: ${binanceOrder?.status || 'UNKNOWN'}`);
+            return false;
+          }
+          
+          console.log(`📋 Binance Order ID: ${binanceOrder.orderId}`);
+          console.log(`📊 Status: ${binanceOrder.status}`);
+          console.log(`💰 Executado: ${binanceOrder.executedQty || 'N/A'}/${binanceOrder.origQty || 'N/A'}`);
+          console.log(`💵 Preço médio: ${binanceOrder.avgPrice || binanceOrder.price || 'N/A'}`);
+        }
       } catch (binanceError) {
         console.error(`❌ Binance execution failed:`, binanceError);
         return false;

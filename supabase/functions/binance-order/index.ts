@@ -115,10 +115,8 @@ serve(async (req) => {
     const params = new URLSearchParams({
       symbol: asset,
       side: direction,
-      type: 'LIMIT',
-      timeInForce: 'GTC',
+      type: 'MARKET',
       quantity: quantity.toString(),
-      price: price.toString(),
       timestamp: timestamp.toString(),
     });
 
