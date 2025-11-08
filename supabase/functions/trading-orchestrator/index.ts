@@ -568,10 +568,10 @@ async function analyzeTechnicalStandalone(
   
   const isLongSetup = (
     recentTrend.direction === 'LONG' &&
-    recentTrend.strength > 0.6 &&
-    rsi > 35 && rsi < 75 && // ✅ AMPLIADO: era 40-70
+    recentTrend.strength > 0.55 && // ✅ Reduzido de 0.6 para 0.55
+    rsi > 30 && rsi < 75 && // ✅ AMPLIADO ainda mais
     macd > 0 &&
-    volume.factor > 0.4 && // ✅ REDUZIDO: 0.4-0.7 é NORMAL em crypto
+    volume.factor > 0.05 && // ✅ MUITO REDUZIDO: mercado atual está em 0.06-0.38
     wyckoff.phase !== 'DISTRIBUTION' && // ✅ RELAXADO: permite NEUTRAL
     (wyckoff.volumePriceRelation === 'BUYING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH' || wyckoff.volumePriceRelation === 'NEUTRAL' || wyckoff.volumePriceRelation === 'LOW_CONVICTION')
   );
@@ -579,10 +579,10 @@ async function analyzeTechnicalStandalone(
   // 5️⃣ CRITÉRIOS DE ENTRADA SHORT - RELAXADOS
   const isShortSetup = (
     recentTrend.direction === 'SHORT' &&
-    recentTrend.strength > 0.6 &&
-    rsi > 15 && rsi < 65 && // ✅ AMPLIADO: era 30-60
+    recentTrend.strength > 0.55 && // ✅ Reduzido de 0.6 para 0.55
+    rsi > 15 && rsi < 70 && // ✅ AMPLIADO ainda mais
     macd < 0 &&
-    volume.factor > 0.4 && // ✅ REDUZIDO: 0.4-0.7 é NORMAL em crypto
+    volume.factor > 0.05 && // ✅ MUITO REDUZIDO: mercado atual está em 0.06-0.38
     wyckoff.phase !== 'ACCUMULATION' && // ✅ RELAXADO: permite NEUTRAL
     (wyckoff.volumePriceRelation === 'SELLING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH' || wyckoff.volumePriceRelation === 'LOW_CONVICTION' || wyckoff.volumePriceRelation === 'NEUTRAL')
   );
