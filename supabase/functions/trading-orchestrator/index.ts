@@ -657,14 +657,10 @@ async function analyzeTechnicalStandalone(
     baseConfidence = 0.65 + (recentTrend.strength * 0.10);
   }
   
-  // 7️⃣ VALIDAÇÃO COM AGENTE IA (Feedback Analítico) - COM TIMEOUT
+  // 7️⃣ VALIDAÇÃO COM AGENTE IA (Feedback Analítico)
   console.log(`🤖 Chamando agente-feedback-analitico para validação...`);
   
   try {
-    // ✅ TIMEOUT de 5 segundos
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    
     const feedbackResponse = await fetch(AGENTE_FEEDBACK_URL, {
       method: 'POST',
       headers: {
@@ -697,10 +693,7 @@ async function analyzeTechnicalStandalone(
         price: currentPrice,
         risk,
       }),
-      signal: controller.signal, // ✅ ADICIONA TIMEOUT
     });
-    
-    clearTimeout(timeoutId); // ✅ LIMPA TIMEOUT SE SUCESSO
     
     if (feedbackResponse.ok) {
       const feedback = await feedbackResponse.json();
@@ -808,21 +801,20 @@ async function analyzeTechnicalStandalone(
     }
     
   } catch (aiError) {
-    const isTimeout = aiError instanceof Error && aiError.name === 'AbortError';
-    console.error(`❌ Erro ao validar com IA${isTimeout ? ' (TIMEOUT)' : ''}:`, aiError);
+    console.error(`❌ Erro ao validar com IA:`, aiError);
     
-    // ✅ FALLBACK ROBUSTO: Timeout ou erro de rede
-    console.log(`🔧 MODO FALLBACK ATIVADO ${isTimeout ? '(Timeout 5s)' : '(Erro de rede)'} - Operando com análise técnica`);
+    // ✅ FALLBACK ROBUSTO
+    console.log(`🔧 MODO FALLBACK ATIVADO - Operando com análise técnica`);
     
     return {
       signal,
       direction,
       c1Direction: null,
       volumeFactor: volume.factor,
-      confirmation: `Standalone (${isTimeout ? 'IA timeout' : 'erro IA'}): ${session}`,
+      confirmation: `Standalone (IA offline): ${session}`,
       risk,
-      confidence: baseConfidence * 0.88, // ✅ Aumentado de 0.85 para 0.88
-      notes: `Standalone FALLBACK: Wyckoff ${wyckoff.phase}, análise técnica validada (IA ${isTimeout ? 'timeout' : 'erro'})`,
+      confidence: baseConfidence * 0.88,
+      notes: `Standalone FALLBACK: Wyckoff ${wyckoff.phase}, análise técnica validada`,
       marketData: { price: currentPrice, rsi, macd, atr, wyckoff, volumeProfile },
       rangeHigh: null,
       rangeLow: null,
