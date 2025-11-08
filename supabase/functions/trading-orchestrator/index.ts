@@ -614,13 +614,13 @@ async function analyzeTechnicalStandalone(
     signal = 'LONG';
     direction = 'LONG';
     
-    // Stop logo abaixo do VAL ou 1.2 ATR
+    // Stop logo abaixo do VAL ou 0.6 ATR (SCALPING)
     const stopLoss = Math.min(
       volumeProfile.valueAreaLow * 0.998,
-      currentPrice - (atr * 1.2)
+      currentPrice - (atr * 0.6)  // Mais próximo para scalping
     );
     
-    const takeProfit = currentPrice + (atr * 1.8);
+    const takeProfit = currentPrice + (atr * 0.9);  // Target menor para fechar rápido
     const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
     
     risk = {
@@ -636,13 +636,13 @@ async function analyzeTechnicalStandalone(
     signal = 'SHORT';
     direction = 'SHORT';
     
-    // Stop logo acima do VAH ou 1.2 ATR
+    // Stop logo acima do VAH ou 0.6 ATR (SCALPING)
     const stopLoss = Math.max(
       volumeProfile.valueAreaHigh * 1.002,
-      currentPrice + (atr * 1.2)
+      currentPrice + (atr * 0.6)  // Mais próximo para scalping
     );
     
-    const takeProfit = currentPrice - (atr * 1.8);
+    const takeProfit = currentPrice - (atr * 0.9);  // Target menor para fechar rápido
     const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
     
     risk = {
@@ -918,12 +918,12 @@ async function analyzeOceaniaPhase(candles15m: any[], indicators: any, currentPr
     // ✅ CRITÉRIOS MAIS PERMISSIVOS: trend.strength > 0.4 (era 0.5)
     if (isAligned && (hasVolume || hasModerateVolume) && trend.strength > 0.4) {
       const stopLoss = c1Direction === 'LONG' 
-        ? currentPrice - (atr * 0.8)
-        : currentPrice + (atr * 0.8);
+        ? currentPrice - (atr * 0.6)  // SCALPING: mais próximo
+        : currentPrice + (atr * 0.6);
       
       const takeProfit = c1Direction === 'LONG'
-        ? currentPrice + (atr * 1.0)
-        : currentPrice - (atr * 1.0);
+        ? currentPrice + (atr * 0.9)  // SCALPING: target menor
+        : currentPrice - (atr * 0.9);
       
       const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
       
@@ -1007,15 +1007,15 @@ async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], indicators:
     
     console.log(`✅ Asia CONFIRMOU C1: ${c1Direction}`);
     
-    // Operar na direção confirmada
+    // Operar na direção confirmada - SCALPING MODE
     if (volume.factor > 1.2) {
       const stopLoss = c1Direction === 'LONG'
-        ? currentPrice - (atr * 0.9)
-        : currentPrice + (atr * 0.9);
+        ? currentPrice - (atr * 0.6)  // TP/SL mais próximos para scalping
+        : currentPrice + (atr * 0.6);
       
       const takeProfit = c1Direction === 'LONG'
-        ? currentPrice + (atr * 1.2)
-        : currentPrice - (atr * 1.2);
+        ? currentPrice + (atr * 0.9)  // Target menor para fechar rápido
+        : currentPrice - (atr * 0.9);
       
       const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
       
@@ -1054,15 +1054,15 @@ async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], indicators:
     
     console.log(`🔄 Asia REVERTEU C1 de ${c1Direction} para ${newDirection}`);
     
-    // Operar na NOVA direção
+    // Operar na NOVA direção - SCALPING MODE
     if (volume.factor > 1.3) {
       const stopLoss = newDirection === 'LONG'
-        ? currentPrice - (atr * 1.0)
-        : currentPrice + (atr * 1.0);
+        ? currentPrice - (atr * 0.6)  // TP/SL mais próximos para scalping
+        : currentPrice + (atr * 0.6);
       
       const takeProfit = newDirection === 'LONG'
-        ? currentPrice + (atr * 1.4)
-        : currentPrice - (atr * 1.4);
+        ? currentPrice + (atr * 0.9)  // Target menor para fechar rápido
+        : currentPrice - (atr * 0.9);
       
       const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
       
@@ -1848,11 +1848,52 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
         })
         .eq('id', position.id);
 
-      // Check if TP or SL hit
+      // ⏰ SCALPING: Check time-based exit FIRST
+      const now = new Date();
+      const openedAt = new Date(position.opened_at);
+      const minutesInPosition = (now.getTime() - openedAt.getTime()) / 60000;
+
       let closePosition = false;
       let result = '';
 
-      if (direction === 'BUY') {
+      // REGRA 1: Após 15 minutos, fechar SE tiver qualquer lucro
+      if (minutesInPosition >= 15) {
+        if (currentPnL > 0) {
+          closePosition = true;
+          result = 'WIN';
+          const profitPercent = (Math.abs(currentPnL) / (settings.balance * settings.risk_per_trade)) * 100;
+          console.log(`⏰ 15min exit with profit - ${symbol}: $${currentPnL.toFixed(2)} (${profitPercent.toFixed(2)}%)`);
+        }
+        // Se ainda no prejuízo, dar +5min de chance
+        else if (minutesInPosition >= 20) {
+          closePosition = true;
+          result = currentPnL > 0 ? 'WIN' : 'LOSS';
+          console.log(`⏰ 20min force exit - ${symbol}: $${currentPnL.toFixed(2)}`);
+        }
+      }
+
+      // REGRA 2: Fechar rápido se lucro >= 0.5% (mesmo antes de 15min)
+      if (!closePosition) {
+        const profitPercent = (Math.abs(currentPnL) / (settings.balance * settings.risk_per_trade)) * 100;
+        if (currentPnL > 0 && profitPercent >= 0.5 && minutesInPosition >= 5) {
+          closePosition = true;
+          result = 'WIN';
+          console.log(`💰 Quick profit (${profitPercent.toFixed(2)}%) - ${symbol}: $${currentPnL.toFixed(2)}`);
+        }
+      }
+
+      // REGRA 3: Stop Loss de emergência -2% (proteger capital)
+      if (!closePosition) {
+        const lossPercent = (Math.abs(currentPnL) / (settings.balance * settings.risk_per_trade)) * 100;
+        if (currentPnL < 0 && lossPercent >= 2.0) {
+          closePosition = true;
+          result = 'LOSS';
+          console.log(`🛑 Emergency stop -${lossPercent.toFixed(2)}% - ${symbol}: $${currentPnL.toFixed(2)}`);
+        }
+      }
+
+      // Check normal TP/SL if not already closing
+      if (!closePosition && direction === 'BUY') {
         if (currentPrice >= takeProfit) {
           closePosition = true;
           result = 'WIN';
@@ -1862,7 +1903,7 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
           result = 'LOSS';
           console.log(`❌ Stop Loss hit for ${symbol} - LONG at ${currentPrice}`);
         }
-      } else {
+      } else if (!closePosition) {
         if (currentPrice <= takeProfit) {
           closePosition = true;
           result = 'WIN';
