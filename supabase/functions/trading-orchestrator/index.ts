@@ -571,10 +571,9 @@ async function analyzeTechnicalStandalone(
     recentTrend.strength > 0.6 &&
     rsi > 35 && rsi < 75 && // ✅ AMPLIADO: era 40-70
     macd > 0 &&
-    volume.factor > 0.8 && // ✅ REDUZIDO: era 1.0
-    trend === 'UP' &&
+    volume.factor > 0.4 && // ✅ REDUZIDO: 0.4-0.7 é NORMAL em crypto
     wyckoff.phase !== 'DISTRIBUTION' && // ✅ RELAXADO: permite NEUTRAL
-    (wyckoff.volumePriceRelation === 'BUYING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH' || wyckoff.volumePriceRelation === 'NEUTRAL')
+    (wyckoff.volumePriceRelation === 'BUYING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH' || wyckoff.volumePriceRelation === 'NEUTRAL' || wyckoff.volumePriceRelation === 'LOW_CONVICTION')
   );
   
   // 5️⃣ CRITÉRIOS DE ENTRADA SHORT - RELAXADOS
@@ -583,10 +582,9 @@ async function analyzeTechnicalStandalone(
     recentTrend.strength > 0.6 &&
     rsi > 15 && rsi < 65 && // ✅ AMPLIADO: era 30-60
     macd < 0 &&
-    volume.factor > 0.8 && // ✅ REDUZIDO: era 1.0
-    trend === 'DOWN' &&
+    volume.factor > 0.4 && // ✅ REDUZIDO: 0.4-0.7 é NORMAL em crypto
     wyckoff.phase !== 'ACCUMULATION' && // ✅ RELAXADO: permite NEUTRAL
-    (wyckoff.volumePriceRelation === 'SELLING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH' || wyckoff.volumePriceRelation === 'LOW_CONVICTION')
+    (wyckoff.volumePriceRelation === 'SELLING_PRESSURE' || wyckoff.volumePriceRelation === 'STRENGTH' || wyckoff.volumePriceRelation === 'LOW_CONVICTION' || wyckoff.volumePriceRelation === 'NEUTRAL')
   );
   
   if (!isLongSetup && !isShortSetup) {
