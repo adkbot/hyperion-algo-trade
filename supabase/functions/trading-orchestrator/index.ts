@@ -1692,9 +1692,9 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     return false;
   }
 
-  // Additional validation: confidence must be >= 0.65
-  if (confidence < 0.65) {
-    console.log(`❌ Confidence too low: ${confidence.toFixed(2)} (min: 0.65)`);
+  // Additional validation: confidence must be >= 0.60
+  if (confidence < 0.60) {
+    console.log(`❌ Confidence too low: ${confidence.toFixed(2)} (min: 0.60)`);
     return false;
   }
 
