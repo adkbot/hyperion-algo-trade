@@ -20,27 +20,46 @@ export const ClearHistoryButton = () => {
   const { user } = useAuth();
 
   const handleClearHistory = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      console.error('No user ID found');
+      return;
+    }
+
+    console.log('🗑️ Starting to clear history for user:', user.id);
 
     try {
-      const { data, error } = await supabase.functions.invoke('clear-user-history', {
-        body: { user_id: user.id }
-      });
+      // Delete directly using authenticated client
+      const deletions = await Promise.all([
+        supabase.from('session_history').delete().eq('user_id', user.id),
+        supabase.from('operations').delete().eq('user_id', user.id),
+        supabase.from('active_positions').delete().eq('user_id', user.id),
+        supabase.from('agent_logs').delete().eq('user_id', user.id),
+        supabase.from('daily_goals').delete().eq('user_id', user.id),
+        supabase.from('session_state').delete().eq('user_id', user.id),
+      ]);
 
-      if (error) throw error;
+      console.log('Deletion results:', deletions);
+
+      const errors = deletions.filter(d => d.error);
+      if (errors.length > 0) {
+        console.error('Errors during deletion:', errors);
+        throw new Error('Falha ao limpar alguns dados');
+      }
 
       toast({
-        title: "Histórico Limpo",
+        title: "Histórico Limpo ✅",
         description: "Todo o histórico de testes foi removido com sucesso.",
       });
 
       // Refresh page to update all components
-      window.location.reload();
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
     } catch (error) {
       console.error('Error clearing history:', error);
       toast({
         title: "Erro",
-        description: "Falha ao limpar histórico. Tente novamente.",
+        description: error instanceof Error ? error.message : "Falha ao limpar histórico. Tente novamente.",
         variant: "destructive",
       });
     }
