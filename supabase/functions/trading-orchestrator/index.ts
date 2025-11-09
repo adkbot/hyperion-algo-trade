@@ -815,108 +815,222 @@ function detectPitchforkPattern(
   const avgVolume = last10.slice(0, -2).reduce((sum, c) => sum + parseFloat(c.volume), 0) / 8;
   
   // ============================================
-  // PADRÃO LONG SIMPLIFICADO (2 VELAS VERMELHAS - CORREÇÃO!)
+  // PADRÃO LONG - ESTRATÉGIA M5 CORRETA
   // ============================================
   if (signal === 'LONG') {
-    // Contar apenas últimas 2 velas
-    const secondLast = last10[last10.length - 2];
-    const lastTwo = [secondLast, lastCandle];
-    
     const candleSequence = last10.map(c => parseFloat(c.close) > parseFloat(c.open) ? '🟢' : '🔴').join(' ');
     
-    // LONG precisa de velas VERMELHAS (rejeição do fundo)
-    const isRed1 = parseFloat(lastTwo[0].close) < parseFloat(lastTwo[0].open);
-    const isRed2 = parseFloat(lastTwo[1].close) < parseFloat(lastTwo[1].open);
+    // 1. IDENTIFICAR VELAS VERMELHAS CAINDO (mínimo 2 antes)
+    let redCandlesCount = 0;
+    for (let i = last10.length - 2; i >= 0; i--) {
+      const isRed = parseFloat(last10[i].close) < parseFloat(last10[i].open);
+      if (isRed) {
+        redCandlesCount++;
+      } else {
+        break; // Para na primeira vela não-vermelha
+      }
+    }
     
-    if (!isRed1 || !isRed2) {
+    if (redCandlesCount < 2) {
       console.log(`
-🕯️ PITCHFORK SIMPLIFICADO - ${asset} (LONG):
+🕯️ PITCHFORK M5 - ${asset} (LONG):
 ├─ Últimas 10 velas: ${candleSequence}
-├─ Últimas 2 velas: ${isRed1 ? '🔴' : '🟢'} ${isRed2 ? '🔴' : '🟢'}
-└─ Status: Aguardando 2 velas vermelhas consecutivas ❌
+├─ Velas vermelhas consecutivas: ${redCandlesCount}
+└─ Status: Aguardando sequência de queda (mínimo 2 velas vermelhas) ❌
       `);
       
       return {
         confirmed: false,
-        status: 'Aguardando 2 velas vermelhas consecutivas',
+        status: 'Aguardando sequência de queda',
         sequenceLength: 0,
       };
     }
     
-    // ✅ PADRÃO CONFIRMADO! (2 velas vermelhas)
-    console.log(`
-🎯 PITCHFORK CONFIRMADO - ${asset} (LONG):
-├─ Sequência: ${candleSequence}
-├─ Últimas 2 velas: 🔴 🔴 ✅
-├─ Entry: $${prevHigh.toFixed(4)}
-└─ Stop Loss: $${prevLow.toFixed(4)}
-    `);
+    // 2. IDENTIFICAR PRIMEIRA VELA VERDE (reversão)
+    const currentIsGreen = parseFloat(lastCandle.close) > parseFloat(lastCandle.open);
     
-    const atr = Math.abs(prevHigh - prevLow);
-    const entryPrice = prevHigh + (atr * 0.1);
-    const recentLow = Math.min(...last10.slice(-8).map((c: any) => parseFloat(c.low)));
-    const stopLoss = Math.min(prevLow - (atr * 0.5), recentLow - (atr * 0.3));
+    if (!currentIsGreen) {
+      console.log(`
+🕯️ PITCHFORK M5 - ${asset} (LONG):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Sequência de queda: ${redCandlesCount} velas vermelhas ✅
+├─ Vela atual: 🔴
+└─ Status: Aguardando primeira vela VERDE de reversão ❌
+      `);
+      
+      return {
+        confirmed: false,
+        status: 'Aguardando primeira vela verde',
+        sequenceLength: redCandlesCount,
+      };
+    }
+    
+    // 3. MARCAR MÁXIMA DA PRIMEIRA VELA VERDE
+    const firstGreenHigh = parseFloat(lastCandle.high);
+    const firstGreenClose = parseFloat(lastCandle.close);
+    
+    // 4. VERIFICAR SE PRÓXIMA VELA ROMPE A MÁXIMA
+    // Como estamos analisando a vela atual, ela precisa fechar acima da própria máxima anterior
+    // Ou seja: usamos a vela anterior como primeira verde e a atual como rompimento
+    const previousCandle = last10[last10.length - 2];
+    const previousIsGreen = parseFloat(previousCandle.close) > parseFloat(previousCandle.open);
+    
+    if (previousIsGreen && currentIsGreen) {
+      const previousHigh = parseFloat(previousCandle.high);
+      const currentClose = parseFloat(lastCandle.close);
+      
+      if (currentClose > previousHigh) {
+        // ✅ GATILHO CONFIRMADO!
+        const firstGreenLow = parseFloat(previousCandle.low);
+        const recentLow = Math.min(...last10.slice(-5).map((c: any) => parseFloat(c.low)));
+        const stopLoss = Math.min(firstGreenLow, recentLow) - (Math.abs(previousHigh - firstGreenLow) * 0.2);
+        
+        console.log(`
+🎯 GATILHO LONG DETECTADO - ${asset}:
+├─ Sequência de queda: ${redCandlesCount} velas vermelhas 🔴
+├─ Primeira vela verde: 🟢 (máxima: $${previousHigh.toFixed(4)})
+├─ Vela atual: 🟢 (fechamento: $${currentClose.toFixed(4)})
+├─ ✅ ROMPIMENTO CONFIRMADO (fechou acima da máxima)
+├─ Entry: $${currentClose.toFixed(4)}
+├─ Stop Loss: $${stopLoss.toFixed(4)} (abaixo da mínima da reversão)
+└─ Confiança: 85%
+        `);
+        
+        return {
+          confirmed: true,
+          status: `✅ LONG confirmado: Rompimento da máxima`,
+          sequenceLength: redCandlesCount + 2,
+          firstReversalHigh: previousHigh,
+          entryPrice: currentClose,
+          stopLoss,
+        };
+      }
+    }
+    
+    // Ainda não rompeu
+    console.log(`
+🕯️ PITCHFORK M5 - ${asset} (LONG):
+├─ Sequência de queda: ${redCandlesCount} velas vermelhas ✅
+├─ Primeira vela verde detectada: 🟢 ✅
+├─ Máxima da vela verde: $${firstGreenHigh.toFixed(4)}
+├─ Fechamento atual: $${firstGreenClose.toFixed(4)}
+└─ Status: Aguardando rompimento da máxima ⏳
+      `);
     
     return {
-      confirmed: true,
-      status: `✅ LONG confirmado: 2 velas vermelhas consecutivas`,
-      sequenceLength: 2,
-      firstReversalHigh: prevHigh,
-      entryPrice,
-      stopLoss,
+      confirmed: false,
+      status: 'Aguardando rompimento da máxima',
+      sequenceLength: redCandlesCount + 1,
     };
   }
   
   // ============================================
-  // PADRÃO SHORT SIMPLIFICADO (2 VELAS VERDES - CORREÇÃO!)
+  // PADRÃO SHORT - ESTRATÉGIA M5 CORRETA
   // ============================================
   if (signal === 'SHORT') {
-    // Contar apenas últimas 2 velas
-    const secondLast = last10[last10.length - 2];
-    const lastTwo = [secondLast, lastCandle];
-    
     const candleSequence = last10.map(c => parseFloat(c.close) > parseFloat(c.open) ? '🟢' : '🔴').join(' ');
     
-    // SHORT precisa de velas VERDES (rejeição do topo)
-    const isGreen1 = parseFloat(lastTwo[0].close) > parseFloat(lastTwo[0].open);
-    const isGreen2 = parseFloat(lastTwo[1].close) > parseFloat(lastTwo[1].open);
+    // 1. IDENTIFICAR VELAS VERDES SUBINDO (mínimo 2 antes)
+    let greenCandlesCount = 0;
+    for (let i = last10.length - 2; i >= 0; i--) {
+      const isGreen = parseFloat(last10[i].close) > parseFloat(last10[i].open);
+      if (isGreen) {
+        greenCandlesCount++;
+      } else {
+        break; // Para na primeira vela não-verde
+      }
+    }
     
-    if (!isGreen1 || !isGreen2) {
+    if (greenCandlesCount < 2) {
       console.log(`
-🕯️ PITCHFORK SIMPLIFICADO - ${asset} (SHORT):
+🕯️ PITCHFORK M5 - ${asset} (SHORT):
 ├─ Últimas 10 velas: ${candleSequence}
-├─ Últimas 2 velas: ${isGreen1 ? '🟢' : '🔴'} ${isGreen2 ? '🟢' : '🔴'}
-└─ Status: Aguardando 2 velas verdes consecutivas ❌
+├─ Velas verdes consecutivas: ${greenCandlesCount}
+└─ Status: Aguardando sequência de subida (mínimo 2 velas verdes) ❌
       `);
       
       return {
         confirmed: false,
-        status: 'Aguardando 2 velas verdes consecutivas',
+        status: 'Aguardando sequência de subida',
         sequenceLength: 0,
       };
     }
     
-    // ✅ PADRÃO CONFIRMADO! (2 velas verdes)
-    console.log(`
-🎯 PITCHFORK CONFIRMADO - ${asset} (SHORT):
-├─ Sequência: ${candleSequence}
-├─ Últimas 2 velas: 🟢 🟢 ✅
-├─ Entry: $${prevLow.toFixed(4)}
-└─ Stop Loss: $${prevHigh.toFixed(4)}
-    `);
+    // 2. IDENTIFICAR PRIMEIRA VELA VERMELHA (reversão)
+    const currentIsRed = parseFloat(lastCandle.close) < parseFloat(lastCandle.open);
     
-    const atr = Math.abs(prevHigh - prevLow);
-    const entryPrice = prevLow - (atr * 0.1);
-    const recentHigh = Math.max(...last10.slice(-8).map((c: any) => parseFloat(c.high)));
-    const stopLoss = Math.max(prevHigh + (atr * 0.5), recentHigh + (atr * 0.3));
+    if (!currentIsRed) {
+      console.log(`
+🕯️ PITCHFORK M5 - ${asset} (SHORT):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Sequência de subida: ${greenCandlesCount} velas verdes ✅
+├─ Vela atual: 🟢
+└─ Status: Aguardando primeira vela VERMELHA de reversão ❌
+      `);
+      
+      return {
+        confirmed: false,
+        status: 'Aguardando primeira vela vermelha',
+        sequenceLength: greenCandlesCount,
+      };
+    }
+    
+    // 3. MARCAR MÍNIMA DA PRIMEIRA VELA VERMELHA
+    const firstRedLow = parseFloat(lastCandle.low);
+    const firstRedClose = parseFloat(lastCandle.close);
+    
+    // 4. VERIFICAR SE PRÓXIMA VELA ROMPE A MÍNIMA
+    // Como estamos analisando a vela atual, ela precisa fechar abaixo da própria mínima anterior
+    // Ou seja: usamos a vela anterior como primeira vermelha e a atual como rompimento
+    const previousCandle = last10[last10.length - 2];
+    const previousIsRed = parseFloat(previousCandle.close) < parseFloat(previousCandle.open);
+    
+    if (previousIsRed && currentIsRed) {
+      const previousLow = parseFloat(previousCandle.low);
+      const currentClose = parseFloat(lastCandle.close);
+      
+      if (currentClose < previousLow) {
+        // ✅ GATILHO CONFIRMADO!
+        const firstRedHigh = parseFloat(previousCandle.high);
+        const recentHigh = Math.max(...last10.slice(-5).map((c: any) => parseFloat(c.high)));
+        const stopLoss = Math.max(firstRedHigh, recentHigh) + (Math.abs(firstRedHigh - previousLow) * 0.2);
+        
+        console.log(`
+🎯 GATILHO SHORT DETECTADO - ${asset}:
+├─ Sequência de subida: ${greenCandlesCount} velas verdes 🟢
+├─ Primeira vela vermelha: 🔴 (mínima: $${previousLow.toFixed(4)})
+├─ Vela atual: 🔴 (fechamento: $${currentClose.toFixed(4)})
+├─ ✅ ROMPIMENTO CONFIRMADO (fechou abaixo da mínima)
+├─ Entry: $${currentClose.toFixed(4)}
+├─ Stop Loss: $${stopLoss.toFixed(4)} (acima da máxima da reversão)
+└─ Confiança: 85%
+        `);
+        
+        return {
+          confirmed: true,
+          status: `✅ SHORT confirmado: Rompimento da mínima`,
+          sequenceLength: greenCandlesCount + 2,
+          firstReversalLow: previousLow,
+          entryPrice: currentClose,
+          stopLoss,
+        };
+      }
+    }
+    
+    // Ainda não rompeu
+    console.log(`
+🕯️ PITCHFORK M5 - ${asset} (SHORT):
+├─ Sequência de subida: ${greenCandlesCount} velas verdes ✅
+├─ Primeira vela vermelha detectada: 🔴 ✅
+├─ Mínima da vela vermelha: $${firstRedLow.toFixed(4)}
+├─ Fechamento atual: $${firstRedClose.toFixed(4)}
+└─ Status: Aguardando rompimento da mínima ⏳
+      `);
     
     return {
-      confirmed: true,
-      status: `✅ SHORT confirmado: 2 velas verdes consecutivas`,
-      sequenceLength: 2,
-      firstReversalLow: prevLow,
-      entryPrice,
-      stopLoss,
+      confirmed: false,
+      status: 'Aguardando rompimento da mínima',
+      sequenceLength: greenCandlesCount + 1,
     };
   }
   
