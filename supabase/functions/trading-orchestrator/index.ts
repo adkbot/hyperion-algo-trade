@@ -815,151 +815,52 @@ function detectPitchforkPattern(
   const avgVolume = last10.slice(0, -2).reduce((sum, c) => sum + parseFloat(c.volume), 0) / 8;
   
   // ============================================
-  // PADRÃO LONG
+  // PADRÃO LONG SIMPLIFICADO (2 VELAS VERDES)
   // ============================================
   if (signal === 'LONG') {
-    // 1. Contar velas vermelhas consecutivas antes da reversão
-    let redCount = 0;
-    for (let i = last10.length - 3; i >= Math.max(0, last10.length - 8); i--) {
-      const c = last10[i];
-      const close = parseFloat(c.close);
-      const open = parseFloat(c.open);
-      if (close < open) redCount++;
-      else break;
-    }
+    // Contar apenas últimas 2 velas
+    const secondLast = last10[last10.length - 2];
+    const lastTwo = [secondLast, lastCandle];
     
-    // ✅ FASE 2: LOGS DETALHADOS DO PITCHFORK
     const candleSequence = last10.map(c => parseFloat(c.close) > parseFloat(c.open) ? '🟢' : '🔴').join(' ');
     
-    // Exigir mínimo 3 velas vermelhas
-    if (redCount < 3) {
+    // Verificar se as 2 últimas velas são VERDES (sem validações extras)
+    const isGreen1 = parseFloat(lastTwo[0].close) > parseFloat(lastTwo[0].open);
+    const isGreen2 = parseFloat(lastTwo[1].close) > parseFloat(lastTwo[1].open);
+    
+    if (!isGreen1 || !isGreen2) {
       console.log(`
-🕯️ PITCHFORK DEBUG - ${asset} (LONG):
+🕯️ PITCHFORK SIMPLIFICADO - ${asset} (LONG):
 ├─ Últimas 10 velas: ${candleSequence}
-├─ Velas vermelhas consecutivas: ${redCount}/3 necessárias ❌
-├─ Status: Aguardando mais ${3 - redCount} vela(s) vermelha(s)
-└─ Ação: Continuar monitorando queda
+├─ Últimas 2 velas: ${isGreen1 ? '🟢' : '🔴'} ${isGreen2 ? '🟢' : '🔴'}
+└─ Status: Aguardando 2 velas verdes consecutivas ❌
       `);
       
       return {
         confirmed: false,
-        status: `Aguardando queda (${redCount}/3 velas vermelhas mínimas)`,
-        sequenceLength: redCount,
+        status: 'Aguardando 2 velas verdes consecutivas',
+        sequenceLength: 0,
       };
     }
     
-    // 2. Primeira vela de reversão deve ser VERDE
-    const prevIsGreen = prevClose > prevOpen;
-    if (!prevIsGreen) {
-      console.log(`
-🕯️ PITCHFORK DEBUG - ${asset} (LONG):
-├─ Últimas 10 velas: ${candleSequence}
-├─ Velas vermelhas consecutivas: ${redCount}/3 ✅
-├─ Primeira vela de reversão: 🔴 VERMELHA ❌
-└─ Ação: Aguardando primeira vela verde aparecer
-      `);
-      
-      return {
-        confirmed: false,
-        status: 'Aguardando primeira vela verde de reversão',
-        sequenceLength: redCount,
-      };
-    }
-    
-    // 3. Primeira vela verde deve ter volume > média (interesse)
-    if (prevVolume < avgVolume * 0.9) {
-      console.log(`
-🕯️ PITCHFORK DEBUG - ${asset} (LONG):
-├─ Últimas 10 velas: ${candleSequence}
-├─ Velas vermelhas consecutivas: ${redCount}/3 ✅
-├─ Primeira vela de reversão: 🟢 VERDE ✅
-├─ Volume da reversão: ${prevVolume.toFixed(0)} (média: ${avgVolume.toFixed(0)}) ❌
-└─ Ação: Aguardando volume adequado (${((prevVolume / avgVolume) * 100).toFixed(0)}% da média, min: 90%)
-      `);
-      
-      return {
-        confirmed: false,
-        status: 'Primeira vela verde sem volume suficiente',
-        sequenceLength: redCount,
-        firstReversalHigh: prevHigh,
-      };
-    }
-    
-    // 4. Vela atual deve ser VERDE também
-    const currentIsGreen = currentClose > currentOpen;
-    if (!currentIsGreen) {
-      console.log(`
-🕯️ PITCHFORK DEBUG - ${asset} (LONG):
-├─ Últimas 10 velas: ${candleSequence}
-├─ Velas vermelhas consecutivas: ${redCount}/3 ✅
-├─ Primeira vela de reversão: 🟢 VERDE ✅
-├─ Volume da reversão: ${((prevVolume / avgVolume) * 100).toFixed(0)}% da média ✅
-├─ Vela atual: 🔴 VERMELHA ❌
-└─ Ação: Aguardando segunda vela verde
-      `);
-      
-      return {
-        confirmed: false,
-        status: 'Aguardando segunda vela verde',
-        sequenceLength: redCount,
-        firstReversalHigh: prevHigh,
-      };
-    }
-    
-    // 5. Vela atual deve ROMPER a máxima da primeira vela verde
-    const breakoutConfirmed = currentHigh > prevHigh;
-    
-    if (!breakoutConfirmed) {
-      const gapToBreak = prevHigh - currentHigh;
-      
-      console.log(`
-🕯️ PITCHFORK DEBUG - ${asset} (LONG):
-├─ Últimas 10 velas: ${candleSequence}
-├─ Velas vermelhas consecutivas: ${redCount}/3 ✅
-├─ Primeira vela de reversão: 🟢 VERDE ✅
-├─ Volume da reversão: ${((prevVolume / avgVolume) * 100).toFixed(0)}% da média ✅
-├─ Primeira vela de reversão:
-│  ├─ High: $${prevHigh.toFixed(4)}
-│  └─ Low: $${prevLow.toFixed(4)}
-├─ Vela atual (confirmação):
-│  ├─ Tipo: 🟢 Verde ✅
-│  ├─ High: $${currentHigh.toFixed(4)}
-│  ├─ Low: $${currentLow.toFixed(4)}
-│  └─ Rompimento: ❌ NÃO (falta $${gapToBreak.toFixed(4)})
-└─ Ação: Aguardando rompimento de $${prevHigh.toFixed(4)}
-      `);
-      
-      return {
-        confirmed: false,
-        status: `Aguardando rompimento de $${prevHigh.toFixed(4)} (atual: $${currentHigh.toFixed(4)})`,
-        sequenceLength: redCount,
-        firstReversalHigh: prevHigh,
-      };
-    }
-    
-    // ✅ PADRÃO CONFIRMADO!
+    // ✅ PADRÃO CONFIRMADO! (2 velas verdes)
     console.log(`
 🎯 PITCHFORK CONFIRMADO - ${asset} (LONG):
-├─ Sequência completa: ${candleSequence}
-├─ Velas vermelhas: ${redCount} ✅
-├─ Primeira vela verde: High $${prevHigh.toFixed(4)} ✅
-├─ Segunda vela verde: Rompeu $${prevHigh.toFixed(4)} → $${currentHigh.toFixed(4)} ✅
+├─ Sequência: ${candleSequence}
+├─ Últimas 2 velas: 🟢 🟢 ✅
 ├─ Entry: $${prevHigh.toFixed(4)}
-└─ Stop Loss: $${Math.min(...last10.slice(-8).map((c: any) => parseFloat(c.low))).toFixed(4)}
+└─ Stop Loss: $${prevLow.toFixed(4)}
     `);
     
-    // Entry: Ligeiramente acima da máxima da primeira vela verde
-    const atr = Math.abs(prevHigh - prevLow); // ATR simplificado da vela de reversão
-    const entryPrice = prevHigh + (atr * 0.1); // +10% do ATR
-    
-    // Stop: Abaixo da mínima da primeira vela verde ou mínima recente
+    const atr = Math.abs(prevHigh - prevLow);
+    const entryPrice = prevHigh + (atr * 0.1);
     const recentLow = Math.min(...last10.slice(-8).map((c: any) => parseFloat(c.low)));
     const stopLoss = Math.min(prevLow - (atr * 0.5), recentLow - (atr * 0.3));
     
     return {
       confirmed: true,
-      status: `✅ LONG confirmado: ${redCount} velas vermelhas → 1ª verde → 2ª verde rompe máxima`,
-      sequenceLength: redCount,
+      status: `✅ LONG confirmado: 2 velas verdes consecutivas`,
+      sequenceLength: 2,
       firstReversalHigh: prevHigh,
       entryPrice,
       stopLoss,
@@ -967,150 +868,52 @@ function detectPitchforkPattern(
   }
   
   // ============================================
-  // PADRÃO SHORT
+  // PADRÃO SHORT SIMPLIFICADO (2 VELAS VERMELHAS)
   // ============================================
   if (signal === 'SHORT') {
-    // 1. Contar velas verdes consecutivas antes da reversão
-    let greenCount = 0;
-    for (let i = last10.length - 3; i >= Math.max(0, last10.length - 8); i--) {
-      const c = last10[i];
-      const close = parseFloat(c.close);
-      const open = parseFloat(c.open);
-      if (close > open) greenCount++;
-      else break;
-    }
+    // Contar apenas últimas 2 velas
+    const secondLast = last10[last10.length - 2];
+    const lastTwo = [secondLast, lastCandle];
     
-    // ✅ FASE 2: LOGS DETALHADOS DO PITCHFORK
     const candleSequence = last10.map(c => parseFloat(c.close) > parseFloat(c.open) ? '🟢' : '🔴').join(' ');
     
-    // Exigir mínimo 3 velas verdes
-    if (greenCount < 3) {
+    // Verificar se as 2 últimas velas são VERMELHAS (sem validações extras)
+    const isRed1 = parseFloat(lastTwo[0].close) < parseFloat(lastTwo[0].open);
+    const isRed2 = parseFloat(lastTwo[1].close) < parseFloat(lastTwo[1].open);
+    
+    if (!isRed1 || !isRed2) {
       console.log(`
-🕯️ PITCHFORK DEBUG - ${asset} (SHORT):
+🕯️ PITCHFORK SIMPLIFICADO - ${asset} (SHORT):
 ├─ Últimas 10 velas: ${candleSequence}
-├─ Velas verdes consecutivas: ${greenCount}/3 necessárias ❌
-├─ Status: Aguardando mais ${3 - greenCount} vela(s) verde(s)
-└─ Ação: Continuar monitorando alta
+├─ Últimas 2 velas: ${isRed1 ? '🔴' : '🟢'} ${isRed2 ? '🔴' : '🟢'}
+└─ Status: Aguardando 2 velas vermelhas consecutivas ❌
       `);
       
       return {
         confirmed: false,
-        status: `Aguardando alta (${greenCount}/3 velas verdes mínimas)`,
-        sequenceLength: greenCount,
+        status: 'Aguardando 2 velas vermelhas consecutivas',
+        sequenceLength: 0,
       };
     }
     
-    // 2. Primeira vela de reversão deve ser VERMELHA
-    const prevIsRed = prevClose < prevOpen;
-    if (!prevIsRed) {
-      console.log(`
-🕯️ PITCHFORK DEBUG - ${asset} (SHORT):
-├─ Últimas 10 velas: ${candleSequence}
-├─ Velas verdes consecutivas: ${greenCount}/3 ✅
-├─ Primeira vela de reversão: 🟢 VERDE ❌
-└─ Ação: Aguardando primeira vela vermelha aparecer
-      `);
-      
-      return {
-        confirmed: false,
-        status: 'Aguardando primeira vela vermelha de reversão',
-        sequenceLength: greenCount,
-      };
-    }
-    
-    // 3. Primeira vela vermelha deve ter volume > média
-    if (prevVolume < avgVolume * 0.9) {
-      console.log(`
-🕯️ PITCHFORK DEBUG - ${asset} (SHORT):
-├─ Últimas 10 velas: ${candleSequence}
-├─ Velas verdes consecutivas: ${greenCount}/3 ✅
-├─ Primeira vela de reversão: 🔴 VERMELHA ✅
-├─ Volume da reversão: ${prevVolume.toFixed(0)} (média: ${avgVolume.toFixed(0)}) ❌
-└─ Ação: Aguardando volume adequado (${((prevVolume / avgVolume) * 100).toFixed(0)}% da média, min: 90%)
-      `);
-      
-      return {
-        confirmed: false,
-        status: 'Primeira vela vermelha sem volume suficiente',
-        sequenceLength: greenCount,
-        firstReversalLow: prevLow,
-      };
-    }
-    
-    // 4. Vela atual deve ser VERMELHA também
-    const currentIsRed = currentClose < currentOpen;
-    if (!currentIsRed) {
-      console.log(`
-🕯️ PITCHFORK DEBUG - ${asset} (SHORT):
-├─ Últimas 10 velas: ${candleSequence}
-├─ Velas verdes consecutivas: ${greenCount}/3 ✅
-├─ Primeira vela de reversão: 🔴 VERMELHA ✅
-├─ Volume da reversão: ${((prevVolume / avgVolume) * 100).toFixed(0)}% da média ✅
-├─ Vela atual: 🟢 VERDE ❌
-└─ Ação: Aguardando segunda vela vermelha
-      `);
-      
-      return {
-        confirmed: false,
-        status: 'Aguardando segunda vela vermelha',
-        sequenceLength: greenCount,
-        firstReversalLow: prevLow,
-      };
-    }
-    
-    // 5. Vela atual deve ROMPER a mínima da primeira vela vermelha
-    const breakdownConfirmed = currentLow < prevLow;
-    
-    if (!breakdownConfirmed) {
-      const gapToBreak = currentLow - prevLow;
-      
-      console.log(`
-🕯️ PITCHFORK DEBUG - ${asset} (SHORT):
-├─ Últimas 10 velas: ${candleSequence}
-├─ Velas verdes consecutivas: ${greenCount}/3 ✅
-├─ Primeira vela de reversão: 🔴 VERMELHA ✅
-├─ Volume da reversão: ${((prevVolume / avgVolume) * 100).toFixed(0)}% da média ✅
-├─ Primeira vela de reversão:
-│  ├─ High: $${prevHigh.toFixed(4)}
-│  └─ Low: $${prevLow.toFixed(4)}
-├─ Vela atual (confirmação):
-│  ├─ Tipo: 🔴 Vermelha ✅
-│  ├─ High: $${currentHigh.toFixed(4)}
-│  ├─ Low: $${currentLow.toFixed(4)}
-│  └─ Rompimento: ❌ NÃO (falta $${gapToBreak.toFixed(4)})
-└─ Ação: Aguardando rompimento de $${prevLow.toFixed(4)}
-      `);
-      
-      return {
-        confirmed: false,
-        status: `Aguardando rompimento de $${prevLow.toFixed(4)} (atual: $${currentLow.toFixed(4)})`,
-        sequenceLength: greenCount,
-        firstReversalLow: prevLow,
-      };
-    }
-    
-    // ✅ PADRÃO CONFIRMADO!
+    // ✅ PADRÃO CONFIRMADO! (2 velas vermelhas)
     console.log(`
 🎯 PITCHFORK CONFIRMADO - ${asset} (SHORT):
-├─ Sequência completa: ${candleSequence}
-├─ Velas verdes: ${greenCount} ✅
-├─ Primeira vela vermelha: Low $${prevLow.toFixed(4)} ✅
-├─ Segunda vela vermelha: Rompeu $${prevLow.toFixed(4)} → $${currentLow.toFixed(4)} ✅
+├─ Sequência: ${candleSequence}
+├─ Últimas 2 velas: 🔴 🔴 ✅
 ├─ Entry: $${prevLow.toFixed(4)}
-└─ Stop Loss: $${Math.max(...last10.slice(-8).map((c: any) => parseFloat(c.high))).toFixed(4)}
+└─ Stop Loss: $${prevHigh.toFixed(4)}
     `);
     
     const atr = Math.abs(prevHigh - prevLow);
-    const entryPrice = prevLow - (atr * 0.1); // -10% do ATR
-    
-    // Stop: Acima da máxima da primeira vela vermelha ou máxima recente
+    const entryPrice = prevLow - (atr * 0.1);
     const recentHigh = Math.max(...last10.slice(-8).map((c: any) => parseFloat(c.high)));
     const stopLoss = Math.max(prevHigh + (atr * 0.5), recentHigh + (atr * 0.3));
     
     return {
       confirmed: true,
-      status: `✅ SHORT confirmado: ${greenCount} velas verdes → 1ª vermelha → 2ª vermelha rompe mínima`,
-      sequenceLength: greenCount,
+      status: `✅ SHORT confirmado: 2 velas vermelhas consecutivas`,
+      sequenceLength: 2,
       firstReversalLow: prevLow,
       entryPrice,
       stopLoss,
