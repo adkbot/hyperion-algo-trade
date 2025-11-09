@@ -20,7 +20,7 @@ export const AlertPanel = () => {
         .select('*')
         .eq('user_id', user.id)
         .neq('signal', 'STAY_OUT')
-        .gte('confidence_score', 0.7)
+        .gte('confidence_score', 0.5) // ETAPA 2: Reduzido de 0.7 para 0.5 (50%)
         .order('timestamp', { ascending: false })
         .limit(5);
       

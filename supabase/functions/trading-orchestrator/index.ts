@@ -165,6 +165,11 @@ async function updateSessionState(supabase: any, userId: string, updates: any): 
 
 // ✅ BUFFER: Verificar se estamos na janela operacional
 function isInOperatingWindow(session: string): { canOperate: boolean; message: string } {
+  // 🚨 ETAPA 1: MODO DE TESTE - BUFFER DESABILITADO
+  console.log(`✅ TESTE: Buffer temporariamente desabilitado - Operação permitida`);
+  return { canOperate: true, message: '✅ TESTE: Buffer desabilitado' };
+  
+  /* CÓDIGO ORIGINAL (REATIVAR APÓS VALIDAÇÃO):
   const now = new Date();
   const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
   
@@ -217,6 +222,7 @@ function isInOperatingWindow(session: string): { canOperate: boolean; message: s
   }
   
   return { canOperate: true, message: '✅ Janela operacional ativa' };
+  */
 }
 
 // ✅ NOVA FUNÇÃO: Processar ciclo de trading para um usuário específico
@@ -240,13 +246,10 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
 └─ Bot Status: ${settings.bot_status}
   `);
 
-  // ✅ FASE 7: Carregar session state
-  let sessionState = await getSessionState(supabase, userId);
+  // 🔧 ETAPA 4: FORÇAR MODO STANDALONE PURO
+  console.log(`🔧 MODO STANDALONE FORÇADO - Ignorando dependências de sessões anteriores`);
+  const sessionState: any = null; // Forçar sempre modo standalone para teste
   
-  // Session State ausente - sistema usará análise técnica standalone
-  if (!sessionState) {
-    console.log(`ℹ️ Session State ausente - modo STANDALONE HÍBRIDO será ativado`);
-  }
   
   // ✅ VERIFICAR BUFFER DE VELAS
   const bufferCheck = isInOperatingWindow(currentSession);
@@ -1860,6 +1863,25 @@ function validateH1M5Entry(
   stop?: number;
   target?: number;
 } {
+  // 🔍 ETAPA 3: DEBUG H1/M5 PROTOCOL
+  console.log(`
+🔍 DEBUG H1/M5 PROTOCOL:
+├─ Signal: ${signal}
+├─ Current Price: $${currentPrice.toFixed(2)}
+├─ H1 Candles: ${candles1h?.length || 0} períodos
+├─ M5 Candles: ${candles5m?.length || 0} períodos
+  `);
+  
+  if (candles1h && candles1h.length > 0) {
+    const lastH1 = candles1h[candles1h.length - 1];
+    console.log(`├─ Último H1: Open=${lastH1.open}, High=${lastH1.high}, Low=${lastH1.low}, Close=${lastH1.close}`);
+  }
+  
+  if (candles5m && candles5m.length > 0) {
+    const lastM5 = candles5m[candles5m.length - 1];
+    console.log(`└─ Último M5: Open=${lastM5.open}, High=${lastM5.high}, Low=${lastM5.low}, Close=${lastM5.close}`);
+  }
+  
   const h1Zones = detectH1MagicLines(candles1h);
   const pricePosition = classifyPricePosition(currentPrice, h1Zones);
   
@@ -2614,9 +2636,24 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
 ======================================
     `);
 
-    // 🔥 BINANCE INTEGRATION: Execute real order if not in paper mode
+    // 🔥 ETAPA 5: LOGS DE EXECUÇÃO - BINANCE INTEGRATION
     if (!settings.paper_mode && settings.api_key && settings.api_secret) {
-      console.log(`📡 Calling binance-order for REAL trade: ${asset} ${signal}`);
+      console.log(`
+🚀 ========================================
+   PREPARANDO EXECUÇÃO REAL - BINANCE
+========================================
+├─ Asset: ${asset}
+├─ Signal: ${signal}
+├─ Entry Price: $${entryPrice.toFixed(4)}
+├─ Stop Loss: $${stopLoss.toFixed(4)}
+├─ Take Profit: $${takeProfit.toFixed(4)}
+├─ Quantity: ${quantity.toFixed(6)}
+├─ R:R: ${risk.rr_ratio.toFixed(2)}
+├─ Margem Requerida: $${marginRequired.toFixed(2)}
+├─ Lucro Projetado: $${projectedProfit.toFixed(2)}
+├─ Confidence: ${(confidence * 100).toFixed(1)}%
+└─ Chamando edge function binance-order...
+      `);
       
       try {
         const { data: orderData, error: orderError } = await supabase.functions.invoke('binance-order', {
@@ -2639,6 +2676,14 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
             session: currentSession,
           },
         });
+        
+        console.log(`
+📊 ========================================
+   RESULTADO BINANCE
+========================================`);
+        console.log('Data:', orderData);
+        console.log('Error:', orderError);
+        console.log(`========================================`);
 
         if (orderError) {
           console.error(`❌ Binance order error:`, orderError);
