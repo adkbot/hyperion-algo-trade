@@ -24,12 +24,12 @@ const RR_RANGES = {
   NY_REENTRY: { min: 1.2, max: 1.5 },
 };
 
-// Session time ranges in UTC - CONTÍNUAS (24h cobertura)
+// ✅ Session time ranges in UTC - Adjusted for 30min transition buffers
 const SESSIONS = {
-  OCEANIA: { start: 0, end: 3, name: 'Oceania' },      // 00:00 - 03:00 UTC
-  ASIA: { start: 3, end: 8, name: 'Asia' },            // 03:00 - 08:00 UTC
-  LONDON: { start: 8, end: 13, name: 'London' },       // 08:00 - 13:00 UTC
-  NEW_YORK: { start: 13, end: 24, name: 'NewYork' },   // 13:00 - 24:00 UTC
+  OCEANIA: { start: 0, end: 2.5, name: 'Oceania' },        // 00:00 - 02:30 UTC
+  ASIA: { start: 3, end: 7.5, name: 'Asia' },              // 03:00 - 07:30 UTC
+  LONDON: { start: 8, end: 12.5, name: 'London' },         // 08:00 - 12:30 UTC
+  NEW_YORK: { start: 13, end: 23.5, name: 'NewYork' },     // 13:00 - 23:30 UTC
 };
 
 // Map direction from LONG/SHORT to BUY/SELL for database
@@ -505,41 +505,37 @@ function detectCurrentSession(): string {
   const now = new Date();
   const utcHour = now.getUTCHours();
   const utcMinutes = now.getUTCMinutes();
+  const utcDecimal = utcHour + (utcMinutes / 60); // Hora em formato decimal (12:30 = 12.5)
 
-  // ✅ CORREÇÃO: Buffer de 30min APENAS ANTES do início de cada sessão
-  // Oceania→Asia: 02:30-03:00 UTC
-  // Asia→London: 07:30-08:00 UTC
-  // London→NY: 12:30-13:00 UTC
-  // NY→Oceania: 23:30-00:00 UTC
-  
-  const transitions = [
-    { hour: 2, minute: 30, nextSession: 'Asia', endHour: 3 },
-    { hour: 7, minute: 30, nextSession: 'London', endHour: 8 },
-    { hour: 12, minute: 30, nextSession: 'NewYork', endHour: 13 },
-    { hour: 23, minute: 30, nextSession: 'Oceania', endHour: 0 },
-  ];
-  
-  for (const t of transitions) {
-    // Buffer de 30min antes do início da próxima sessão
-    if (utcHour === t.hour && utcMinutes >= t.minute) {
-      console.log(`⏸️ Buffer pré-${t.nextSession}: ${t.hour}:${t.minute.toString().padStart(2, '0')} → ${t.endHour}:00 UTC`);
-      return 'Transition';
-    }
-    // Caso especial: 23:30-00:00 (meia-noite)
-    if (t.hour === 23 && utcHour === 23 && utcMinutes >= 30) {
-      console.log(`⏸️ Buffer pré-Oceania: 23:30 → 00:00 UTC`);
-      return 'Transition';
-    }
+  // ✅ BUFFERS DE TRANSIÇÃO (30min antes de cada sessão)
+  // 02:30-03:00 (pré-Asia), 07:30-08:00 (pré-London), 12:30-13:00 (pré-NY), 23:30-00:00 (pré-Oceania)
+  const inTransitionBuffer = 
+    (utcDecimal >= 2.5 && utcDecimal < 3) ||    // 02:30-03:00
+    (utcDecimal >= 7.5 && utcDecimal < 8) ||    // 07:30-08:00
+    (utcDecimal >= 12.5 && utcDecimal < 13) ||  // 12:30-13:00
+    (utcDecimal >= 23.5);                       // 23:30-00:00
+
+  if (inTransitionBuffer) {
+    let nextSession = '';
+    if (utcDecimal >= 2.5 && utcDecimal < 3) nextSession = 'Asia';
+    else if (utcDecimal >= 7.5 && utcDecimal < 8) nextSession = 'London';
+    else if (utcDecimal >= 12.5 && utcDecimal < 13) nextSession = 'NewYork';
+    else if (utcDecimal >= 23.5) nextSession = 'Oceania';
+    
+    console.log(`⏸️ Buffer de transição pré-${nextSession} em ${utcHour}:${utcMinutes.toString().padStart(2, '0')} UTC`);
+    return 'Transition';
   }
 
-  // Detectar sessão atual (horários operacionais normais)
+  // ✅ DETECTAR SESSÃO ATIVA (usando hora decimal para precisão)
   for (const [key, session] of Object.entries(SESSIONS)) {
-    if (utcHour >= session.start && utcHour < session.end) {
-      console.log(`✅ Sessão ativa: ${session.name} (${utcHour}:${utcMinutes.toString().padStart(2, '0')} UTC)`);
+    if (utcDecimal >= session.start && utcDecimal < session.end) {
+      console.log(`✅ Sessão ativa: ${session.name} em ${utcHour}:${utcMinutes.toString().padStart(2, '0')} UTC`);
       return session.name;
     }
   }
   
+  // Fallback para Oceania (00:00-02:30)
+  console.log(`✅ Sessão ativa: Oceania em ${utcHour}:${utcMinutes.toString().padStart(2, '0')} UTC (fallback)`);
   return 'Oceania';
 }
 
