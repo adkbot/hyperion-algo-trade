@@ -167,14 +167,22 @@ serve(async (req) => {
     // Map direction to Binance side (LONG -> BUY, SHORT -> SELL)
     const side = direction === 'LONG' ? 'BUY' : direction === 'SHORT' ? 'SELL' : direction;
     
+    // ✅ CRÍTICO: Formatar quantidade com precisão correta
+    // A maioria dos pares USDT aceita 0 casas decimais (quantidade inteira)
+    // Alguns pares específicos aceitam 1-3 casas decimais
+    const formattedQuantity = asset.includes('1000') 
+      ? parseFloat(quantity.toFixed(1))  // 1000FLOKI, etc: 1 decimal
+      : parseFloat(quantity.toFixed(0)); // Maioria: 0 decimais (inteiro)
+    
     console.log(`📡 Sending order to Binance: ${asset} ${side} @ ${price || 'MARKET'}`);
+    console.log(`📊 Quantity: ${quantity} → Formatted: ${formattedQuantity}`);
 
     const timestamp = Date.now();
     const params = new URLSearchParams({
       symbol: asset,
       side: side,
       type: 'MARKET',
-      quantity: quantity.toString(),
+      quantity: formattedQuantity.toString(),
       timestamp: timestamp.toString(),
     });
 

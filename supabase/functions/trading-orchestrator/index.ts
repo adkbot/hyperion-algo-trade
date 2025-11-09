@@ -815,7 +815,7 @@ function detectPitchforkPattern(
   const avgVolume = last10.slice(0, -2).reduce((sum, c) => sum + parseFloat(c.volume), 0) / 8;
   
   // ============================================
-  // PADRÃO LONG SIMPLIFICADO (2 VELAS VERDES)
+  // PADRÃO LONG SIMPLIFICADO (2 VELAS VERMELHAS - CORREÇÃO!)
   // ============================================
   if (signal === 'LONG') {
     // Contar apenas últimas 2 velas
@@ -824,66 +824,13 @@ function detectPitchforkPattern(
     
     const candleSequence = last10.map(c => parseFloat(c.close) > parseFloat(c.open) ? '🟢' : '🔴').join(' ');
     
-    // Verificar se as 2 últimas velas são VERDES (sem validações extras)
-    const isGreen1 = parseFloat(lastTwo[0].close) > parseFloat(lastTwo[0].open);
-    const isGreen2 = parseFloat(lastTwo[1].close) > parseFloat(lastTwo[1].open);
-    
-    if (!isGreen1 || !isGreen2) {
-      console.log(`
-🕯️ PITCHFORK SIMPLIFICADO - ${asset} (LONG):
-├─ Últimas 10 velas: ${candleSequence}
-├─ Últimas 2 velas: ${isGreen1 ? '🟢' : '🔴'} ${isGreen2 ? '🟢' : '🔴'}
-└─ Status: Aguardando 2 velas verdes consecutivas ❌
-      `);
-      
-      return {
-        confirmed: false,
-        status: 'Aguardando 2 velas verdes consecutivas',
-        sequenceLength: 0,
-      };
-    }
-    
-    // ✅ PADRÃO CONFIRMADO! (2 velas verdes)
-    console.log(`
-🎯 PITCHFORK CONFIRMADO - ${asset} (LONG):
-├─ Sequência: ${candleSequence}
-├─ Últimas 2 velas: 🟢 🟢 ✅
-├─ Entry: $${prevHigh.toFixed(4)}
-└─ Stop Loss: $${prevLow.toFixed(4)}
-    `);
-    
-    const atr = Math.abs(prevHigh - prevLow);
-    const entryPrice = prevHigh + (atr * 0.1);
-    const recentLow = Math.min(...last10.slice(-8).map((c: any) => parseFloat(c.low)));
-    const stopLoss = Math.min(prevLow - (atr * 0.5), recentLow - (atr * 0.3));
-    
-    return {
-      confirmed: true,
-      status: `✅ LONG confirmado: 2 velas verdes consecutivas`,
-      sequenceLength: 2,
-      firstReversalHigh: prevHigh,
-      entryPrice,
-      stopLoss,
-    };
-  }
-  
-  // ============================================
-  // PADRÃO SHORT SIMPLIFICADO (2 VELAS VERMELHAS)
-  // ============================================
-  if (signal === 'SHORT') {
-    // Contar apenas últimas 2 velas
-    const secondLast = last10[last10.length - 2];
-    const lastTwo = [secondLast, lastCandle];
-    
-    const candleSequence = last10.map(c => parseFloat(c.close) > parseFloat(c.open) ? '🟢' : '🔴').join(' ');
-    
-    // Verificar se as 2 últimas velas são VERMELHAS (sem validações extras)
+    // LONG precisa de velas VERMELHAS (rejeição do fundo)
     const isRed1 = parseFloat(lastTwo[0].close) < parseFloat(lastTwo[0].open);
     const isRed2 = parseFloat(lastTwo[1].close) < parseFloat(lastTwo[1].open);
     
     if (!isRed1 || !isRed2) {
       console.log(`
-🕯️ PITCHFORK SIMPLIFICADO - ${asset} (SHORT):
+🕯️ PITCHFORK SIMPLIFICADO - ${asset} (LONG):
 ├─ Últimas 10 velas: ${candleSequence}
 ├─ Últimas 2 velas: ${isRed1 ? '🔴' : '🟢'} ${isRed2 ? '🔴' : '🟢'}
 └─ Status: Aguardando 2 velas vermelhas consecutivas ❌
@@ -898,9 +845,62 @@ function detectPitchforkPattern(
     
     // ✅ PADRÃO CONFIRMADO! (2 velas vermelhas)
     console.log(`
-🎯 PITCHFORK CONFIRMADO - ${asset} (SHORT):
+🎯 PITCHFORK CONFIRMADO - ${asset} (LONG):
 ├─ Sequência: ${candleSequence}
 ├─ Últimas 2 velas: 🔴 🔴 ✅
+├─ Entry: $${prevHigh.toFixed(4)}
+└─ Stop Loss: $${prevLow.toFixed(4)}
+    `);
+    
+    const atr = Math.abs(prevHigh - prevLow);
+    const entryPrice = prevHigh + (atr * 0.1);
+    const recentLow = Math.min(...last10.slice(-8).map((c: any) => parseFloat(c.low)));
+    const stopLoss = Math.min(prevLow - (atr * 0.5), recentLow - (atr * 0.3));
+    
+    return {
+      confirmed: true,
+      status: `✅ LONG confirmado: 2 velas vermelhas consecutivas`,
+      sequenceLength: 2,
+      firstReversalHigh: prevHigh,
+      entryPrice,
+      stopLoss,
+    };
+  }
+  
+  // ============================================
+  // PADRÃO SHORT SIMPLIFICADO (2 VELAS VERDES - CORREÇÃO!)
+  // ============================================
+  if (signal === 'SHORT') {
+    // Contar apenas últimas 2 velas
+    const secondLast = last10[last10.length - 2];
+    const lastTwo = [secondLast, lastCandle];
+    
+    const candleSequence = last10.map(c => parseFloat(c.close) > parseFloat(c.open) ? '🟢' : '🔴').join(' ');
+    
+    // SHORT precisa de velas VERDES (rejeição do topo)
+    const isGreen1 = parseFloat(lastTwo[0].close) > parseFloat(lastTwo[0].open);
+    const isGreen2 = parseFloat(lastTwo[1].close) > parseFloat(lastTwo[1].open);
+    
+    if (!isGreen1 || !isGreen2) {
+      console.log(`
+🕯️ PITCHFORK SIMPLIFICADO - ${asset} (SHORT):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Últimas 2 velas: ${isGreen1 ? '🟢' : '🔴'} ${isGreen2 ? '🟢' : '🔴'}
+└─ Status: Aguardando 2 velas verdes consecutivas ❌
+      `);
+      
+      return {
+        confirmed: false,
+        status: 'Aguardando 2 velas verdes consecutivas',
+        sequenceLength: 0,
+      };
+    }
+    
+    // ✅ PADRÃO CONFIRMADO! (2 velas verdes)
+    console.log(`
+🎯 PITCHFORK CONFIRMADO - ${asset} (SHORT):
+├─ Sequência: ${candleSequence}
+├─ Últimas 2 velas: 🟢 🟢 ✅
 ├─ Entry: $${prevLow.toFixed(4)}
 └─ Stop Loss: $${prevHigh.toFixed(4)}
     `);
@@ -912,7 +912,7 @@ function detectPitchforkPattern(
     
     return {
       confirmed: true,
-      status: `✅ SHORT confirmado: 2 velas vermelhas consecutivas`,
+      status: `✅ SHORT confirmado: 2 velas verdes consecutivas`,
       sequenceLength: 2,
       firstReversalLow: prevLow,
       entryPrice,
@@ -1068,7 +1068,7 @@ async function analyzeTechnicalStandalone(
       
       console.log(`✅ SHORT CONFIRMADO:
         ├─ Padrão: ${pitchforkPattern.status}
-        ├─ Sequência: ${pitchforkPattern.sequenceLength} velas verdes
+        ├─ Sequência: ${pitchforkPattern.sequenceLength} velas (invertido corrigido)
         ├─ Entry: $${pitchforkPattern.entryPrice.toFixed(4)}
         ├─ Stop: $${pitchforkPattern.stopLoss.toFixed(4)}
         ├─ Target: $${h1Lines.support.toFixed(4)} (Support H1)
