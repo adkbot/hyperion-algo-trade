@@ -820,9 +820,9 @@ function detectPitchforkPattern(
   if (signal === 'LONG') {
     const candleSequence = last10.map(c => parseFloat(c.close) > parseFloat(c.open) ? '🟢' : '🔴').join(' ');
     
-    // 1. IDENTIFICAR VELAS VERMELHAS CAINDO (mínimo 2 antes)
+    // 1. IDENTIFICAR VELAS VERMELHAS CAINDO (mínimo 2 antes das duas últimas velas)
     let redCandlesCount = 0;
-    for (let i = last10.length - 2; i >= 0; i--) {
+    for (let i = last10.length - 3; i >= 0; i--) {
       const isRed = parseFloat(last10[i].close) < parseFloat(last10[i].open);
       if (isRed) {
         redCandlesCount++;
@@ -930,9 +930,9 @@ function detectPitchforkPattern(
   if (signal === 'SHORT') {
     const candleSequence = last10.map(c => parseFloat(c.close) > parseFloat(c.open) ? '🟢' : '🔴').join(' ');
     
-    // 1. IDENTIFICAR VELAS VERDES SUBINDO (mínimo 2 antes)
+    // 1. IDENTIFICAR VELAS VERDES SUBINDO (mínimo 2 antes das duas últimas velas)
     let greenCandlesCount = 0;
-    for (let i = last10.length - 2; i >= 0; i--) {
+    for (let i = last10.length - 3; i >= 0; i--) {
       const isGreen = parseFloat(last10[i].close) > parseFloat(last10[i].open);
       if (isGreen) {
         greenCandlesCount++;
