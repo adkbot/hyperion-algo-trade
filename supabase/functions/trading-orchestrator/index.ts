@@ -2435,20 +2435,22 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     // CALCULAR TAMANHO DA POSIÇÃO
     // ============================================
     const balance = settings.balance || 100;
-    const riskPerTrade = settings.risk_per_trade || 0.02;
+    const riskPercentage = settings.risk_percentage || 6; // 6% do saldo
     const leverage = settings.leverage || 20;
     
-    const riskAmount = balance * riskPerTrade;
-    const stopDistance = Math.abs(risk.entry - risk.stop);
-    const quantity = (riskAmount / stopDistance) * leverage;
+    // ✅ CORREÇÃO: Usar apenas riskPercentage (6%) do saldo
+    const riskAmount = balance * (riskPercentage / 100); // Ex: $40 × 0.06 = $2.40
+    const positionSize = riskAmount * leverage; // Ex: $2.40 × 20 = $48
+    const quantity = positionSize / risk.entry; // Ex: $48 ÷ preço atual
     
     console.log(`
 💰 CÁLCULO DE POSIÇÃO:
 ├─ Balance: $${balance}
-├─ Risk per trade: ${(riskPerTrade * 100).toFixed(1)}%
+├─ Risk Percentage: ${riskPercentage}%
 ├─ Risk Amount: $${riskAmount.toFixed(2)}
 ├─ Leverage: ${leverage}x
-├─ Stop Distance: $${stopDistance.toFixed(4)}
+├─ Position Size: $${positionSize.toFixed(2)}
+├─ Entry Price: $${risk.entry.toFixed(4)}
 └─ Quantity: ${quantity.toFixed(4)} ${asset}
     `);
 
