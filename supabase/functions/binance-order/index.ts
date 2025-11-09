@@ -28,6 +28,26 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // ✅ CONTROLE: Verificar se já existe posição ativa para este ativo
+    const { data: existingPosition, error: positionCheckError } = await supabase
+      .from('active_positions')
+      .select('*')
+      .eq('user_id', user_id)
+      .eq('asset', asset)
+      .single();
+
+    if (existingPosition) {
+      console.log(`⚠️ Posição já existe para ${asset}. Rejeitando ordem duplicada.`);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: `Já existe uma posição ativa para ${asset}`,
+          duplicate: true
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // ✅ Get settings POR USUÁRIO
     const { data: settings, error: settingsError } = await supabase
       .from('user_settings')
@@ -167,15 +187,27 @@ serve(async (req) => {
     // Map direction to Binance side (LONG -> BUY, SHORT -> SELL)
     const side = direction === 'LONG' ? 'BUY' : direction === 'SHORT' ? 'SELL' : direction;
     
-    // ✅ CRÍTICO: Formatar quantidade com precisão correta
-    // A maioria dos pares USDT aceita 0 casas decimais (quantidade inteira)
-    // Alguns pares específicos aceitam 1-3 casas decimais
-    const formattedQuantity = asset.includes('1000') 
-      ? parseFloat(quantity.toFixed(1))  // 1000FLOKI, etc: 1 decimal
-      : parseFloat(quantity.toFixed(0)); // Maioria: 0 decimais (inteiro)
+    // ✅ CRÍTICO: Formatar quantidade com precisão EXATA da Binance
+    // Regras de precisão:
+    // - Pares com "1000" (1000PEPE, 1000FLOKI, etc): 0 decimais (inteiros)
+    // - Pares padrão (BTC, ETH, etc): 3 decimais
+    // - Altcoins (DOGE, SHIB, etc): 0 decimais (inteiros)
+    let formattedQuantity: number;
+    
+    if (asset.includes('1000') || asset.includes('DOGE') || asset.includes('SHIB') || 
+        asset.includes('PEPE') || asset.includes('FLOKI') || asset.includes('BONK')) {
+      // Quantidade inteira (sem decimais)
+      formattedQuantity = Math.floor(quantity);
+    } else if (asset.includes('BTC') || asset.includes('ETH')) {
+      // Alta precisão: 3 decimais
+      formattedQuantity = parseFloat(quantity.toFixed(3));
+    } else {
+      // Padrão: 0 decimais (inteiros) para maioria das altcoins
+      formattedQuantity = Math.floor(quantity);
+    }
     
     console.log(`📡 Sending order to Binance: ${asset} ${side} @ ${price || 'MARKET'}`);
-    console.log(`📊 Quantity: ${quantity} → Formatted: ${formattedQuantity}`);
+    console.log(`📊 Quantity: ${quantity} → Formatted: ${formattedQuantity} (precision adjusted)`);
 
     const timestamp = Date.now();
     const params = new URLSearchParams({

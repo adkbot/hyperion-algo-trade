@@ -502,7 +502,26 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
           ...analysis
         });
 
-        // ✅ Gravar análise no histórico
+        // ✅ COOLDOWN: Verificar se já enviamos sinal recente para este ativo (últimos 5 minutos)
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        const { data: recentSignal } = await supabase
+          .from('session_history')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('pair', pair)
+          .eq('signal', analysis.signal)
+          .gte('timestamp', fiveMinutesAgo)
+          .order('timestamp', { ascending: false })
+          .limit(1)
+          .single();
+
+        const shouldSkipDueToCooldown = recentSignal && analysis.signal !== 'STAY_OUT';
+        
+        if (shouldSkipDueToCooldown) {
+          console.log(`⏸️ COOLDOWN ATIVO: Sinal ${analysis.signal} para ${pair} já foi detectado há menos de 5 minutos. Aguardando...`);
+        }
+
+        // ✅ Gravar análise no histórico (sempre, inclusive em cooldown)
         await supabase.from('session_history').insert({
           user_id: userId,
           pair,
@@ -512,7 +531,9 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
           signal: analysis.signal,
           confidence_score: analysis.confidence,
           volume_factor: analysis.volumeFactor,
-          notes: analysis.notes,
+          notes: shouldSkipDueToCooldown 
+            ? `${analysis.notes} [COOLDOWN ATIVO - Aguardando 5min]`
+            : analysis.notes,
           confirmation: analysis.confirmation,
           c1_direction: analysis.c1Direction,
           range_high: analysis.rangeHigh,
@@ -521,6 +542,11 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
           risk: analysis.risk,
           timestamp: new Date().toISOString(),
         });
+
+        // ✅ Skip execution if cooldown is active
+        if (shouldSkipDueToCooldown) {
+          continue; // Skip this pair to avoid duplicate signals
+        }
       }
 
       // ✅ Execute trades if signal is valid
