@@ -528,19 +528,19 @@ async function analyzeCyclePhase(params: any) {
   if (sessionState?.c1_direction) {
     
     if (phase === 'Projection_Oceania') {
-      return await analyzeOceaniaPhase(candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
+      return await analyzeOceaniaPhase(candles15m, candles1h, indicators, currentPrice, asset, sessionState, supabase, userId);
     }
     
     if (phase === 'Projection_Asia') {
-      return await analyzeAsiaPhase(candles5m, candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
+      return await analyzeAsiaPhase(candles5m, candles15m, candles1h, indicators, currentPrice, asset, sessionState, supabase, userId);
     }
     
     if (phase === 'Consolidation') {
-      return await analyzeLondonPhase(candles15m, indicators, currentPrice, asset, sessionState, supabase, userId);
+      return await analyzeLondonPhase(candles15m, candles1h, indicators, currentPrice, asset, sessionState, supabase, userId);
     }
     
     if (phase === 'Execution') {
-      return await analyzeNYPhase(candles5m, candles15m, indicators, currentPrice, asset, sessionState);
+      return await analyzeNYPhase(candles5m, candles15m, candles1h, indicators, currentPrice, asset, sessionState);
     }
   }
   
@@ -892,7 +892,7 @@ async function analyzeTechnicalStandalone(
 }
 
 // ✅ FASE 2: Oceania - O Desenhista (CRÍTICO)
-async function analyzeOceaniaPhase(candles15m: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
+async function analyzeOceaniaPhase(candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
   const { volume, atr } = indicators;
   const now = new Date();
   const utcHour = now.getUTCHours();
@@ -1011,7 +1011,7 @@ async function analyzeOceaniaPhase(candles15m: any[], indicators: any, currentPr
 }
 
 // ✅ FASE 3: Asia - O Confirmador
-async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
+async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
   const { rsi, volume, atr } = indicators;
   const c1Direction = sessionState?.c1_direction;
   
@@ -1093,36 +1093,59 @@ async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], indicators:
     
     // Operar na NOVA direção - SCALPING MODE
     if (volume.factor > 1.3) {
-      const stopLoss = newDirection === 'LONG'
-        ? currentPrice - (atr * 0.6)  // TP/SL mais próximos para scalping
-        : currentPrice + (atr * 0.6);
       
-      const takeProfit = newDirection === 'LONG'
-        ? currentPrice + (atr * 0.9)  // Target menor para fechar rápido
-        : currentPrice - (atr * 0.9);
+      // 🔍 VALIDAÇÃO H1/M5 PROTOCOL
+      const h1m5Validation = validateH1M5Entry(
+        newDirection,
+        currentPrice,
+        candles1h,
+        candles5m
+      );
       
-      const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
-      
-      if (rrRatio >= RR_RANGES.ASIA_REVERSAL.min && rrRatio <= RR_RANGES.ASIA_REVERSAL.max) {
+      if (!h1m5Validation.allowed) {
+        console.log(`❌ ${h1m5Validation.reason}`);
         return {
-          signal: newDirection,
+          signal: 'STAY_OUT',
           direction: newDirection,
           c1Direction: newDirection,
           volumeFactor: volume.factor,
-          confirmation: `Asia REVERSED C1 to ${newDirection}`,
-          risk: {
-            entry: currentPrice,
-            stop: stopLoss,
-            target: takeProfit,
-            rr_ratio: rrRatio,
-          },
-          confidence: 0.73,
-          notes: `Asia reversal: ${c1Direction} → ${newDirection}`,
-          marketData: { price: currentPrice, rsi, atr },
+          confirmation: h1m5Validation.reason,
+          risk: null,
+          confidence: 0,
+          notes: `Asia reversal detectado mas rejeitado por H1/M5: ${h1m5Validation.reason}`,
+          marketData: { price: currentPrice },
           rangeHigh: null,
           rangeLow: null,
+          h1Zones: h1m5Validation.h1Zones
         };
       }
+      
+      // ✅ H1/M5 APROVADO
+      console.log(`✅ ${h1m5Validation.reason}`);
+      
+      const rrRatio = Math.abs(h1m5Validation.target! - h1m5Validation.entry!) / 
+                       Math.abs(h1m5Validation.entry! - h1m5Validation.stop!);
+      
+      return {
+        signal: newDirection,
+        direction: newDirection,
+        c1Direction: newDirection,
+        volumeFactor: volume.factor,
+        confirmation: `Asia REVERSED C1 to ${newDirection} + H1/M5 validado`,
+        risk: {
+          entry: h1m5Validation.entry,
+          stop: h1m5Validation.stop,
+          target: h1m5Validation.target,
+          rr_ratio: rrRatio,
+        },
+        confidence: 0.78,
+        notes: `Asia reversal validado por H1/M5: ${c1Direction} → ${newDirection}`,
+        marketData: { price: currentPrice, rsi, atr },
+        rangeHigh: null,
+        rangeLow: null,
+        h1Zones: h1m5Validation.h1Zones,
+        pitchforkConfirmed: true
+      };
     }
   }
   
@@ -1143,7 +1166,7 @@ async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], indicators:
 }
 
 // ✅ FASE 4: London - O Precificador
-async function analyzeLondonPhase(candles15m: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
+async function analyzeLondonPhase(candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
   const { rsi, vwma, ema, volume, atr } = indicators;
   const c1Direction = sessionState?.c1_direction;
   
@@ -1239,7 +1262,7 @@ async function analyzeLondonPhase(candles15m: any[], indicators: any, currentPri
 }
 
 // ✅ FASE 5: NY - O Executor (Melhorado)
-async function analyzeNYPhase(candles5m: any[], candles15m: any[], indicators: any, currentPrice: number, asset: string, sessionState: any) {
+async function analyzeNYPhase(candles5m: any[], candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any) {
   const { rsi, vwma, ema, macd, volume, atr } = indicators;
   
   const c1Direction = sessionState?.c1_direction;
@@ -1283,64 +1306,118 @@ async function analyzeNYPhase(candles5m: any[], candles15m: any[], indicators: a
   if (breakoutUp && volumeConfirmed && bullishAlignment) {
     // Apenas operar se alinhado com C1 ou Asia confirmou
     if (c1Direction === 'LONG' || asiaConfirmation === 'REVERSED') {
-      const entry = currentPrice;
-      const stop = londonHigh - (atr * 0.8);
-      const rangeAmplitude = londonHigh - londonLow;
-      const target = currentPrice + (rangeAmplitude * 1.5); // Measured move
-      const rrRatio = Math.abs(target - entry) / Math.abs(entry - stop);
       
-      if (rrRatio >= RR_RANGES.NY_BREAKOUT.min && rrRatio <= RR_RANGES.NY_BREAKOUT.max) {
+      // 🔍 VALIDAÇÃO H1/M5 PROTOCOL
+      const h1m5Validation = validateH1M5Entry(
+        'LONG',
+        currentPrice,
+        candles1h,
+        candles5m
+      );
+      
+      if (!h1m5Validation.allowed) {
+        console.log(`❌ NY LONG: ${h1m5Validation.reason}`);
         return {
-          signal: 'LONG',
+          signal: 'STAY_OUT',
           direction: 'LONG',
           c1Direction,
           volumeFactor: volume.factor,
-          confirmation: `NY breakout UP - C1: ${c1Direction}, Asia: ${asiaConfirmation}`,
-          risk: {
-            entry,
-            stop,
-            target,
-            rr_ratio: rrRatio,
-          },
-          confidence: baseConfidence,
-          notes: `NY LONG breakout above ${londonHigh.toFixed(2)}`,
-          marketData: { price: currentPrice, vwma, ema, macd, rsi },
+          confirmation: h1m5Validation.reason,
+          risk: null,
+          confidence: 0,
+          notes: `NY breakout detectado mas rejeitado por H1/M5: ${h1m5Validation.reason}`,
+          marketData: { price: currentPrice },
           rangeHigh: londonHigh,
           rangeLow: londonLow,
+          h1Zones: h1m5Validation.h1Zones
         };
       }
+      
+      // ✅ H1/M5 APROVADO
+      console.log(`✅ NY LONG: ${h1m5Validation.reason}`);
+      
+      const rrRatio = Math.abs(h1m5Validation.target! - h1m5Validation.entry!) / 
+                       Math.abs(h1m5Validation.entry! - h1m5Validation.stop!);
+      
+      return {
+        signal: 'LONG',
+        direction: 'LONG',
+        c1Direction,
+        volumeFactor: volume.factor,
+        confirmation: `NY breakout UP + H1/M5 validado - C1: ${c1Direction}, Asia: ${asiaConfirmation}`,
+        risk: {
+          entry: h1m5Validation.entry,
+          stop: h1m5Validation.stop,
+          target: h1m5Validation.target,
+          rr_ratio: rrRatio,
+        },
+        confidence: baseConfidence,
+        notes: `NY LONG breakout validado por H1/M5 - Suporte H1: ${h1m5Validation.h1Zones.support.toFixed(2)}`,
+        marketData: { price: currentPrice, vwma, ema, macd, rsi },
+        rangeHigh: londonHigh,
+        rangeLow: londonLow,
+        h1Zones: h1m5Validation.h1Zones,
+        pitchforkConfirmed: true
+      };
     }
   }
   
   // SHORT breakout
   if (breakoutDown && volumeConfirmed && bearishAlignment) {
     if (c1Direction === 'SHORT' || asiaConfirmation === 'REVERSED') {
-      const entry = currentPrice;
-      const stop = londonLow + (atr * 0.8);
-      const rangeAmplitude = londonHigh - londonLow;
-      const target = currentPrice - (rangeAmplitude * 1.5);
-      const rrRatio = Math.abs(entry - target) / Math.abs(stop - entry);
       
-      if (rrRatio >= RR_RANGES.NY_BREAKOUT.min && rrRatio <= RR_RANGES.NY_BREAKOUT.max) {
+      // 🔍 VALIDAÇÃO H1/M5 PROTOCOL
+      const h1m5Validation = validateH1M5Entry(
+        'SHORT',
+        currentPrice,
+        candles1h,
+        candles5m
+      );
+      
+      if (!h1m5Validation.allowed) {
+        console.log(`❌ NY SHORT: ${h1m5Validation.reason}`);
         return {
-          signal: 'SHORT',
+          signal: 'STAY_OUT',
           direction: 'SHORT',
           c1Direction,
           volumeFactor: volume.factor,
-          confirmation: `NY breakout DOWN - C1: ${c1Direction}, Asia: ${asiaConfirmation}`,
-          risk: {
-            entry,
-            stop,
-            target,
-            rr_ratio: rrRatio,
-          },
-          confidence: baseConfidence,
-          notes: `NY SHORT breakout below ${londonLow.toFixed(2)}`,
-          marketData: { price: currentPrice, vwma, ema, macd, rsi },
+          confirmation: h1m5Validation.reason,
+          risk: null,
+          confidence: 0,
+          notes: `NY breakout detectado mas rejeitado por H1/M5: ${h1m5Validation.reason}`,
+          marketData: { price: currentPrice },
           rangeHigh: londonHigh,
           rangeLow: londonLow,
+          h1Zones: h1m5Validation.h1Zones
         };
       }
+      
+      // ✅ H1/M5 APROVADO
+      console.log(`✅ NY SHORT: ${h1m5Validation.reason}`);
+      
+      const rrRatio = Math.abs(h1m5Validation.entry! - h1m5Validation.target!) / 
+                       Math.abs(h1m5Validation.stop! - h1m5Validation.entry!);
+      
+      return {
+        signal: 'SHORT',
+        direction: 'SHORT',
+        c1Direction,
+        volumeFactor: volume.factor,
+        confirmation: `NY breakout DOWN + H1/M5 validado - C1: ${c1Direction}, Asia: ${asiaConfirmation}`,
+        risk: {
+          entry: h1m5Validation.entry,
+          stop: h1m5Validation.stop,
+          target: h1m5Validation.target,
+          rr_ratio: rrRatio,
+        },
+        confidence: baseConfidence,
+        notes: `NY SHORT breakout validado por H1/M5 - Resistência H1: ${h1m5Validation.h1Zones.resistance.toFixed(2)}`,
+        marketData: { price: currentPrice, vwma, ema, macd, rsi },
+        rangeHigh: londonHigh,
+        rangeLow: londonLow,
+        h1Zones: h1m5Validation.h1Zones,
+        pitchforkConfirmed: true
+      };
     }
   }
   
@@ -1719,6 +1796,305 @@ async function fetchCandlesFromBinance(symbol: string, intervals: string[]) {
 
   return candles;
 }
+
+// ============================================
+// H1/M5 PROTOCOL MODULE
+// ============================================
+
+// Validate H1/M5 Entry - Core validation logic
+function validateH1M5Entry(
+  signal: string,
+  currentPrice: number,
+  candles1h: any[],
+  candles5m: any[]
+): {
+  allowed: boolean;
+  reason: string;
+  h1Zones: any;
+  pitchforkConfirmed: boolean;
+  entry?: number;
+  stop?: number;
+  target?: number;
+} {
+  const h1Zones = detectH1MagicLines(candles1h);
+  const pricePosition = classifyPricePosition(currentPrice, h1Zones);
+  
+  // GOLDEN RULE: Only LONG at SUPPORT, only SHORT at RESISTANCE
+  if (signal === 'LONG' || signal === 'SHORT') {
+    if (signal === 'LONG' && pricePosition !== 'AT_SUPPORT') {
+      return {
+        allowed: false,
+        reason: `LONG rejeitado - Preço em ${pricePosition}, aguardar SUPORTE H1 (${h1Zones.support.toFixed(2)})`,
+        h1Zones,
+        pitchforkConfirmed: false
+      };
+    }
+  
+    if (signal === 'SHORT' && pricePosition !== 'AT_RESISTANCE') {
+      return {
+        allowed: false,
+        reason: `SHORT rejeitado - Preço em ${pricePosition}, aguardar RESISTÊNCIA H1 (${h1Zones.resistance.toFixed(2)})`,
+        h1Zones,
+        pitchforkConfirmed: false
+      };
+    }
+  
+    // Verify pitchfork pattern on M5 (só para LONG ou SHORT válidos)
+    const pitchfork = detectPitchforkPattern(candles5m, signal as 'LONG' | 'SHORT');
+  
+    if (!pitchfork.confirmed) {
+      return {
+        allowed: false,
+        reason: `Zona H1 OK, mas aguardando padrão pitchfork M5 (${pitchfork.status})`,
+        h1Zones,
+        pitchforkConfirmed: false
+      };
+    }
+  
+    // Calculate Stop/Target based on H1 + M5
+    const { entry, stop, target } = calculateH1M5Levels(
+      signal as 'LONG' | 'SHORT',
+      currentPrice,
+      h1Zones,
+      pitchfork.pivotHigh,
+      pitchfork.pivotLow,
+      candles5m
+    );
+  
+    console.log(`
+🔍 ========================================
+   VALIDAÇÃO H1/M5 PROTOCOL
+========================================
+   FIMATHE Signal: ${signal}
+   Preço Atual: ${currentPrice.toFixed(2)}
+   
+   📏 Linhas Mágicas H1:
+   ├─ Resistência: ${h1Zones.resistance.toFixed(2)}
+   ├─ Suporte: ${h1Zones.support.toFixed(2)}
+   └─ Mid-Range: ${h1Zones.midRange.toFixed(2)}
+   
+   📍 Posição do Preço: ${pricePosition}
+   
+   ✅ ${pitchfork.status}
+   
+   📊 Níveis de Execução:
+   ├─ Entry: ${entry.toFixed(2)}
+   ├─ Stop: ${stop.toFixed(2)}
+   ├─ Target: ${target.toFixed(2)}
+   └─ R:R: ${(Math.abs(target - entry) / Math.abs(entry - stop)).toFixed(2)}
+========================================
+  `);
+  
+    return {
+      allowed: true,
+      reason: `✅ ZONA H1 + PITCHFORK M5 confirmados - ${signal} válido`,
+      h1Zones,
+      pitchforkConfirmed: true,
+      entry,
+      stop,
+      target
+    };
+  }
+  
+  // Se não for LONG nem SHORT, retornar not allowed
+  return {
+    allowed: false,
+    reason: 'Signal inválido - apenas LONG ou SHORT são suportados',
+    h1Zones,
+    pitchforkConfirmed: false
+  };
+}
+
+// Detect H1 Magic Lines (Support/Resistance)
+function detectH1MagicLines(candles1h: any[]): {
+  resistance: number;
+  support: number;
+  midRange: number;
+  rangeSize: number;
+} {
+  const recent = candles1h.slice(-48); // Last 48 H1 candles (2 days)
+  
+  const highs = recent.map(c => parseFloat(c.high));
+  const resistance = Math.max(...highs);
+  
+  const lows = recent.map(c => parseFloat(c.low));
+  const support = Math.min(...lows);
+  
+  const midRange = (resistance + support) / 2;
+  const rangeSize = resistance - support;
+  
+  console.log(`📏 Linhas Mágicas H1:
+    ├─ Resistência: ${resistance.toFixed(2)}
+    ├─ Suporte: ${support.toFixed(2)}
+    ├─ Mid-Range: ${midRange.toFixed(2)}
+    └─ Range Size: ${rangeSize.toFixed(2)}`);
+  
+  return { resistance, support, midRange, rangeSize };
+}
+
+// Classify Price Position relative to H1 zones
+function classifyPricePosition(
+  price: number,
+  zones: { resistance: number; support: number; midRange: number; rangeSize: number }
+): 'AT_SUPPORT' | 'AT_RESISTANCE' | 'MID_RANGE' | 'APPROACHING_SUPPORT' | 'APPROACHING_RESISTANCE' {
+  
+  const tolerance = zones.rangeSize * 0.03; // 3% tolerance
+  
+  // At support?
+  if (Math.abs(price - zones.support) <= tolerance) {
+    return 'AT_SUPPORT';
+  }
+  
+  // At resistance?
+  if (Math.abs(price - zones.resistance) <= tolerance) {
+    return 'AT_RESISTANCE';
+  }
+  
+  // Mid-range (NO-TRADE ZONE)?
+  const distanceFromMid = Math.abs(price - zones.midRange);
+  if (distanceFromMid < zones.rangeSize * 0.25) {
+    return 'MID_RANGE';
+  }
+  
+  // Approaching which zone?
+  return price > zones.midRange ? 'APPROACHING_RESISTANCE' : 'APPROACHING_SUPPORT';
+}
+
+// Detect Pitchfork Pattern on M5
+function detectPitchforkPattern(
+  candles5m: any[],
+  signal: 'LONG' | 'SHORT'
+): {
+  confirmed: boolean;
+  status: string;
+  pivotHigh?: number;
+  pivotLow?: number;
+} {
+  
+  const last10 = candles5m.slice(-10);
+  
+  if (signal === 'LONG') {
+    // Count consecutive red candles
+    let redCount = 0;
+    for (let i = last10.length - 2; i >= 0; i--) {
+      const c = last10[i];
+      const close = parseFloat(c.close);
+      const open = parseFloat(c.open);
+      if (close < open) redCount++;
+      else break;
+    }
+    
+    // Last candle must be green
+    const lastCandle = last10[last10.length - 1];
+    const isGreen = parseFloat(lastCandle.close) > parseFloat(lastCandle.open);
+    
+    if (redCount < 3) {
+      return { confirmed: false, status: `Apenas ${redCount} velas vermelhas (precisa 3+)` };
+    }
+    
+    if (!isGreen) {
+      return { confirmed: false, status: 'Aguardando primeira vela verde de reversão' };
+    }
+    
+    // Check if breakout occurred above first green candle's high
+    const firstGreenHigh = parseFloat(lastCandle.high);
+    const currentPrice = parseFloat(lastCandle.close);
+    
+    if (currentPrice <= firstGreenHigh) {
+      return { confirmed: false, status: 'Aguardando breakout da máxima da vela verde' };
+    }
+    
+    // ✅ PITCHFORK CONFIRMED
+    const pivotLow = Math.min(...last10.slice(-5).map(c => parseFloat(c.low)));
+    return { 
+      confirmed: true, 
+      status: `Pitchfork LONG confirmado: ${redCount} velas vermelhas → reversão verde → breakout`,
+      pivotLow
+    };
+  }
+  
+  if (signal === 'SHORT') {
+    // Count consecutive green candles
+    let greenCount = 0;
+    for (let i = last10.length - 2; i >= 0; i--) {
+      const c = last10[i];
+      const close = parseFloat(c.close);
+      const open = parseFloat(c.open);
+      if (close > open) greenCount++;
+      else break;
+    }
+    
+    const lastCandle = last10[last10.length - 1];
+    const isRed = parseFloat(lastCandle.close) < parseFloat(lastCandle.open);
+    
+    if (greenCount < 3) {
+      return { confirmed: false, status: `Apenas ${greenCount} velas verdes (precisa 3+)` };
+    }
+    
+    if (!isRed) {
+      return { confirmed: false, status: 'Aguardando primeira vela vermelha de reversão' };
+    }
+    
+    const firstRedLow = parseFloat(lastCandle.low);
+    const currentPrice = parseFloat(lastCandle.close);
+    
+    if (currentPrice >= firstRedLow) {
+      return { confirmed: false, status: 'Aguardando breakdown da mínima da vela vermelha' };
+    }
+    
+    const pivotHigh = Math.max(...last10.slice(-5).map(c => parseFloat(c.high)));
+    return { 
+      confirmed: true, 
+      status: `Pitchfork SHORT confirmado: ${greenCount} velas verdes → reversão vermelha → breakdown`,
+      pivotHigh
+    };
+  }
+  
+  return { confirmed: false, status: 'Signal inválido' };
+}
+
+// Calculate H1/M5 Levels (Entry, Stop, Target)
+function calculateH1M5Levels(
+  signal: 'LONG' | 'SHORT',
+  currentPrice: number,
+  h1Zones: any,
+  pivotHigh: number | undefined,
+  pivotLow: number | undefined,
+  candles5m: any[]
+): { entry: number; stop: number; target: number } {
+  
+  if (signal === 'LONG') {
+    const entry = currentPrice;
+    
+    // Stop: Below M5 pivot OR below H1 support (whichever is safer)
+    const atr = calculateATR(candles5m, 14);
+    const stopFromPivot = pivotLow ? pivotLow - (atr * 0.5) : h1Zones.support * 0.998;
+    const stopFromH1 = h1Zones.support * 0.998;
+    const stop = Math.min(stopFromPivot, stopFromH1);
+    
+    // Target: H1 mid-range (partial realization) or resistance (final target)
+    const target = h1Zones.midRange;
+    
+    return { entry, stop, target };
+  }
+  
+  if (signal === 'SHORT') {
+    const entry = currentPrice;
+    const atr = calculateATR(candles5m, 14);
+    const stopFromPivot = pivotHigh ? pivotHigh + (atr * 0.5) : h1Zones.resistance * 1.002;
+    const stopFromH1 = h1Zones.resistance * 1.002;
+    const stop = Math.max(stopFromPivot, stopFromH1);
+    const target = h1Zones.midRange;
+    
+    return { entry, stop, target };
+  }
+  
+  return { entry: currentPrice, stop: currentPrice * 0.98, target: currentPrice * 1.02 };
+}
+
+// ============================================
+// END OF H1/M5 PROTOCOL MODULE
+// ============================================
 
 // Execute trade signal with COMPLETE validation
 async function executeTradeSignal(supabase: any, userId: string, asset: string, analysis: any, settings: any, currentSession: string) {
