@@ -46,7 +46,8 @@ export const AlertPanel = () => {
     },
   });
 
-  const alerts = signals?.map(signal => {
+  // Processar e filtrar alertas - máximo 2 por ativo para evitar poluição
+  const allAlerts = signals?.map(signal => {
     const isLong = signal.signal === 'LONG';
     const isEntry = signal.confidence_score && signal.confidence_score >= 0.8;
     const risk = signal.risk as any;
@@ -65,8 +66,27 @@ export const AlertPanel = () => {
         ? "text-success border-success bg-success/10"
         : "text-warning border-warning bg-warning/10",
       confidence: signal.confidence_score || 0,
+      timestamp: signal.timestamp,
     };
   }) || [];
+
+  // Agrupar por ativo e pegar apenas os 2 mais recentes de cada
+  const alertsByAsset = allAlerts.reduce((acc, alert) => {
+    if (!acc[alert.asset]) {
+      acc[alert.asset] = [];
+    }
+    acc[alert.asset].push(alert);
+    return acc;
+  }, {} as Record<string, typeof allAlerts>);
+
+  // Pegar no máximo 2 alertas por ativo (os mais recentes)
+  const alerts = Object.values(alertsByAsset)
+    .flatMap(assetAlerts => 
+      assetAlerts
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, 2) // Máximo 2 por ativo
+    )
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   const handleEntryClick = (alert: any) => {
     if (!settings || settings.balance <= 0) {
