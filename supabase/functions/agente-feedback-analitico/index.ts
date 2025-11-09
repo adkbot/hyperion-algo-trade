@@ -16,9 +16,9 @@ serve(async (req) => {
     console.log(`🤖 AGENTE FEEDBACK ANALÍTICO - Analisando ${asset}`);
     console.log(`Session: ${session} | Phase: ${phase} | Signal: ${signal} | Confidence: ${(confidence * 100).toFixed(1)}%`);
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
+    const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+    if (!GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY not configured');
     }
 
     // Prepare detailed market analysis prompt
@@ -79,31 +79,31 @@ Forneça:
 6. Níveis de correção esperados baseados em Volume Profile
 7. Recomendação final (EXECUTAR / AGUARDAR / REJEITAR)`;
 
-    // Call Lovable AI
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.3,
+        contents: [{
+          parts: [{
+            text: `${systemPrompt}\n\n${userPrompt}`
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.3,
+        }
       }),
     });
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
-      console.error('AI Gateway error:', aiResponse.status, errorText);
-      throw new Error(`AI Gateway error: ${aiResponse.status}`);
+      console.error('Gemini API error:', aiResponse.status, errorText);
+      throw new Error(`Gemini API error: ${aiResponse.status}`);
     }
 
     const aiData = await aiResponse.json();
-    const analysis = aiData.choices[0].message.content;
+    const analysis = aiData.candidates[0].content.parts[0].text;
 
     console.log('✅ Análise IA concluída');
     console.log(`Feedback: ${analysis.substring(0, 200)}...`);
