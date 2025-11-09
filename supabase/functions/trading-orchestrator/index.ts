@@ -380,7 +380,20 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
 
   for (const pair of validPairs) {
     try {
-      // MODIFIED: Permitir reentrada se ainda houver espaço
+      // ✅ VERIFICAR SE ATIVO JÁ TEM POSIÇÃO ABERTA
+      const { data: existingPositionForAsset } = await supabase
+        .from('active_positions')
+        .select('id, asset')
+        .eq('user_id', userId)
+        .eq('asset', pair)
+        .maybeSingle();
+      
+      if (existingPositionForAsset) {
+        console.log(`⏸️ ${pair} já tem posição aberta - pulando análise (ID: ${existingPositionForAsset.id})`);
+        continue;
+      }
+      
+      // ✅ Verificar total de posições (limite global)
       const { data: currentPositions } = await supabase
         .from('active_positions')
         .select('id')
@@ -393,8 +406,7 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
         break;
       }
       
-      console.log(`📊 Posições ativas: ${currentCount}/${settings.max_positions} - Continuando análise`);
-
+      console.log(`📊 Posições ativas: ${currentCount}/${settings.max_positions} - ${pair} livre para análise ✅`);
 
       console.log(`Analyzing ${pair} - Session: ${currentSession}`);
       
