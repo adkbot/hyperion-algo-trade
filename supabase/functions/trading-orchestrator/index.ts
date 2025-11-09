@@ -1732,28 +1732,18 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     const wyckoff = analysis.wyckoff || {};
     const { signal, risk, confidence } = analysis;
     
+    // Track fallback mode
+    let fallbackMode = false;
+    let fallbackReason = '';
+
     // Mandatory indicator checklist
     const validations = {
       rsi: indicators.rsi && indicators.rsi >= 30 && indicators.rsi <= 70,
       macd: indicators.macd !== undefined,
-      volume: indicators.volume?.factor && indicators.volume.factor > 1.2,
+      volume: indicators.volume?.factor && indicators.volume.factor > 0.5,
       atr: indicators.atr && indicators.atr >= 0.005 && indicators.atr <= 0.015,
-      wyckoff: wyckoff.phase && (
-        (signal === 'LONG' && wyckoff.phase === 'MARKUP') ||
-        (signal === 'SHORT' && wyckoff.phase === 'MARKDOWN') ||
-        wyckoff.phase === 'ACCUMULATION' ||
-        wyckoff.phase === 'DISTRIBUTION'
-      )
+      wyckoff: wyckoff.phase && wyckoff.phase !== 'NEUTRAL'
     };
-
-    const technicalScore = Object.values(validations).filter(Boolean).length * 6; // 30 points max
-    
-    console.log(`├─ Indicadores Técnicos (Score: ${technicalScore}/30):`);
-    console.log(`│  ├─ RSI: ${indicators.rsi?.toFixed(2)} ${validations.rsi ? '✅' : '❌'}`);
-    console.log(`│  ├─ MACD: ${indicators.macd?.toFixed(4)} ${validations.macd ? '✅' : '❌'}`);
-    console.log(`│  ├─ Volume Factor: ${indicators.volume?.factor?.toFixed(2)}x ${validations.volume ? '✅' : '❌'}`);
-    console.log(`│  ├─ ATR: ${indicators.atr?.toFixed(4)} ${validations.atr ? '✅' : '❌'}`);
-    console.log(`│  └─ Wyckoff Phase: ${wyckoff.phase} ${validations.wyckoff ? '✅' : '❌'}`);
 
     // ============================================
     // PHASE 2: CONSULT AI AGENTS
@@ -1765,7 +1755,7 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     try {
       // Agent 1: Analytical Feedback
       console.log(`├─ Consultando Agente Feedback Analítico...`);
-      const { data: feedbackData } = await supabase.functions.invoke('agente-feedback-analitico', {
+      const feedbackResponse = await supabase.functions.invoke('agente-feedback-analitico', {
         body: {
           asset,
           session: currentSession,
@@ -1778,49 +1768,184 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
         }
       });
       
-      agentFeedback = feedbackData;
-      const feedbackApproved = feedbackData?.qualityScore >= 75;
-      console.log(`│  └─ Feedback: Score ${feedbackData?.qualityScore}/100 ${feedbackApproved ? '✅' : '❌'}`);
-      
-      if (feedbackApproved) agentScore += 13;
-
-      // Agent 2: Confluence Execution
-      console.log(`├─ Consultando Agente Execução Confluência...`);
-      const { data: executionData } = await supabase.functions.invoke('agente-execucao-confluencia', {
-        body: {
-          asset,
-          direction: signal,
-          entry_price: risk.entry,
-          stop_loss: risk.stop,
-          take_profit: risk.target,
-          rr_ratio: risk.rr_ratio,
-          indicators,
-          wyckoff,
-          volume: indicators.volume
+      // Check for AI failure (402 = no credits, 500 = error)
+      if (feedbackResponse.error) {
+        const statusCode = feedbackResponse.error.status || feedbackResponse.error.context?.status;
+        if (statusCode === 402) {
+          fallbackMode = true;
+          fallbackReason = '❌ Sem créditos de IA';
+        } else if (statusCode === 500 || statusCode >= 400) {
+          fallbackMode = true;
+          fallbackReason = '⚠️ Agentes offline';
         }
-      });
-      
-      agentExecution = executionData;
-      const executionApproved = executionData?.decision === 'APROVAR';
-      console.log(`│  └─ Execução: ${executionData?.decision} (Score: ${executionData?.confluenceScore}) ${executionApproved ? '✅' : '❌'}`);
-      
-      if (executionApproved) agentScore += 13;
+      } else {
+        agentFeedback = feedbackResponse.data;
+        const feedbackApproved = feedbackResponse.data?.qualityScore >= 75;
+        console.log(`│  └─ Feedback: Score ${feedbackResponse.data?.qualityScore}/100 ${feedbackApproved ? '✅' : '❌'}`);
+        if (feedbackApproved) agentScore += 13;
+      }
 
-      // Agent 3: Risk Management (placeholder - will be called after trade closes)
-      console.log(`│  └─ Gestão Risco: Será avaliado após fechamento ⏳`);
-      agentScore += 14; // Temporary approval for now
+      // Agent 2: Confluence Execution (only if feedback succeeded)
+      if (!fallbackMode) {
+        console.log(`├─ Consultando Agente Execução Confluência...`);
+        const executionResponse = await supabase.functions.invoke('agente-execucao-confluencia', {
+          body: {
+            asset,
+            direction: signal,
+            entry_price: risk.entry,
+            stop_loss: risk.stop,
+            take_profit: risk.target,
+            rr_ratio: risk.rr_ratio,
+            indicators,
+            wyckoff,
+            volume: indicators.volume
+          }
+        });
+        
+        if (executionResponse.error) {
+          const statusCode = executionResponse.error.status || executionResponse.error.context?.status;
+          if (statusCode === 402 || statusCode >= 400) {
+            fallbackMode = true;
+            fallbackReason = fallbackReason || '⚠️ Agentes offline';
+          }
+        } else {
+          agentExecution = executionResponse.data;
+          const executionApproved = executionResponse.data?.decision === 'APROVAR';
+          console.log(`│  └─ Execução: ${executionResponse.data?.decision} (Score: ${executionResponse.data?.confluenceScore}) ${executionApproved ? '✅' : '❌'}`);
+          if (executionApproved) agentScore += 13;
+        }
+      }
 
-    } catch (agentError) {
+      // Agent 3: Risk Management (placeholder)
+      if (!fallbackMode) {
+        console.log(`│  └─ Gestão Risco: Será avaliado após fechamento ⏳`);
+        agentScore += 14;
+      }
+
+    } catch (agentError: any) {
       console.error(`❌ Erro ao consultar agentes:`, agentError);
+      fallbackMode = true;
+      fallbackReason = '⚠️ Erro na comunicação com agentes';
     }
 
-    console.log(`├─ Score Total Agentes: ${agentScore}/40`);
+    // ============================================
+    // FALLBACK MODE: AUTONOMOUS TECHNICAL TRADING
+    // ============================================
+    let technicalScore = 0;
+    let volumeScore = 0;
+    let rrScore = 0;
+    let totalScore = 0;
+    let minimumRequired = 75;
+
+    if (fallbackMode) {
+      console.log(`\n🔧 ========================================`);
+      console.log(`   MODO FALLBACK ATIVADO - IA OFFLINE`);
+      console.log(`   Razão: ${fallbackReason}`);
+      console.log(`   Operando com: Análise Técnica Pura`);
+      console.log(`   Sistema de Pontuação: Técnico (100pts)`);
+      console.log(`   Threshold: 70/100`);
+      console.log(`========================================\n`);
+      
+      minimumRequired = 70;
+
+      // TECHNICAL SCORE: 50 points max
+      let techPoints = 0;
+      
+      // RSI Analysis - 15 points
+      if (indicators.rsi) {
+        if (signal === 'LONG' && indicators.rsi >= 30 && indicators.rsi <= 50) {
+          techPoints += 15;
+          console.log(`│  ├─ RSI: ${indicators.rsi.toFixed(2)} (oversold recovery) ✅ +15`);
+        } else if (signal === 'SHORT' && indicators.rsi >= 50 && indicators.rsi <= 70) {
+          techPoints += 15;
+          console.log(`│  ├─ RSI: ${indicators.rsi.toFixed(2)} (overbought correction) ✅ +15`);
+        } else if (indicators.rsi >= 30 && indicators.rsi <= 70) {
+          techPoints += 8;
+          console.log(`│  ├─ RSI: ${indicators.rsi.toFixed(2)} (neutral zone) ⚠️ +8`);
+        } else {
+          console.log(`│  ├─ RSI: ${indicators.rsi.toFixed(2)} (extreme) ❌ +0`);
+        }
+      }
+
+      // MACD Analysis - 15 points
+      if (indicators.macd !== undefined) {
+        const macdAligned = (signal === 'LONG' && indicators.macd > 0) || (signal === 'SHORT' && indicators.macd < 0);
+        if (macdAligned) {
+          techPoints += 15;
+          console.log(`│  ├─ MACD: ${indicators.macd.toFixed(4)} (aligned with ${signal}) ✅ +15`);
+        } else {
+          techPoints += 5;
+          console.log(`│  ├─ MACD: ${indicators.macd.toFixed(4)} (divergent) ⚠️ +5`);
+        }
+      }
+
+      // Trend Strength - 10 points
+      const trendStrength = analysis.trend?.strength || 0;
+      if (trendStrength >= 0.7) {
+        techPoints += 10;
+        console.log(`│  ├─ Trend Strength: ${trendStrength.toFixed(2)} (strong) ✅ +10`);
+      } else if (trendStrength >= 0.5) {
+        techPoints += 5;
+        console.log(`│  ├─ Trend Strength: ${trendStrength.toFixed(2)} (moderate) ⚠️ +5`);
+      } else {
+        console.log(`│  ├─ Trend Strength: ${trendStrength.toFixed(2)} (weak) ❌ +0`);
+      }
+
+      // Volume Factor - 10 points
+      if (indicators.volume?.factor) {
+        if (indicators.volume.factor >= 0.8) {
+          techPoints += 10;
+          console.log(`│  └─ Volume: ${indicators.volume.factor.toFixed(2)}x (strong) ✅ +10`);
+        } else if (indicators.volume.factor >= 0.5) {
+          techPoints += 5;
+          console.log(`│  └─ Volume: ${indicators.volume.factor.toFixed(2)}x (moderate) ⚠️ +5`);
+        } else {
+          console.log(`│  └─ Volume: ${indicators.volume.factor.toFixed(2)}x (weak) ❌ +0`);
+        }
+      }
+
+      technicalScore = techPoints;
+      console.log(`├─ Score Técnico: ${technicalScore}/50\n`);
+
+      // VOLUME & MOMENTUM SCORE: 30 points max
+      let volPoints = 0;
+      
+      if (indicators.volume?.factor && indicators.volume.factor >= 0.6) {
+        volPoints += 20;
+        console.log(`│  ├─ Volume confirmado: ${indicators.volume.factor.toFixed(2)}x ✅ +20`);
+      }
+      
+      // Wyckoff confirmation
+      if (wyckoff.phase && wyckoff.phase !== 'NEUTRAL') {
+        volPoints += 10;
+        console.log(`│  └─ Wyckoff: ${wyckoff.phase} ✅ +10`);
+      }
+      
+      volumeScore = volPoints;
+      console.log(`├─ Score Volume & Momentum: ${volumeScore}/30\n`);
+
+    } else {
+      // NORMAL MODE: Original scoring
+      technicalScore = Object.values(validations).filter(Boolean).length * 6;
+      
+      console.log(`├─ Indicadores Técnicos (Score: ${technicalScore}/30):`);
+      console.log(`│  ├─ RSI: ${indicators.rsi?.toFixed(2)} ${validations.rsi ? '✅' : '❌'}`);
+      console.log(`│  ├─ MACD: ${indicators.macd?.toFixed(4)} ${validations.macd ? '✅' : '❌'}`);
+      console.log(`│  ├─ Volume Factor: ${indicators.volume?.factor?.toFixed(2)}x ${validations.volume ? '✅' : '❌'}`);
+      console.log(`│  ├─ ATR: ${indicators.atr?.toFixed(4)} ${validations.atr ? '✅' : '❌'}`);
+      console.log(`│  └─ Wyckoff Phase: ${wyckoff.phase} ${validations.wyckoff ? '✅' : '❌'}`);
+
+      console.log(`├─ Score Total Agentes: ${agentScore}/40`);
+      
+      volumeScore = validations.volume ? 20 : 0;
+    }
 
     // ============================================
-    // PHASE 3: VOLUME & MOMENTUM VALIDATION
+    // PHASE 3: VOLUME & MOMENTUM (for normal mode)
     // ============================================
-    const volumeScore = validations.volume ? 20 : 0;
-    console.log(`├─ Volume & Momentum: ${volumeScore}/20 ${validations.volume ? '✅' : '❌'}`);
+    if (!fallbackMode) {
+      console.log(`├─ Volume & Momentum: ${volumeScore}/20 ${validations.volume ? '✅' : '❌'}`);
+    }
 
     // ============================================
     // PHASE 4: RISK/REWARD VALIDATION
@@ -1831,26 +1956,95 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     }
 
     const rrValid = risk.rr_ratio >= 1.5;
-    const rrScore = rrValid ? 10 : 0;
-    console.log(`├─ Risk/Reward: ${risk.rr_ratio?.toFixed(2)} ${rrScore}/10 ${rrValid ? '✅' : '❌'}`);
+    
+    if (fallbackMode) {
+      // RISK/REWARD SCORE: 20 points max in fallback
+      if (risk.rr_ratio >= 2.5) {
+        rrScore = 20;
+        console.log(`├─ Risk/Reward: ${risk.rr_ratio.toFixed(2)} (excellent) ✅ +20/20`);
+      } else if (risk.rr_ratio >= 2.0) {
+        rrScore = 15;
+        console.log(`├─ Risk/Reward: ${risk.rr_ratio.toFixed(2)} (good) ✅ +15/20`);
+      } else if (risk.rr_ratio >= 1.5) {
+        rrScore = 10;
+        console.log(`├─ Risk/Reward: ${risk.rr_ratio.toFixed(2)} (acceptable) ⚠️ +10/20`);
+      } else {
+        rrScore = 0;
+        console.log(`├─ Risk/Reward: ${risk.rr_ratio.toFixed(2)} (too low) ❌ +0/20`);
+      }
+    } else {
+      // Normal mode: 10 points max
+      rrScore = rrValid ? 10 : 0;
+      console.log(`├─ Risk/Reward: ${risk.rr_ratio?.toFixed(2)} ${rrScore}/10 ${rrValid ? '✅' : '❌'}`);
+    }
+
+    // ============================================
+    // CONFLUENCE CHECK (Fallback only)
+    // ============================================
+    if (fallbackMode) {
+      let confluencePoints = 0;
+      
+      // RSI confirms
+      if ((signal === 'LONG' && indicators.rsi && indicators.rsi < 50) ||
+          (signal === 'SHORT' && indicators.rsi && indicators.rsi > 50)) {
+        confluencePoints++;
+      }
+      
+      // MACD confirms
+      if ((signal === 'LONG' && indicators.macd && indicators.macd > 0) ||
+          (signal === 'SHORT' && indicators.macd && indicators.macd < 0)) {
+        confluencePoints++;
+      }
+      
+      // Volume confirms
+      if (indicators.volume?.factor && indicators.volume.factor >= 0.6) {
+        confluencePoints++;
+      }
+      
+      // Wyckoff confirms
+      if (wyckoff.phase && wyckoff.phase !== 'NEUTRAL') {
+        confluencePoints++;
+      }
+      
+      // Trend confirms
+      const trendStrength = analysis.trend?.strength || 0;
+      if (trendStrength >= 0.5) {
+        confluencePoints++;
+      }
+      
+      console.log(`├─ Confluência: ${confluencePoints}/5 indicadores concordando ${confluencePoints >= 3 ? '✅' : '❌'}`);
+      
+      if (confluencePoints < 3) {
+        console.log(`❌ Confluência insuficiente - precisa de pelo menos 3/5 indicadores`);
+        return false;
+      }
+    }
 
     // ============================================
     // FINAL QUALITY SCORE
     // ============================================
-    const totalScore = technicalScore + agentScore + volumeScore + rrScore;
-    console.log(`└─ SCORE FINAL: ${totalScore}/100\n`);
+    if (fallbackMode) {
+      totalScore = technicalScore + volumeScore + rrScore;
+    } else {
+      totalScore = technicalScore + agentScore + volumeScore + rrScore;
+    }
+    
+    console.log(`└─ SCORE FINAL: ${totalScore}/100 (mínimo: ${minimumRequired})\n`);
 
-    if (totalScore < 75) {
-      console.log(`❌ Setup rejeitado - Score ${totalScore} < 75 (mínimo necessário)`);
+    if (totalScore < minimumRequired) {
+      console.log(`❌ Setup rejeitado - Score ${totalScore} < ${minimumRequired} (mínimo necessário)`);
       
       await supabase.from('agent_logs').insert({
         user_id: userId,
-        agent_name: 'SYSTEM_VALIDATION',
+        agent_name: fallbackMode ? 'FALLBACK_VALIDATION' : 'SYSTEM_VALIDATION',
         asset,
         status: 'rejected',
         data: {
           reason: 'Score insuficiente',
           totalScore,
+          minimumRequired,
+          fallbackMode,
+          fallbackReason,
           breakdown: { technicalScore, agentScore, volumeScore, rrScore },
           validations,
           agents: { agentFeedback, agentExecution }
@@ -1860,11 +2054,12 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
       return false;
     }
 
-    console.log(`✅ Setup APROVADO - Procedendo com execução\n`);
+    console.log(`✅ Setup APROVADO - Procedendo com execução ${fallbackMode ? '(MODO FALLBACK)' : ''}\n`);
 
-    // Validate signal confidence
-    if (confidence < 0.60) {
-      console.log(`❌ Confidence too low: ${confidence.toFixed(2)} (min: 0.60)`);
+    // Validate signal confidence (more lenient in fallback)
+    const minConfidence = fallbackMode ? 0.50 : 0.60;
+    if (confidence < minConfidence) {
+      console.log(`❌ Confidence too low: ${confidence.toFixed(2)} (min: ${minConfidence.toFixed(2)})`);
       return false;
     }
 
@@ -1992,11 +2187,13 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     // Log agent actions
     await supabase.from('agent_logs').insert({
       user_id: userId,
-      agent_name: 'Trade Executor',
+      agent_name: fallbackMode ? 'Fallback Trade Executor' : 'Trade Executor',
       asset,
       status: 'active',
       data: {
         action: 'TRADE_EXECUTED',
+        mode: fallbackMode ? 'FALLBACK' : 'AI_ASSISTED',
+        fallbackReason: fallbackMode ? fallbackReason : null,
         signal,
         entry: entryPrice,
         stop: stopLoss,
@@ -2005,6 +2202,8 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
         confidence,
         session: currentSession,
         totalScore,
+        minimumRequired,
+        breakdown: { technicalScore, agentScore, volumeScore, rrScore },
         agents: { agentFeedback, agentExecution }
       },
     });
