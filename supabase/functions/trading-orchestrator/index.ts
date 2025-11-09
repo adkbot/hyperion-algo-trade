@@ -2371,13 +2371,12 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     const orderPayload = {
       user_id: userId,
       asset,
-      side: mapDirection(signal),
+      direction: signal, // LONG ou SHORT
       quantity,
-      entry_price: risk.entry,
-      stop_loss: risk.stop,
-      take_profit: risk.target,
-      leverage,
-      paper_mode: settings.paper_mode || false,
+      price: risk.entry,
+      stopLoss: risk.stop,
+      takeProfit: risk.target,
+      riskReward: (Math.abs(risk.target - risk.entry) / Math.abs(risk.entry - risk.stop)).toFixed(2),
     };
 
     console.log(`📤 Enviando ordem para binance-order...`);

@@ -164,10 +164,15 @@ serve(async (req) => {
       // Continue anyway - leverage configuration is not critical for order execution
     }
 
+    // Map direction to Binance side (LONG -> BUY, SHORT -> SELL)
+    const side = direction === 'LONG' ? 'BUY' : direction === 'SHORT' ? 'SELL' : direction;
+    
+    console.log(`📡 Sending order to Binance: ${asset} ${side} @ ${price || 'MARKET'}`);
+
     const timestamp = Date.now();
     const params = new URLSearchParams({
       symbol: asset,
-      side: direction,
+      side: side,
       type: 'MARKET',
       quantity: quantity.toString(),
       timestamp: timestamp.toString(),
@@ -192,8 +197,6 @@ serve(async (req) => {
       .join('');
 
     params.append('signature', signatureHex);
-
-    console.log(`📡 Sending order to Binance: ${asset} ${direction} @ ${price}`);
 
     // Send order to Binance with user's API key
     const response = await fetch(`https://fapi.binance.com/fapi/v1/order?${params}`, {
