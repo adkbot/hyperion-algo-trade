@@ -727,7 +727,8 @@ function checkTradingZone(
 function detectPitchforkPattern(
   candles5m: any[],
   signal: 'LONG' | 'SHORT',
-  h1Lines: any
+  h1Lines: any,
+  asset: string = 'UNKNOWN' // ✅ FASE 2: Adicionar parâmetro para logs
 ): {
   confirmed: boolean;
   status: string;
@@ -778,8 +779,19 @@ function detectPitchforkPattern(
       else break;
     }
     
+    // ✅ FASE 2: LOGS DETALHADOS DO PITCHFORK
+    const candleSequence = last10.map(c => parseFloat(c.close) > parseFloat(c.open) ? '🟢' : '🔴').join(' ');
+    
     // Exigir mínimo 3 velas vermelhas
     if (redCount < 3) {
+      console.log(`
+🕯️ PITCHFORK DEBUG - ${asset} (LONG):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Velas vermelhas consecutivas: ${redCount}/3 necessárias ❌
+├─ Status: Aguardando mais ${3 - redCount} vela(s) vermelha(s)
+└─ Ação: Continuar monitorando queda
+      `);
+      
       return {
         confirmed: false,
         status: `Aguardando queda (${redCount}/3 velas vermelhas mínimas)`,
@@ -790,6 +802,14 @@ function detectPitchforkPattern(
     // 2. Primeira vela de reversão deve ser VERDE
     const prevIsGreen = prevClose > prevOpen;
     if (!prevIsGreen) {
+      console.log(`
+🕯️ PITCHFORK DEBUG - ${asset} (LONG):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Velas vermelhas consecutivas: ${redCount}/3 ✅
+├─ Primeira vela de reversão: 🔴 VERMELHA ❌
+└─ Ação: Aguardando primeira vela verde aparecer
+      `);
+      
       return {
         confirmed: false,
         status: 'Aguardando primeira vela verde de reversão',
@@ -798,7 +818,16 @@ function detectPitchforkPattern(
     }
     
     // 3. Primeira vela verde deve ter volume > média (interesse)
-    if (prevVolume < avgVolume) {
+    if (prevVolume < avgVolume * 0.9) {
+      console.log(`
+🕯️ PITCHFORK DEBUG - ${asset} (LONG):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Velas vermelhas consecutivas: ${redCount}/3 ✅
+├─ Primeira vela de reversão: 🟢 VERDE ✅
+├─ Volume da reversão: ${prevVolume.toFixed(0)} (média: ${avgVolume.toFixed(0)}) ❌
+└─ Ação: Aguardando volume adequado (${((prevVolume / avgVolume) * 100).toFixed(0)}% da média, min: 90%)
+      `);
+      
       return {
         confirmed: false,
         status: 'Primeira vela verde sem volume suficiente',
@@ -810,6 +839,16 @@ function detectPitchforkPattern(
     // 4. Vela atual deve ser VERDE também
     const currentIsGreen = currentClose > currentOpen;
     if (!currentIsGreen) {
+      console.log(`
+🕯️ PITCHFORK DEBUG - ${asset} (LONG):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Velas vermelhas consecutivas: ${redCount}/3 ✅
+├─ Primeira vela de reversão: 🟢 VERDE ✅
+├─ Volume da reversão: ${((prevVolume / avgVolume) * 100).toFixed(0)}% da média ✅
+├─ Vela atual: 🔴 VERMELHA ❌
+└─ Ação: Aguardando segunda vela verde
+      `);
+      
       return {
         confirmed: false,
         status: 'Aguardando segunda vela verde',
@@ -822,6 +861,25 @@ function detectPitchforkPattern(
     const breakoutConfirmed = currentHigh > prevHigh;
     
     if (!breakoutConfirmed) {
+      const gapToBreak = prevHigh - currentHigh;
+      
+      console.log(`
+🕯️ PITCHFORK DEBUG - ${asset} (LONG):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Velas vermelhas consecutivas: ${redCount}/3 ✅
+├─ Primeira vela de reversão: 🟢 VERDE ✅
+├─ Volume da reversão: ${((prevVolume / avgVolume) * 100).toFixed(0)}% da média ✅
+├─ Primeira vela de reversão:
+│  ├─ High: $${prevHigh.toFixed(4)}
+│  └─ Low: $${prevLow.toFixed(4)}
+├─ Vela atual (confirmação):
+│  ├─ Tipo: 🟢 Verde ✅
+│  ├─ High: $${currentHigh.toFixed(4)}
+│  ├─ Low: $${currentLow.toFixed(4)}
+│  └─ Rompimento: ❌ NÃO (falta $${gapToBreak.toFixed(4)})
+└─ Ação: Aguardando rompimento de $${prevHigh.toFixed(4)}
+      `);
+      
       return {
         confirmed: false,
         status: `Aguardando rompimento de $${prevHigh.toFixed(4)} (atual: $${currentHigh.toFixed(4)})`,
@@ -831,6 +889,16 @@ function detectPitchforkPattern(
     }
     
     // ✅ PADRÃO CONFIRMADO!
+    console.log(`
+🎯 PITCHFORK CONFIRMADO - ${asset} (LONG):
+├─ Sequência completa: ${candleSequence}
+├─ Velas vermelhas: ${redCount} ✅
+├─ Primeira vela verde: High $${prevHigh.toFixed(4)} ✅
+├─ Segunda vela verde: Rompeu $${prevHigh.toFixed(4)} → $${currentHigh.toFixed(4)} ✅
+├─ Entry: $${prevHigh.toFixed(4)}
+└─ Stop Loss: $${Math.min(...last10.slice(-8).map((c: any) => parseFloat(c.low))).toFixed(4)}
+    `);
+    
     // Entry: Ligeiramente acima da máxima da primeira vela verde
     const atr = Math.abs(prevHigh - prevLow); // ATR simplificado da vela de reversão
     const entryPrice = prevHigh + (atr * 0.1); // +10% do ATR
@@ -863,8 +931,19 @@ function detectPitchforkPattern(
       else break;
     }
     
+    // ✅ FASE 2: LOGS DETALHADOS DO PITCHFORK
+    const candleSequence = last10.map(c => parseFloat(c.close) > parseFloat(c.open) ? '🟢' : '🔴').join(' ');
+    
     // Exigir mínimo 3 velas verdes
     if (greenCount < 3) {
+      console.log(`
+🕯️ PITCHFORK DEBUG - ${asset} (SHORT):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Velas verdes consecutivas: ${greenCount}/3 necessárias ❌
+├─ Status: Aguardando mais ${3 - greenCount} vela(s) verde(s)
+└─ Ação: Continuar monitorando alta
+      `);
+      
       return {
         confirmed: false,
         status: `Aguardando alta (${greenCount}/3 velas verdes mínimas)`,
@@ -875,6 +954,14 @@ function detectPitchforkPattern(
     // 2. Primeira vela de reversão deve ser VERMELHA
     const prevIsRed = prevClose < prevOpen;
     if (!prevIsRed) {
+      console.log(`
+🕯️ PITCHFORK DEBUG - ${asset} (SHORT):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Velas verdes consecutivas: ${greenCount}/3 ✅
+├─ Primeira vela de reversão: 🟢 VERDE ❌
+└─ Ação: Aguardando primeira vela vermelha aparecer
+      `);
+      
       return {
         confirmed: false,
         status: 'Aguardando primeira vela vermelha de reversão',
@@ -883,7 +970,16 @@ function detectPitchforkPattern(
     }
     
     // 3. Primeira vela vermelha deve ter volume > média
-    if (prevVolume < avgVolume) {
+    if (prevVolume < avgVolume * 0.9) {
+      console.log(`
+🕯️ PITCHFORK DEBUG - ${asset} (SHORT):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Velas verdes consecutivas: ${greenCount}/3 ✅
+├─ Primeira vela de reversão: 🔴 VERMELHA ✅
+├─ Volume da reversão: ${prevVolume.toFixed(0)} (média: ${avgVolume.toFixed(0)}) ❌
+└─ Ação: Aguardando volume adequado (${((prevVolume / avgVolume) * 100).toFixed(0)}% da média, min: 90%)
+      `);
+      
       return {
         confirmed: false,
         status: 'Primeira vela vermelha sem volume suficiente',
@@ -895,6 +991,16 @@ function detectPitchforkPattern(
     // 4. Vela atual deve ser VERMELHA também
     const currentIsRed = currentClose < currentOpen;
     if (!currentIsRed) {
+      console.log(`
+🕯️ PITCHFORK DEBUG - ${asset} (SHORT):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Velas verdes consecutivas: ${greenCount}/3 ✅
+├─ Primeira vela de reversão: 🔴 VERMELHA ✅
+├─ Volume da reversão: ${((prevVolume / avgVolume) * 100).toFixed(0)}% da média ✅
+├─ Vela atual: 🟢 VERDE ❌
+└─ Ação: Aguardando segunda vela vermelha
+      `);
+      
       return {
         confirmed: false,
         status: 'Aguardando segunda vela vermelha',
@@ -907,6 +1013,25 @@ function detectPitchforkPattern(
     const breakdownConfirmed = currentLow < prevLow;
     
     if (!breakdownConfirmed) {
+      const gapToBreak = currentLow - prevLow;
+      
+      console.log(`
+🕯️ PITCHFORK DEBUG - ${asset} (SHORT):
+├─ Últimas 10 velas: ${candleSequence}
+├─ Velas verdes consecutivas: ${greenCount}/3 ✅
+├─ Primeira vela de reversão: 🔴 VERMELHA ✅
+├─ Volume da reversão: ${((prevVolume / avgVolume) * 100).toFixed(0)}% da média ✅
+├─ Primeira vela de reversão:
+│  ├─ High: $${prevHigh.toFixed(4)}
+│  └─ Low: $${prevLow.toFixed(4)}
+├─ Vela atual (confirmação):
+│  ├─ Tipo: 🔴 Vermelha ✅
+│  ├─ High: $${currentHigh.toFixed(4)}
+│  ├─ Low: $${currentLow.toFixed(4)}
+│  └─ Rompimento: ❌ NÃO (falta $${gapToBreak.toFixed(4)})
+└─ Ação: Aguardando rompimento de $${prevLow.toFixed(4)}
+      `);
+      
       return {
         confirmed: false,
         status: `Aguardando rompimento de $${prevLow.toFixed(4)} (atual: $${currentLow.toFixed(4)})`,
@@ -916,6 +1041,16 @@ function detectPitchforkPattern(
     }
     
     // ✅ PADRÃO CONFIRMADO!
+    console.log(`
+🎯 PITCHFORK CONFIRMADO - ${asset} (SHORT):
+├─ Sequência completa: ${candleSequence}
+├─ Velas verdes: ${greenCount} ✅
+├─ Primeira vela vermelha: Low $${prevLow.toFixed(4)} ✅
+├─ Segunda vela vermelha: Rompeu $${prevLow.toFixed(4)} → $${currentLow.toFixed(4)} ✅
+├─ Entry: $${prevLow.toFixed(4)}
+└─ Stop Loss: $${Math.max(...last10.slice(-8).map((c: any) => parseFloat(c.high))).toFixed(4)}
+    `);
+    
     const atr = Math.abs(prevHigh - prevLow);
     const entryPrice = prevLow - (atr * 0.1); // -10% do ATR
     
@@ -1035,7 +1170,7 @@ async function analyzeTechnicalStandalone(
   let baseConfidence = 0;
   
   if (tradingZone.zone === 'BUY_ZONE') {
-    pitchforkPattern = detectPitchforkPattern(candles5m, 'LONG', h1Lines);
+    pitchforkPattern = detectPitchforkPattern(candles5m, 'LONG', h1Lines, asset);
     
     if (pitchforkPattern.confirmed) {
       signal = 'LONG';
@@ -1065,7 +1200,7 @@ async function analyzeTechnicalStandalone(
   }
   
   else if (tradingZone.zone === 'SELL_ZONE') {
-    pitchforkPattern = detectPitchforkPattern(candles5m, 'SHORT', h1Lines);
+    pitchforkPattern = detectPitchforkPattern(candles5m, 'SHORT', h1Lines, asset);
     
     if (pitchforkPattern.confirmed) {
       signal = 'SHORT';
@@ -2011,9 +2146,113 @@ function calculateATR(candles: any[], period: number): number {
   return recentTRs.reduce((a, b) => a + b, 0) / period;
 }
 
-// Scan market for valid trading pairs
+// ============================================
+// FASE 4: RATE LIMITER GLOBAL
+// ============================================
+class BinanceRateLimiter {
+  private requests: number[] = [];
+  private readonly maxRequestsPerMinute = 1000; // 80% do limite da Binance (1200)
+  
+  async checkAndWait(): Promise<void> {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+    
+    // Remover requisições antigas (fora da janela de 1 minuto)
+    this.requests = this.requests.filter(timestamp => timestamp > oneMinuteAgo);
+    
+    // Se atingiu limite, aguardar
+    if (this.requests.length >= this.maxRequestsPerMinute) {
+      const oldestRequest = this.requests[0];
+      const waitTime = (oldestRequest + 60000) - now;
+      
+      console.log(`⏳ RATE LIMIT - Aguardando ${Math.ceil(waitTime / 1000)}s para próxima janela (${this.requests.length}/${this.maxRequestsPerMinute} req/min)`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      
+      // Limpar após aguardar
+      this.requests = this.requests.filter(timestamp => timestamp > (Date.now() - 60000));
+    }
+    
+    // Registrar requisição
+    this.requests.push(now);
+  }
+  
+  getStatus(): { current: number; max: number; percentage: number } {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+    const recentRequests = this.requests.filter(timestamp => timestamp > oneMinuteAgo);
+    
+    return {
+      current: recentRequests.length,
+      max: this.maxRequestsPerMinute,
+      percentage: (recentRequests.length / this.maxRequestsPerMinute) * 100,
+    };
+  }
+}
+
+const rateLimiter = new BinanceRateLimiter();
+
+// ============================================
+// FASE 3: CACHE DE PARES (TTL: 5 minutos)
+// ============================================
+let cachedPairs: string[] = [];
+let cacheTimestamp = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
+// ============================================
+// FASE 5: PRIORIZAR PARES POR VOLATILIDADE
+// ============================================
+async function prioritizePairs(pairs: string[]): Promise<string[]> {
+  console.log(`\n📊 Priorizando ${pairs.length} pares por volatilidade e volume...`);
+  
+  const pairData: Array<{ pair: string; score: number }> = [];
+  
+  for (const pair of pairs) {
+    await rateLimiter.checkAndWait();
+    
+    try {
+      const response = await fetch(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${pair}`);
+      const data = await response.json();
+      
+      const volatility = Math.abs(parseFloat(data.priceChangePercent));
+      const volumeRatio = parseFloat(data.volume) / parseFloat(data.quoteVolume);
+      
+      // Score: Volatilidade (peso 2x) + Volume ratio (peso 1x)
+      const score = (volatility * 2) + (volumeRatio * 100);
+      
+      pairData.push({ pair, score });
+    } catch (error) {
+      console.error(`Erro ao priorizar ${pair}:`, error);
+      pairData.push({ pair, score: 0 });
+    }
+  }
+  
+  // Ordenar por score (maior primeiro)
+  const sortedPairs = pairData
+    .sort((a, b) => b.score - a.score)
+    .map(p => p.pair);
+  
+  console.log(`✅ Top 5 pares priorizados: ${sortedPairs.slice(0, 5).join(', ')}`);
+  
+  return sortedPairs;
+}
+
+// ============================================
+// FASE 1: EXPANDIR ANÁLISE PARA 30 PARES
+// ============================================
 async function scanMarketForValidPairs(): Promise<string[]> {
+  const now = Date.now();
+  
+  // ✅ FASE 3: Usar cache se ainda válido
+  if (cachedPairs.length > 0 && (now - cacheTimestamp) < CACHE_TTL) {
+    const remainingTTL = Math.floor((CACHE_TTL - (now - cacheTimestamp)) / 1000);
+    console.log(`✅ Usando cache de pares (${cachedPairs.length} pares, válido por ${remainingTTL}s)`);
+    return cachedPairs;
+  }
+  
+  console.log('\n🔄 Cache expirado - buscando pares atualizados da Binance...');
+  
   try {
+    await rateLimiter.checkAndWait();
     const response = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo');
     const data = await response.json();
 
@@ -2023,13 +2262,15 @@ async function scanMarketForValidPairs(): Promise<string[]> {
       s.status === 'TRADING'
     );
 
-    console.log(`Total USDT perpetual pairs available: ${perpetualPairs.length}`);
+    console.log(`📋 Total USDT perpetual pairs: ${perpetualPairs.length}`);
 
     // Get 24h stats for volume filtering
+    await rateLimiter.checkAndWait();
     const statsResponse = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
     const stats = await statsResponse.json();
     const statsMap = new Map(stats.map((s: any) => [s.symbol, s]));
 
+    // ✅ FASE 1: Reduzir volume mínimo de $50M para $30M e aumentar limite de 15 para 30 pares
     const validPairs = perpetualPairs
       .filter((pair: any) => {
         const stat: any = statsMap.get(pair.symbol);
@@ -2038,26 +2279,43 @@ async function scanMarketForValidPairs(): Promise<string[]> {
         const volume24h = parseFloat(stat.quoteVolume);
         const priceChange = Math.abs(parseFloat(stat.priceChangePercent));
 
-        return volume24h >= 50_000_000 && priceChange >= 0.5;
+        return volume24h >= 30_000_000 && priceChange >= 0.5;
       })
       .map((pair: any) => pair.symbol)
-      .slice(0, 15);
+      .slice(0, 50); // Buscar 50 candidatos iniciais
 
-    console.log(`Filtered to ${validPairs.length} high-quality pairs with volume >= $50,000,000`);
+    console.log(`🎯 Filtrados ${validPairs.length} pares (volume >= $30M, volatilidade >= 0.5%)`);
     
-    return validPairs;
+    // ✅ FASE 5: Priorizar pares por volatilidade e volume
+    const prioritizedPairs = await prioritizePairs(validPairs);
+    
+    // Limitar aos 30 melhores
+    const finalPairs = prioritizedPairs.slice(0, 30);
+    
+    console.log(`✅ Selecionados ${finalPairs.length} pares de maior probabilidade`);
+    
+    const rateLimitStatus = rateLimiter.getStatus();
+    console.log(`📊 Rate Limit: ${rateLimitStatus.current}/${rateLimitStatus.max} (${rateLimitStatus.percentage.toFixed(1)}%)`);
+    
+    // ✅ FASE 3: Atualizar cache
+    cachedPairs = finalPairs;
+    cacheTimestamp = now;
+    
+    return finalPairs;
   } catch (error) {
-    console.error('Error scanning market:', error);
-    return ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+    console.error('❌ Erro ao escanear mercado:', error);
+    return ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'ADAUSDT'];
   }
 }
 
-// Fetch candles from Binance
+// Fetch candles from Binance (com rate limiting)
 async function fetchCandlesFromBinance(symbol: string, intervals: string[]) {
   const candles: any = {};
 
   for (const interval of intervals) {
     try {
+      await rateLimiter.checkAndWait(); // ✅ FASE 4: Rate limiting
+      
       const limit = interval === '1h' ? 100 : interval === '15m' ? 96 : 200;
       const response = await fetch(
         `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
@@ -2143,7 +2401,7 @@ function validateH1M5Entry(
     }
   
     // Verify pitchfork pattern on M5
-    const pitchfork = detectPitchforkPattern(candles5m, signal as 'LONG' | 'SHORT', h1Zones);
+    const pitchfork = detectPitchforkPattern(candles5m, signal as 'LONG' | 'SHORT', h1Zones, 'PAIR');
   
     if (!pitchfork.confirmed) {
       return {
