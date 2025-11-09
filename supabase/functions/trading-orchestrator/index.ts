@@ -2507,13 +2507,12 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     `);
 
     // ============================================
-    // VALIDAÇÕES SIMPLIFICADAS (4 FASES)
+    // VALIDAÇÕES SIMPLIFICADAS (SEM R:R)
     // ============================================
     const validations = {
       h1Structure: marketData?.h1Lines?.validZones === true,
       tradingZone: marketData?.tradingZone?.zone !== 'NO_TRADE_ZONE',
       pitchforkConfirmed: marketData?.pitchforkPattern?.confirmed === true,
-      rrAcceptable: risk?.rr_ratio >= 1.2,
     };
 
     const passedValidations = Object.values(validations).filter(v => v).length;
@@ -2522,13 +2521,13 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
 ├─ H1 Structure: ${validations.h1Structure ? '✅' : '❌'}
 ├─ Trading Zone: ${validations.tradingZone ? '✅' : '❌'}
 ├─ Pitchfork Confirmed: ${validations.pitchforkConfirmed ? '✅' : '❌'}
-├─ R:R >= 1.2: ${validations.rrAcceptable ? '✅' : '❌'}
-└─ Total: ${passedValidations}/4
+├─ R:R: ${risk?.rr_ratio?.toFixed(2) || 'N/A'} (validação removida ✅)
+└─ Total: ${passedValidations}/3
     `);
 
-    // Exigir pelo menos 3 de 4 validações
+    // Exigir todas as 3 validações (removido R:R)
     if (passedValidations < 3) {
-      console.log(`❌ REJEITADO: Apenas ${passedValidations}/4 validações aprovadas (mínimo 3)`);
+      console.log(`❌ REJEITADO: Apenas ${passedValidations}/3 validações aprovadas (mínimo 3)`);
       return false;
     }
 
