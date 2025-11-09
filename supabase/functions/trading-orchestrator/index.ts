@@ -551,6 +551,8 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
 
       // ✅ Execute trades if signal is valid
       if (analysis && analysis.signal !== 'STAY_OUT' && analysis.risk) {
+        console.log(`🎯 SINAL DETECTADO - Tentando executar ${pair} - ${analysis.signal}`);
+        
         const tradeExecuted = await executeTradeSignal(
           supabase,
           userId,
@@ -561,8 +563,15 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
         );
         
         if (tradeExecuted) {
-          console.log(`✅ Trade executed for ${pair} - ${analysis.signal}`);
-          break; // Stop after first successful trade
+          console.log(`✅ Ordem executada com sucesso para ${pair}`);
+        } else {
+          console.log(`⚠️ Falha ao executar ordem para ${pair} - mas PARANDO scan conforme single_position_mode`);
+        }
+        
+        // ✅ PARAR SEMPRE após primeira tentativa (sucesso OU falha) em modo single position
+        if (settings.single_position_mode) {
+          console.log(`🛑 Single Position Mode: Parando scan após primeira tentativa de entrada`);
+          break;
         }
       }
     } catch (error) {
@@ -2457,10 +2466,13 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     // ============================================
     // EXECUTAR ORDEM
     // ============================================
+    // ✅ CONVERTER SIGNAL PARA DIRECTION VÁLIDO (BUY/SELL)
+    const direction = signal.includes('BUY') || signal === 'LONG' ? 'BUY' : 'SELL';
+    
     const orderPayload = {
       user_id: userId,
       asset,
-      direction: signal, // LONG ou SHORT
+      direction, // ✅ Agora envia 'BUY' ou 'SELL' (não 'SHORT' ou 'LONG')
       quantity,
       price: risk.entry,
       stopLoss: risk.stop,
