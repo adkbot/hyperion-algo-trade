@@ -329,12 +329,53 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
   }
 
   // ✅ Check daily goals POR USUÁRIO
+  const today = new Date().toISOString().split('T')[0];
   const { data: dailyGoal } = await supabase
     .from('daily_goals')
     .select('*')
     .eq('user_id', userId)
-    .eq('date', new Date().toISOString().split('T')[0])
+    .eq('date', today)
     .single();
+
+  // ============================================
+  // 🎯 REGRA CRÍTICA: SÓ ABRE NOVA POSIÇÃO SE META FOI ATINGIDA
+  // ============================================
+  if (dailyGoal && dailyGoal.completed) {
+    console.log(`🎯 META DIÁRIA JÁ ATINGIDA! Aguardando próximo dia...`);
+    console.log(`├─ Total PNL: $${dailyGoal.total_pnl}`);
+    console.log(`├─ Operações: ${dailyGoal.total_operations}`);
+    console.log(`└─ Win Rate: ${dailyGoal.total_operations > 0 ? ((dailyGoal.wins / dailyGoal.total_operations) * 100).toFixed(1) : 0}%`);
+    
+    return {
+      userId,
+      status: 'daily_goal_completed',
+      activePositions: 0,
+      message: 'Meta diária atingida - aguardando próximo dia'
+    };
+  }
+
+  // Check active positions ANTES de verificar se pode buscar nova
+  const { data: activePositions } = await supabase
+    .from('active_positions')
+    .select('*')
+    .eq('user_id', userId);
+
+  const activeCount = activePositions?.length || 0;
+
+  // ❌ Se perdeu no stop loss ou fechou sem meta (total_operations > 0 mas completed = false e SEM posição ativa)
+  if (dailyGoal && dailyGoal.total_operations > 0 && !dailyGoal.completed && activeCount === 0) {
+    console.log(`⛔ OPERAÇÃO ENCERRADA SEM ATINGIR META - AGUARDANDO PRÓXIMO DIA`);
+    console.log(`├─ Total PNL: $${dailyGoal.total_pnl}`);
+    console.log(`├─ Operações: ${dailyGoal.total_operations} (${dailyGoal.wins}W/${dailyGoal.losses}L)`);
+    console.log(`└─ Motivo: Posição fechada por stop loss, take profit parcial ou tempo sem atingir meta de 100%`);
+    
+    return {
+      userId,
+      status: 'waiting_next_day',
+      activePositions: 0,
+      message: 'Posição fechada sem atingir meta - aguardando próximo dia'
+    };
+  }
 
   // ✅ Verificar meta diária: quantidade de operações
   const targetOperations = dailyGoal?.target_operations || 45;
@@ -400,13 +441,6 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     };
   }
 
-  // Check active positions (max_positions)
-  const { data: activePositions } = await supabase
-    .from('active_positions')
-    .select('*')
-    .eq('user_id', userId);
-
-  const activeCount = activePositions?.length || 0;
   console.log(`💼 Posições ativas: ${activeCount}/${settings.max_positions}`);
 
   // Monitor existing positions regardless of limit
@@ -2581,9 +2615,11 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
       // ============================================
       // REGRA 1: ATINGIU META DE LUCRO (100% do saldo)
       // ============================================
+      let metaAtingida = false;
       if (currentPnL >= targetProfit) {
         closePosition = true;
         result = 'WIN';
+        metaAtingida = true; // ✅ FLAG: Meta foi batida!
         console.log(`🎯 META ATINGIDA! ${symbol}: $${currentPnL.toFixed(2)} / $${targetProfit.toFixed(2)} (${profitTargetPercent}%)`);
       }
 
@@ -2692,8 +2728,15 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
               wins: result === 'WIN' ? (dailyGoal.wins || 0) + 1 : dailyGoal.wins,
               losses: result === 'LOSS' ? (dailyGoal.losses || 0) + 1 : dailyGoal.losses,
               total_pnl: (dailyGoal.total_pnl || 0) + currentPnL,
+              completed: metaAtingida, // ✅ MARCA META ATINGIDA APENAS SE BATEU 100%
             })
             .eq('id', dailyGoal.id);
+          
+          if (metaAtingida) {
+            console.log(`✅ Daily goal marcado como completed = true (Meta de ${profitTargetPercent}% atingida!)`);
+          } else {
+            console.log(`⚠️ Posição fechada mas meta NÃO atingida (completed = false) - Sistema aguardará próximo dia para nova entrada`);
+          }
         }
 
         // Update balance
