@@ -1305,24 +1305,9 @@ async function analyzeTechnicalStandalone(
                        (pitchforkPattern.entryPrice - pitchforkPattern.stopLoss)),
   };
   
-  console.log(`💰 R:R = ${risk.rr_ratio.toFixed(2)} (${risk.rr_ratio >= 1.2 ? '✅ Aprovado' : '❌ Muito baixo'})`);
+  console.log(`💰 R:R calculado = ${risk.rr_ratio.toFixed(2)} (validação desabilitada - executando de qualquer forma)`);
   
-  if (risk.rr_ratio < 1.2) {
-    console.log(`⚠️ R:R ${risk.rr_ratio.toFixed(2)} abaixo do mínimo (1.2) - STAY_OUT`);
-    return {
-      signal: 'STAY_OUT',
-      direction,
-      confidence: baseConfidence * 0.5,
-      notes: `Pitchfork confirmado mas R:R muito baixo (${risk.rr_ratio.toFixed(2)})`,
-      risk,
-      c1Direction: null,
-      volumeFactor: volume.factor,
-      confirmation: `R:R insuficiente: ${risk.rr_ratio.toFixed(2)}`,
-      marketData: { price: currentPrice, h1Lines, tradingZone, pitchforkPattern, wyckoff, volumeProfile },
-      rangeHigh: h1Lines.resistance,
-      rangeLow: h1Lines.support,
-    };
-  }
+  // Validação de R:R removida - executar independente do valor
   
   // ============================================
   // VALIDAÇÃO COM IA (SE HABILITADA)
