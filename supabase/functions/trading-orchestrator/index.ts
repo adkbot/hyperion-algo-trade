@@ -14,6 +14,55 @@ const AGENTE_FEEDBACK_URL = `${SUPABASE_URL}/functions/v1/agente-feedback-analit
 const AGENTE_EXECUCAO_URL = `${SUPABASE_URL}/functions/v1/agente-execucao-confluencia`;
 const AGENTE_GESTAO_URL = `${SUPABASE_URL}/functions/v1/agente-gestao-risco`;
 
+// ============================================
+// FASE 4: RATE LIMITER GLOBAL
+// ============================================
+class BinanceRateLimiter {
+  private requests: number[] = [];
+  private readonly maxRequestsPerMinute = 1000; // 80% do limite da Binance (1200)
+  
+  async checkAndWait(): Promise<void> {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+    
+    // Remover requisições antigas (fora da janela de 1 minuto)
+    this.requests = this.requests.filter(timestamp => timestamp > oneMinuteAgo);
+    
+    // Se atingiu limite, aguardar
+    if (this.requests.length >= this.maxRequestsPerMinute) {
+      const oldestRequest = this.requests[0];
+      const waitTime = (oldestRequest + 60000) - now;
+      
+      console.log(`⏳ RATE LIMIT - Aguardando ${Math.ceil(waitTime / 1000)}s para próxima janela`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    
+    // Registrar requisição
+    this.requests.push(now);
+  }
+  
+  getStats() {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+    const recentRequests = this.requests.filter(timestamp => timestamp > oneMinuteAgo);
+    
+    return {
+      current: recentRequests.length,
+      max: this.maxRequestsPerMinute,
+      percentage: (recentRequests.length / this.maxRequestsPerMinute) * 100,
+    };
+  }
+}
+
+const rateLimiter = new BinanceRateLimiter();
+
+// ============================================
+// FASE 3: CACHE DE PARES (TTL: 5 minutos)
+// ============================================
+let cachedPairs: string[] = [];
+let cacheTimestamp = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
 // ✅ FASE 6: R:R ranges por sessão e tipo de operação
 const RR_RANGES = {
   OCEANIA_CONFIRMATION: { min: 1.15, max: 1.4 },
@@ -2147,56 +2196,8 @@ function calculateATR(candles: any[], period: number): number {
 }
 
 // ============================================
-// FASE 4: RATE LIMITER GLOBAL
+// (Classe BinanceRateLimiter movida para o topo do arquivo)
 // ============================================
-class BinanceRateLimiter {
-  private requests: number[] = [];
-  private readonly maxRequestsPerMinute = 1000; // 80% do limite da Binance (1200)
-  
-  async checkAndWait(): Promise<void> {
-    const now = Date.now();
-    const oneMinuteAgo = now - 60000;
-    
-    // Remover requisições antigas (fora da janela de 1 minuto)
-    this.requests = this.requests.filter(timestamp => timestamp > oneMinuteAgo);
-    
-    // Se atingiu limite, aguardar
-    if (this.requests.length >= this.maxRequestsPerMinute) {
-      const oldestRequest = this.requests[0];
-      const waitTime = (oldestRequest + 60000) - now;
-      
-      console.log(`⏳ RATE LIMIT - Aguardando ${Math.ceil(waitTime / 1000)}s para próxima janela (${this.requests.length}/${this.maxRequestsPerMinute} req/min)`);
-      await new Promise(resolve => setTimeout(resolve, waitTime));
-      
-      // Limpar após aguardar
-      this.requests = this.requests.filter(timestamp => timestamp > (Date.now() - 60000));
-    }
-    
-    // Registrar requisição
-    this.requests.push(now);
-  }
-  
-  getStatus(): { current: number; max: number; percentage: number } {
-    const now = Date.now();
-    const oneMinuteAgo = now - 60000;
-    const recentRequests = this.requests.filter(timestamp => timestamp > oneMinuteAgo);
-    
-    return {
-      current: recentRequests.length,
-      max: this.maxRequestsPerMinute,
-      percentage: (recentRequests.length / this.maxRequestsPerMinute) * 100,
-    };
-  }
-}
-
-const rateLimiter = new BinanceRateLimiter();
-
-// ============================================
-// FASE 3: CACHE DE PARES (TTL: 5 minutos)
-// ============================================
-let cachedPairs: string[] = [];
-let cacheTimestamp = 0;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
 // ============================================
 // FASE 5: PRIORIZAR PARES POR VOLATILIDADE
@@ -2294,7 +2295,7 @@ async function scanMarketForValidPairs(): Promise<string[]> {
     
     console.log(`✅ Selecionados ${finalPairs.length} pares de maior probabilidade`);
     
-    const rateLimitStatus = rateLimiter.getStatus();
+    const rateLimitStatus = rateLimiter.getStats();
     console.log(`📊 Rate Limit: ${rateLimitStatus.current}/${rateLimitStatus.max} (${rateLimitStatus.percentage.toFixed(1)}%)`);
     
     // ✅ FASE 3: Atualizar cache
