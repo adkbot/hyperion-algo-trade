@@ -225,6 +225,21 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
   const now = new Date();
   const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
 
+  // ✅ LOGS DE DEBUG - CONFIGURAÇÃO DO USUÁRIO
+  console.log(`
+🔍 DEBUG - CONFIGURAÇÃO DO USUÁRIO:
+├─ User ID: ${userId}
+├─ Balance: $${settings.balance}
+├─ Leverage: ${settings.leverage}x
+├─ Profit Target: ${settings.profit_target_percent}%
+├─ Max Positions: ${settings.max_positions}
+├─ Single Position Mode: ${settings.single_position_mode ? 'ATIVO' : 'INATIVO'}
+├─ Paper Mode: ${settings.paper_mode ? '📝 SIM (SIMULAÇÃO)' : '💰 NÃO (REAL)'}
+├─ API Key: ${settings.api_key ? '✅ Configurada (***' + settings.api_key.slice(-4) + ')' : '❌ NÃO CONFIGURADA'}
+├─ API Secret: ${settings.api_secret ? '✅ Configurada' : '❌ NÃO CONFIGURADA'}
+└─ Bot Status: ${settings.bot_status}
+  `);
+
   // ✅ FASE 7: Carregar session state
   let sessionState = await getSessionState(supabase, userId);
   
@@ -491,18 +506,36 @@ function detectCurrentSession(): string {
   const utcHour = now.getUTCHours();
   const utcMinutes = now.getUTCMinutes();
 
-  // Check for 30-minute transition periods (2 x 15min candles)
-  const isNearSessionTransition = (utcMinutes >= 30 && utcMinutes < 60 && 
-    [2, 7, 12].includes(utcHour));
-
-  if (isNearSessionTransition) {
-    console.log('⏸️ Aguardando transição de sessão (30min safety)');
-    return 'Transition'; // Special state - no trading
+  // ✅ CORREÇÃO: Buffer de 30min APENAS ANTES do início de cada sessão
+  // Oceania→Asia: 02:30-03:00 UTC
+  // Asia→London: 07:30-08:00 UTC
+  // London→NY: 12:30-13:00 UTC
+  // NY→Oceania: 23:30-00:00 UTC
+  
+  const transitions = [
+    { hour: 2, minute: 30, nextSession: 'Asia', endHour: 3 },
+    { hour: 7, minute: 30, nextSession: 'London', endHour: 8 },
+    { hour: 12, minute: 30, nextSession: 'NewYork', endHour: 13 },
+    { hour: 23, minute: 30, nextSession: 'Oceania', endHour: 0 },
+  ];
+  
+  for (const t of transitions) {
+    // Buffer de 30min antes do início da próxima sessão
+    if (utcHour === t.hour && utcMinutes >= t.minute) {
+      console.log(`⏸️ Buffer pré-${t.nextSession}: ${t.hour}:${t.minute.toString().padStart(2, '0')} → ${t.endHour}:00 UTC`);
+      return 'Transition';
+    }
+    // Caso especial: 23:30-00:00 (meia-noite)
+    if (t.hour === 23 && utcHour === 23 && utcMinutes >= 30) {
+      console.log(`⏸️ Buffer pré-Oceania: 23:30 → 00:00 UTC`);
+      return 'Transition';
+    }
   }
 
-  // Sessões agora cobrem 24h contínuas
+  // Detectar sessão atual (horários operacionais normais)
   for (const [key, session] of Object.entries(SESSIONS)) {
     if (utcHour >= session.start && utcHour < session.end) {
+      console.log(`✅ Sessão ativa: ${session.name} (${utcHour}:${utcMinutes.toString().padStart(2, '0')} UTC)`);
       return session.name;
     }
   }
@@ -2122,6 +2155,23 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     const indicators = analysis.indicators || {};
     const wyckoff = analysis.wyckoff || {};
     const { signal, risk, confidence } = analysis;
+    
+    // ✅ LOGS DE DEBUG - DETALHES DA ANÁLISE
+    console.log(`
+🎯 DEBUG - ANÁLISE RECEBIDA:
+├─ Asset: ${asset}
+├─ Signal: ${signal}
+├─ Confidence: ${(confidence * 100).toFixed(1)}%
+├─ Entry: $${risk?.entry || 'N/A'}
+├─ Stop Loss: $${risk?.stop || 'N/A'}
+├─ Take Profit: $${risk?.target || 'N/A'}
+├─ RSI: ${indicators.rsi?.toFixed(2) || 'N/A'}
+├─ MACD: ${indicators.macd?.toFixed(6) || 'N/A'}
+├─ Volume Factor: ${indicators.volume?.factor?.toFixed(2) || 'N/A'}
+├─ ATR: ${indicators.atr?.toFixed(6) || 'N/A'}
+├─ Wyckoff Phase: ${wyckoff.phase || 'N/A'}
+└─ Session: ${currentSession}
+    `);
     
     // Track fallback mode
     let fallbackMode = false;
