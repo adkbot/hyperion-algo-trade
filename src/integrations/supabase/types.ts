@@ -343,8 +343,10 @@ export type Database = {
           bot_status: string | null
           created_at: string | null
           id: string
+          leverage: number | null
           max_positions: number | null
           paper_mode: boolean | null
+          profit_target_percent: number | null
           risk_per_trade: number | null
           single_position_mode: boolean | null
           updated_at: string | null
@@ -357,8 +359,10 @@ export type Database = {
           bot_status?: string | null
           created_at?: string | null
           id?: string
+          leverage?: number | null
           max_positions?: number | null
           paper_mode?: boolean | null
+          profit_target_percent?: number | null
           risk_per_trade?: number | null
           single_position_mode?: boolean | null
           updated_at?: string | null
@@ -371,8 +375,10 @@ export type Database = {
           bot_status?: string | null
           created_at?: string | null
           id?: string
+          leverage?: number | null
           max_positions?: number | null
           paper_mode?: boolean | null
+          profit_target_percent?: number | null
           risk_per_trade?: number | null
           single_position_mode?: boolean | null
           updated_at?: string | null

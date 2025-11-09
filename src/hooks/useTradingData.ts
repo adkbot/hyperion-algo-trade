@@ -181,7 +181,16 @@ export const useUpdateSettings = () => {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (settings: { balance?: number; max_positions?: number; risk_per_trade?: number; paper_mode?: boolean; api_key?: string; api_secret?: string }) => {
+    mutationFn: async (settings: { 
+      balance?: number; 
+      max_positions?: number; 
+      risk_per_trade?: number; 
+      paper_mode?: boolean; 
+      api_key?: string | null; 
+      api_secret?: string | null;
+      leverage?: number;
+      profit_target_percent?: number;
+    }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
       

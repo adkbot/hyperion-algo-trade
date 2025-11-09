@@ -111,6 +111,59 @@ serve(async (req) => {
 
     console.log(`Using user API key: ${userApiKey.substring(0, 8)}...`);
 
+    // 🔧 Configure leverage for the pair
+    const leverage = settings.leverage || 20;
+    console.log(`🔧 Configurando alavancagem ${leverage}x na Binance`);
+    
+    try {
+      const leverageTimestamp = Date.now();
+      const leverageParams = new URLSearchParams({
+        symbol: asset,
+        leverage: leverage.toString(),
+        timestamp: leverageTimestamp.toString(),
+      });
+
+      // Sign leverage request
+      const leverageEncoder = new TextEncoder();
+      const leverageKey = await crypto.subtle.importKey(
+        'raw',
+        leverageEncoder.encode(userApiSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const leverageSignature = await crypto.subtle.sign(
+        'HMAC',
+        leverageKey,
+        leverageEncoder.encode(leverageParams.toString())
+      );
+      const leverageSignatureHex = Array.from(new Uint8Array(leverageSignature))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      leverageParams.append('signature', leverageSignatureHex);
+
+      const leverageResponse = await fetch(
+        `https://fapi.binance.com/fapi/v1/leverage?${leverageParams}`,
+        {
+          method: 'POST',
+          headers: { 'X-MBX-APIKEY': userApiKey },
+        }
+      );
+
+      if (!leverageResponse.ok) {
+        const leverageError = await leverageResponse.text();
+        console.error(`⚠️ Falha ao configurar alavancagem:`, leverageError);
+        // Continue anyway - leverage might already be set
+      } else {
+        const leverageResult = await leverageResponse.json();
+        console.log(`✅ Alavancagem ${leverageResult.leverage}x configurada para ${asset}`);
+      }
+    } catch (leverageError) {
+      console.error(`⚠️ Erro ao configurar alavancagem:`, leverageError);
+      // Continue anyway - leverage configuration is not critical for order execution
+    }
+
     const timestamp = Date.now();
     const params = new URLSearchParams({
       symbol: asset,

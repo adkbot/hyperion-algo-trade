@@ -23,6 +23,8 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
   const [paperMode, setPaperMode] = useState(true);
   const [apiKey, setApiKey] = useState("");
   const [apiSecret, setApiSecret] = useState("");
+  const [leverage, setLeverage] = useState(20);
+  const [profitTarget, setProfitTarget] = useState(100);
 
   useEffect(() => {
     if (settings) {
@@ -32,6 +34,8 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
       setPaperMode(settings.paper_mode);
       setApiKey(settings.api_key || "");
       setApiSecret(settings.api_secret || "");
+      setLeverage(settings.leverage || 20);
+      setProfitTarget(settings.profit_target_percent || 100);
     }
   }, [settings]);
 
@@ -91,6 +95,8 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
       paper_mode: paperMode,
       api_key: apiKey || null,
       api_secret: apiSecret || null,
+      leverage,
+      profit_target_percent: profitTarget,
     });
     onOpenChange(false);
   };
@@ -152,6 +158,34 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               onChange={(e) => setRiskPerTrade(Number(e.target.value) / 100)}
               placeholder="6"
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="leverage">Alavancagem</Label>
+            <Input
+              id="leverage"
+              type="number"
+              min="1"
+              max="125"
+              value={leverage}
+              onChange={(e) => setLeverage(Number(e.target.value))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Alavancagem aplicada em todas as operações (recomendado: 20x)
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="profitTarget">Meta de Lucro por Trade (%)</Label>
+            <Input
+              id="profitTarget"
+              type="number"
+              min="10"
+              max="200"
+              value={profitTarget}
+              onChange={(e) => setProfitTarget(Number(e.target.value))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Meta: ganhar X% do saldo em cada operação (ex: 100% = dobrar saldo)
+            </p>
           </div>
           <div className="flex items-center justify-between space-x-2">
             <Label htmlFor="paperMode">Modo Paper Trading</Label>

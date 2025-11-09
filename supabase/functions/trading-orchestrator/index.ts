@@ -380,18 +380,21 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
 
   for (const pair of validPairs) {
     try {
-      // CRITICAL: Check if position was opened during this loop iteration
-      if (settings.single_position_mode) {
-        const { data: checkPositions } = await supabase
-          .from('active_positions')
-          .select('id')
-          .eq('user_id', userId);
-        
-        if (checkPositions && checkPositions.length > 0) {
-          console.log(`⏸️ Posição aberta durante análise - parando scan`);
-          break;
-        }
+      // MODIFIED: Permitir reentrada se ainda houver espaço
+      const { data: currentPositions } = await supabase
+        .from('active_positions')
+        .select('id')
+        .eq('user_id', userId);
+      
+      const currentCount = currentPositions?.length || 0;
+      
+      if (currentCount >= settings.max_positions) {
+        console.log(`⏸️ Limite de ${settings.max_positions} posições atingido - parando scan`);
+        break;
       }
+      
+      console.log(`📊 Posições ativas: ${currentCount}/${settings.max_positions} - Continuando análise`);
+
 
       console.log(`Analyzing ${pair} - Session: ${currentSession}`);
       
@@ -2439,42 +2442,118 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
       return false;
     }
 
-    // Calculate position size
+    // ============================================
+    // 💰 SISTEMA 20x - CÁLCULO DE POSIÇÃO
+    // ============================================
     const balance = settings.balance;
-    const riskPerTrade = settings.risk_per_trade;
-    const riskAmount = balance * riskPerTrade;
+    const leverage = settings.leverage || 20;
+    const profitTargetPercent = settings.profit_target_percent || 100;
 
+    // Meta: Ganhar X% do saldo
+    const targetProfit = balance * (profitTargetPercent / 100);
+    
     const entryPrice = risk.entry;
     const stopLoss = risk.stop;
     const takeProfit = risk.target;
-    const riskPerUnit = Math.abs(entryPrice - stopLoss);
+    const profitPerUnit = Math.abs(takeProfit - entryPrice);
 
-    if (riskPerUnit === 0) {
-      console.log(`❌ Invalid risk per unit for ${asset}`);
+    if (profitPerUnit === 0) {
+      console.log(`❌ Invalid profit per unit for ${asset}`);
       return false;
     }
 
-    // Check if user has sufficient balance
-    if (balance < riskAmount) {
-      console.log(`❌ Insufficient balance: $${balance} < $${riskAmount}`);
+    // Quantidade = Meta de Lucro / Lucro por Unidade
+    let quantity = targetProfit / profitPerUnit;
+
+    // Calcular margem necessária (com alavancagem)
+    let positionValue = quantity * entryPrice;
+    let marginRequired = positionValue / leverage;
+
+    console.log(`
+📊 ======================================
+   ALAVANCAGEM ${leverage}x - CÁLCULO
+======================================
+   Saldo: $${balance.toFixed(2)}
+   Alavancagem: ${leverage}x
+   Meta de Lucro: $${targetProfit.toFixed(2)} (${profitTargetPercent}%)
+   
+   Lucro por Unidade: $${profitPerUnit.toFixed(4)}
+   Quantidade: ${quantity.toFixed(6)}
+   Valor da Posição: $${positionValue.toFixed(2)}
+   Margem Necessária: $${marginRequired.toFixed(2)}
+   Margem/Saldo: ${((marginRequired / balance) * 100).toFixed(1)}%
+======================================
+    `);
+
+    // ⚠️ AJUSTE AUTOMÁTICO: Se margem exceder saldo, ajustar
+    if (marginRequired > balance) {
+      console.log(`⚠️ Margem excede saldo! Ajustando quantidade...`);
+      
+      // Reduzir quantidade proporcionalmente
+      const adjustmentFactor = balance / marginRequired;
+      quantity = quantity * adjustmentFactor;
+      positionValue = quantity * entryPrice;
+      marginRequired = positionValue / leverage;
+      
+      const adjustedTargetProfit = quantity * profitPerUnit;
+      
+      console.log(`
+🔧 ======================================
+   AJUSTE AUTOMÁTICO
+======================================
+   Nova Quantidade: ${quantity.toFixed(6)}
+   Nova Margem: $${marginRequired.toFixed(2)}
+   Nova Meta: $${adjustedTargetProfit.toFixed(2)} (${((adjustedTargetProfit / balance) * 100).toFixed(1)}%)
+======================================
+      `);
+    }
+
+    // Calcular Stop Loss em $
+    const lossPerUnit = Math.abs(entryPrice - stopLoss);
+    const potentialLoss = lossPerUnit * quantity;
+
+    console.log(`
+⚠️ ======================================
+   RISCO DA OPERAÇÃO
+======================================
+   Stop Loss: $${stopLoss.toFixed(4)}
+   Perda por Unidade: $${lossPerUnit.toFixed(4)}
+   Perda Potencial: $${potentialLoss.toFixed(2)}
+   % do Saldo em Risco: ${((potentialLoss / balance) * 100).toFixed(1)}%
+======================================
+    `);
+
+    // 🛡️ PROTEÇÃO: Limitar perda máxima a 50% do saldo
+    const maxLossPercent = 50;
+    if ((potentialLoss / balance) * 100 > maxLossPercent) {
+      console.log(`❌ RISCO MUITO ALTO! Perda potencial ${((potentialLoss / balance) * 100).toFixed(1)}% > ${maxLossPercent}%`);
       return false;
     }
 
-    const quantity = riskAmount / riskPerUnit;
+    // Check if user has sufficient balance for margin
+    if (marginRequired > balance) {
+      console.log(`❌ Margem necessária ($${marginRequired.toFixed(2)}) excede saldo ($${balance.toFixed(2)})`);
+      return false;
+    }
+
     const projectedProfit = Math.abs(takeProfit - entryPrice) * quantity;
 
     console.log(`
-    💰 EXECUTING TRADE:
-    - Asset: ${asset}
-    - Direction: ${signal}
-    - Entry: ${entryPrice}
-    - Stop Loss: ${stopLoss}
-    - Take Profit: ${takeProfit}
-    - R:R Ratio: ${risk.rr_ratio.toFixed(2)}
-    - Quantity: ${quantity.toFixed(4)}
-    - Risk: $${riskAmount.toFixed(2)}
-    - Projected Profit: $${projectedProfit.toFixed(2)}
-    - Confidence: ${(confidence * 100).toFixed(1)}%
+💰 ======================================
+   EXECUTANDO TRADE
+======================================
+   Asset: ${asset}
+   Direction: ${signal}
+   Entry: $${entryPrice.toFixed(4)}
+   Stop Loss: $${stopLoss.toFixed(4)}
+   Take Profit: $${takeProfit.toFixed(4)}
+   R:R Ratio: ${risk.rr_ratio.toFixed(2)}
+   
+   Quantidade: ${quantity.toFixed(6)}
+   Margem: $${marginRequired.toFixed(2)}
+   Lucro Projetado: $${projectedProfit.toFixed(2)}
+   Confidence: ${(confidence * 100).toFixed(1)}%
+======================================
     `);
 
     // 🔥 BINANCE INTEGRATION: Execute real order if not in paper mode
@@ -2618,14 +2697,28 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
       const takeProfit = parseFloat(position.take_profit);
       const direction = position.direction;
 
-      // Calculate P&L
+      // Calculate P&L with 20x leverage system
       const priceDiff = direction === 'BUY' 
         ? currentPrice - entryPrice 
         : entryPrice - currentPrice;
       
-      const riskAmount = settings.balance * settings.risk_per_trade;
-      const riskPerUnit = Math.abs(entryPrice - stopLoss);
-      const quantity = riskAmount / riskPerUnit;
+      // Recalcular quantidade baseada no sistema 20x
+      const leverage = settings.leverage || 20;
+      const profitTargetPercent = settings.profit_target_percent || 100;
+      const targetProfit = settings.balance * (profitTargetPercent / 100);
+      const profitPerUnit = Math.abs(takeProfit - entryPrice);
+      
+      let quantity = targetProfit / profitPerUnit;
+      
+      // Ajuste se margem exceder saldo (mesma lógica da execução)
+      const positionValue = quantity * entryPrice;
+      const marginRequired = positionValue / leverage;
+      
+      if (marginRequired > settings.balance) {
+        const adjustmentFactor = settings.balance / marginRequired;
+        quantity = quantity * adjustmentFactor;
+      }
+      
       const currentPnL = priceDiff * quantity;
 
       // Update position
@@ -2637,70 +2730,62 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
         })
         .eq('id', position.id);
 
-      // ⏰ SCALPING: Check time-based exit FIRST
-      const now = new Date();
-      const openedAt = new Date(position.opened_at);
-      const minutesInPosition = (now.getTime() - openedAt.getTime()) / 60000;
+      console.log(`📊 ${symbol}: Preço $${currentPrice.toFixed(4)} | P&L $${currentPnL.toFixed(2)} | Meta $${targetProfit.toFixed(2)}`);
 
       let closePosition = false;
       let result = '';
 
-      // REGRA 1: Após 15 minutos, fechar SE tiver qualquer lucro
-      if (minutesInPosition >= 15) {
-        if (currentPnL > 0) {
+      // ============================================
+      // REGRA 1: ATINGIU META DE LUCRO (100% do saldo)
+      // ============================================
+      if (currentPnL >= targetProfit) {
+        closePosition = true;
+        result = 'WIN';
+        console.log(`🎯 META ATINGIDA! ${symbol}: $${currentPnL.toFixed(2)} / $${targetProfit.toFixed(2)} (${profitTargetPercent}%)`);
+      }
+
+      // ============================================
+      // REGRA 2: STOP LOSS ATINGIDO
+      // ============================================
+      if (!closePosition) {
+        if (direction === 'BUY' && currentPrice <= stopLoss) {
+          closePosition = true;
+          result = 'LOSS';
+          console.log(`❌ Stop Loss atingido - ${symbol} LONG: $${currentPrice.toFixed(4)} <= $${stopLoss.toFixed(4)}`);
+        } else if (direction === 'SELL' && currentPrice >= stopLoss) {
+          closePosition = true;
+          result = 'LOSS';
+          console.log(`❌ Stop Loss atingido - ${symbol} SHORT: $${currentPrice.toFixed(4)} >= $${stopLoss.toFixed(4)}`);
+        }
+      }
+
+      // ============================================
+      // REGRA 3: TAKE PROFIT H1/M5 ATINGIDO
+      // ============================================
+      if (!closePosition) {
+        if (direction === 'BUY' && currentPrice >= takeProfit) {
           closePosition = true;
           result = 'WIN';
-          const profitPercent = (Math.abs(currentPnL) / (settings.balance * settings.risk_per_trade)) * 100;
-          console.log(`⏰ 15min exit with profit - ${symbol}: $${currentPnL.toFixed(2)} (${profitPercent.toFixed(2)}%)`);
+          console.log(`✅ Take Profit H1/M5 atingido - ${symbol} LONG: $${currentPrice.toFixed(4)} >= $${takeProfit.toFixed(4)}`);
+        } else if (direction === 'SELL' && currentPrice <= takeProfit) {
+          closePosition = true;
+          result = 'WIN';
+          console.log(`✅ Take Profit H1/M5 atingido - ${symbol} SHORT: $${currentPrice.toFixed(4)} <= $${takeProfit.toFixed(4)}`);
         }
-        // Se ainda no prejuízo, dar +5min de chance
-        else if (minutesInPosition >= 20) {
+      }
+
+      // ============================================
+      // REGRA 4: PROTEÇÃO DE TEMPO (MAX 60 MINUTOS)
+      // ============================================
+      if (!closePosition) {
+        const now = new Date();
+        const openedAt = new Date(position.opened_at);
+        const minutesInPosition = (now.getTime() - openedAt.getTime()) / 60000;
+        
+        if (minutesInPosition >= 60) {
           closePosition = true;
           result = currentPnL > 0 ? 'WIN' : 'LOSS';
-          console.log(`⏰ 20min force exit - ${symbol}: $${currentPnL.toFixed(2)}`);
-        }
-      }
-
-      // REGRA 2: Fechar rápido se lucro >= 0.5% (mesmo antes de 15min)
-      if (!closePosition) {
-        const profitPercent = (Math.abs(currentPnL) / (settings.balance * settings.risk_per_trade)) * 100;
-        if (currentPnL > 0 && profitPercent >= 0.5 && minutesInPosition >= 5) {
-          closePosition = true;
-          result = 'WIN';
-          console.log(`💰 Quick profit (${profitPercent.toFixed(2)}%) - ${symbol}: $${currentPnL.toFixed(2)}`);
-        }
-      }
-
-      // REGRA 3: Stop Loss de emergência -2% (proteger capital)
-      if (!closePosition) {
-        const lossPercent = (Math.abs(currentPnL) / (settings.balance * settings.risk_per_trade)) * 100;
-        if (currentPnL < 0 && lossPercent >= 2.0) {
-          closePosition = true;
-          result = 'LOSS';
-          console.log(`🛑 Emergency stop -${lossPercent.toFixed(2)}% - ${symbol}: $${currentPnL.toFixed(2)}`);
-        }
-      }
-
-      // Check normal TP/SL if not already closing
-      if (!closePosition && direction === 'BUY') {
-        if (currentPrice >= takeProfit) {
-          closePosition = true;
-          result = 'WIN';
-          console.log(`🎯 Take Profit hit for ${symbol} - LONG at ${currentPrice}`);
-        } else if (currentPrice <= stopLoss) {
-          closePosition = true;
-          result = 'LOSS';
-          console.log(`❌ Stop Loss hit for ${symbol} - LONG at ${currentPrice}`);
-        }
-      } else if (!closePosition) {
-        if (currentPrice <= takeProfit) {
-          closePosition = true;
-          result = 'WIN';
-          console.log(`🎯 Take Profit hit for ${symbol} - SHORT at ${currentPrice}`);
-        } else if (currentPrice >= stopLoss) {
-          closePosition = true;
-          result = 'LOSS';
-          console.log(`❌ Stop Loss hit for ${symbol} - SHORT at ${currentPrice}`);
+          console.log(`⏰ Tempo máximo (60min) - Fechando ${symbol} com P&L: $${currentPnL.toFixed(2)}`);
         }
       }
 
