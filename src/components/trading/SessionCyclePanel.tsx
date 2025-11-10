@@ -5,10 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 const SESSIONS = {
-  Oceania: { color: "bg-blue-500", icon: "🌅", time: "00:00-03:00 UTC" },
-  Asia: { color: "bg-purple-500", icon: "🌏", time: "03:00-08:00 UTC" },
-  London: { color: "bg-orange-500", icon: "🇬🇧", time: "08:00-12:00 UTC" },
-  NewYork: { color: "bg-green-500", icon: "🗽", time: "12:00-17:00 UTC" },
+  Oceania: { color: "bg-blue-500", icon: "🌅", time: "00:00-02:30 UTC" },
+  Asia: { color: "bg-purple-500", icon: "🌏", time: "03:00-07:30 UTC" },
+  London: { color: "bg-orange-500", icon: "🇬🇧", time: "08:00-12:30 UTC" },
+  NewYork: { color: "bg-green-500", icon: "🗽", time: "13:00-23:30 UTC" },
+  Transition: { color: "bg-gray-500", icon: "⏸️", time: "Buffer 30min" },
 };
 
 const PHASES = {
@@ -42,12 +43,24 @@ export const SessionCyclePanel = () => {
   const getCurrentSession = () => {
     const now = new Date();
     const utcHour = now.getUTCHours();
+    const utcMinutes = now.getUTCMinutes();
+    const utcDecimal = utcHour + (utcMinutes / 60); // Hora decimal (ex: 12:30 = 12.5)
     
-    if (utcHour >= 0 && utcHour < 3) return 'Oceania';
-    if (utcHour >= 3 && utcHour < 8) return 'Asia';
-    if (utcHour >= 8 && utcHour < 12) return 'London';
-    if (utcHour >= 12 && utcHour < 17) return 'NewYork';
-    return 'Oceania';
+    // Buffers de transição (30min antes de cada sessão)
+    if ((utcDecimal >= 2.5 && utcDecimal < 3) ||
+        (utcDecimal >= 7.5 && utcDecimal < 8) ||
+        (utcDecimal >= 12.5 && utcDecimal < 13) ||
+        (utcDecimal >= 23.5)) {
+      return 'Transition';
+    }
+    
+    // Sessões ativas (alinhado com backend)
+    if (utcDecimal >= 0 && utcDecimal < 2.5) return 'Oceania';
+    if (utcDecimal >= 3 && utcDecimal < 7.5) return 'Asia';
+    if (utcDecimal >= 8 && utcDecimal < 12.5) return 'London';
+    if (utcDecimal >= 13 && utcDecimal < 23.5) return 'NewYork';
+    
+    return 'Oceania'; // Fallback
   };
 
   const currentSession = getCurrentSession();

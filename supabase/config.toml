@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.agente-gestao-risco]
 verify_jwt = false
+
+[functions.sync-binance-positions]
+verify_jwt = false

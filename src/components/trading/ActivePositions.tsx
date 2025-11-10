@@ -1,11 +1,44 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowDown, ArrowUp, TrendingUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ArrowDown, ArrowUp, TrendingUp, RefreshCw } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useActivePositions } from "@/hooks/useTradingData";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 
 export const ActivePositions = () => {
   const { data: positions } = useActivePositions();
+  const { toast } = useToast();
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Não autenticado");
+
+      const { data, error } = await supabase.functions.invoke('sync-binance-positions', {
+        body: { user_id: user.id }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "✅ Sincronização completa",
+        description: `${data.positions_count} posições sincronizadas (${data.added} novas, ${data.updated} atualizadas)`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "❌ Erro na sincronização",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const calculateProgress = (entry: number, current: number, target: number, direction: string) => {
     if (direction === 'BUY') {
@@ -52,9 +85,21 @@ export const ActivePositions = () => {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">Posições Ativas</CardTitle>
-          <Badge variant="outline" className="border-success text-success">
-            {activePositions.length} Posicionadas
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSync}
+              disabled={syncing}
+              className="h-8"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Sincronizando...' : 'Sincronizar'}
+            </Button>
+            <Badge variant="outline" className="border-success text-success">
+              {activePositions.length} Posicionadas
+            </Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">

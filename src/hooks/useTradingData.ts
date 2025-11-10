@@ -92,7 +92,7 @@ export const useActivePositions = () => {
       if (error) throw error;
       return data;
     },
-    refetchInterval: 2000, // Refresh every 2 seconds
+    refetchInterval: 1000, // Refresh every 1 second (2x mais rápido!)
   });
 };
 

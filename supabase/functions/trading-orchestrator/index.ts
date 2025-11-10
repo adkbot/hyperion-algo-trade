@@ -377,6 +377,37 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     };
   }
 
+  // ============================================
+  // 🔄 SINCRONIZAR POSIÇÕES COM BINANCE
+  // ============================================
+  console.log(`🔄 Sincronizando posições com Binance...`);
+  try {
+    const { data: syncData, error: syncError } = await supabase.functions.invoke('sync-binance-positions', {
+      body: { user_id: userId }
+    });
+
+    if (syncError) {
+      console.error(`❌ Erro ao sincronizar com Binance:`, syncError);
+    } else if (syncData?.synced) {
+      const { positions_count, added, updated, removed } = syncData;
+      console.log(`✅ Sincronização completa: ${positions_count} posições ativas`);
+      if (added > 0) console.log(`  ├─ 📥 Adicionadas: ${added} novas posições`);
+      if (updated > 0) console.log(`  ├─ 🔄 Atualizadas: ${updated} posições`);
+      if (removed > 0) console.log(`  └─ 🗑️ Removidas: ${removed} posições`);
+    }
+  } catch (syncError) {
+    console.error(`❌ Erro na sincronização:`, syncError);
+  }
+
+  // Buscar posições novamente após sincronização
+  const { data: syncedPositions } = await supabase
+    .from('active_positions')
+    .select('*')
+    .eq('user_id', userId);
+
+  const syncedCount = syncedPositions?.length || 0;
+  console.log(`💼 Posições ativas após sincronização: ${syncedCount}/${settings.max_positions}`);
+
   // ✅ Verificar meta diária: quantidade de operações
   const targetOperations = dailyGoal?.target_operations || 45;
   
@@ -441,31 +472,29 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     };
   }
 
-  console.log(`💼 Posições ativas: ${activeCount}/${settings.max_positions}`);
-
   // Monitor existing positions regardless of limit
-  if (activePositions && activePositions.length > 0) {
+  if (syncedPositions && syncedPositions.length > 0) {
     await monitorActivePositions(supabase, userId, settings);
   }
 
   // CRITICAL: If single_position_mode is enabled and there's ANY active position, stop here
-  if (settings.single_position_mode && activeCount > 0) {
+  if (settings.single_position_mode && syncedCount > 0) {
     console.log(`⏸️ Modo 1 posição ativo - aguardando fechamento da posição atual`);
     return {
       userId,
       status: 'waiting_position_close',
-      activePositions: activeCount,
+      activePositions: syncedCount,
       message: 'Aguardando fechamento da posição ativa'
     };
   }
 
-  if (activeCount >= settings.max_positions) {
+  if (syncedCount >= settings.max_positions) {
     console.log(`⚠️ Limite de posições atingido (${settings.max_positions}). Monitorando posições existentes...`);
     
     return {
       userId,
       status: 'max_positions_reached',
-      activePositions: activeCount,
+      activePositions: syncedCount,
       message: `Limite de ${settings.max_positions} posições atingido`
     };
   }
@@ -2478,7 +2507,7 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     // CALCULAR TAMANHO DA POSIÇÃO
     // ============================================
     const balance = settings.balance || 100;
-    const riskPercentage = settings.risk_percentage || 6; // 6% do saldo
+    const riskPercentage = (settings.risk_per_trade || 0.06) * 100; // ✅ CORRIGIDO: usar risk_per_trade do banco
     const leverage = settings.leverage || 20;
     
     // ✅ CORREÇÃO: Usar apenas riskPercentage (6%) do saldo
