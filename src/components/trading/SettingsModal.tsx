@@ -103,12 +103,12 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[425px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Configurações da API</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
+        <div className="space-y-3 py-2">
+          <div className="space-y-1">
             <Label htmlFor="apiKey">Binance API Key</Label>
             <Input
               id="apiKey"
@@ -118,7 +118,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               placeholder="Sua API Key da Binance"
             />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1">
             <Label htmlFor="apiSecret">Binance API Secret</Label>
             <Input
               id="apiSecret"
@@ -128,7 +128,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               placeholder="Seu API Secret da Binance"
             />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1">
             <Label htmlFor="balance">Saldo Inicial ($)</Label>
             <Input
               id="balance"
@@ -138,7 +138,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               placeholder="10000"
             />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1">
             <Label htmlFor="maxPositions">Máximo de Posições</Label>
             <Input
               id="maxPositions"
@@ -148,7 +148,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               placeholder="3"
             />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1">
             <Label htmlFor="risk">Risco por Trade (%)</Label>
             <Input
               id="risk"
@@ -159,7 +159,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               placeholder="6"
             />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1">
             <Label htmlFor="leverage">Alavancagem</Label>
             <Input
               id="leverage"
@@ -170,10 +170,10 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               onChange={(e) => setLeverage(Number(e.target.value))}
             />
             <p className="text-xs text-muted-foreground">
-              Alavancagem aplicada em todas as operações (recomendado: 20x)
+              Recomendado: 20x
             </p>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1">
             <Label htmlFor="profitTarget">Meta de Lucro por Trade (%)</Label>
             <Input
               id="profitTarget"
@@ -184,7 +184,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               onChange={(e) => setProfitTarget(Number(e.target.value))}
             />
             <p className="text-xs text-muted-foreground">
-              Meta: ganhar X% do saldo em cada operação (ex: 100% = dobrar saldo)
+              Ex: 100% = dobrar saldo em cada trade
             </p>
           </div>
           <div className="flex items-center justify-between space-x-2">
