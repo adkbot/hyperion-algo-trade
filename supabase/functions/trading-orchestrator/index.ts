@@ -337,6 +337,24 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     .eq('date', today)
     .single();
 
+  // ✅ Recalcular projeção de tempo a cada ciclo
+  if (dailyGoal && dailyGoal.total_operations > 0 && !dailyGoal.completed) {
+    const startOfDayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+    const newProjection = await calculateProjectedCompletionTime(
+      dailyGoal.total_operations,
+      dailyGoal.target_operations || 45,
+      startOfDayUTC
+    );
+
+    if (newProjection !== dailyGoal.projected_completion_time) {
+      await supabase
+        .from('daily_goals')
+        .update({ projected_completion_time: newProjection })
+        .eq('id', dailyGoal.id);
+      console.log(`🔄 Projeção atualizada: ${newProjection ? new Date(newProjection).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'N/A'}`);
+    }
+  }
+
   // ============================================
   // 🎯 REGRA CRÍTICA: SÓ ABRE NOVA POSIÇÃO SE META FOI ATINGIDA
   // ============================================
@@ -2881,6 +2899,56 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
   }
 }
 
+// Calculate projected completion time for daily goals
+async function calculateProjectedCompletionTime(
+  totalOperations: number,
+  targetOperations: number,
+  startOfDayUTC: Date
+): Promise<string | null> {
+  // Se ainda não completou nenhuma operação, não há dados para projetar
+  if (totalOperations === 0) {
+    return null;
+  }
+
+  // Se já completou a meta, retornar o horário atual
+  if (totalOperations >= targetOperations) {
+    return new Date().toISOString();
+  }
+
+  const now = new Date();
+  const elapsedMs = now.getTime() - startOfDayUTC.getTime();
+  const elapsedHours = elapsedMs / (1000 * 60 * 60);
+
+  // Calcular taxa de operações por hora
+  const operationsPerHour = totalOperations / elapsedHours;
+
+  // Se a taxa é muito baixa (< 0.1 ops/hora), não projetar
+  if (operationsPerHour < 0.1) {
+    return null;
+  }
+
+  // Calcular quantas operações faltam
+  const remainingOperations = targetOperations - totalOperations;
+
+  // Calcular quantas horas faltam
+  const hoursNeeded = remainingOperations / operationsPerHour;
+
+  // Calcular timestamp estimado
+  const estimatedCompletionTime = new Date(now.getTime() + (hoursNeeded * 60 * 60 * 1000));
+
+  console.log(`
+⏱️ PROJEÇÃO DE TEMPO:
+├─ Operações completadas: ${totalOperations}/${targetOperations}
+├─ Tempo decorrido: ${elapsedHours.toFixed(2)}h
+├─ Taxa: ${operationsPerHour.toFixed(2)} ops/hora
+├─ Operações restantes: ${remainingOperations}
+├─ Horas necessárias: ${hoursNeeded.toFixed(2)}h
+└─ Estimativa: ${estimatedCompletionTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+  `);
+
+  return estimatedCompletionTime.toISOString();
+}
+
 // Monitor active positions
 async function monitorActivePositions(supabase: any, userId: string, settings: any) {
   const { data: positions, error } = await supabase
@@ -3054,14 +3122,25 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
           .single();
 
         if (dailyGoal) {
+          // Calcular projeção de tempo
+          const now = new Date();
+          const startOfDayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+          const newTotalOperations = (dailyGoal.total_operations || 0) + 1;
+          const projectedTime = await calculateProjectedCompletionTime(
+            newTotalOperations,
+            dailyGoal.target_operations || 45,
+            startOfDayUTC
+          );
+
           await supabase
             .from('daily_goals')
             .update({
-              total_operations: (dailyGoal.total_operations || 0) + 1,
+              total_operations: newTotalOperations,
               wins: result === 'WIN' ? (dailyGoal.wins || 0) + 1 : dailyGoal.wins,
               losses: result === 'LOSS' ? (dailyGoal.losses || 0) + 1 : dailyGoal.losses,
               total_pnl: (dailyGoal.total_pnl || 0) + currentPnL,
               completed: metaAtingida, // ✅ MARCA META ATINGIDA APENAS SE BATEU 100%
+              projected_completion_time: projectedTime, // ✅ ADICIONAR PROJEÇÃO
             })
             .eq('id', dailyGoal.id);
           
