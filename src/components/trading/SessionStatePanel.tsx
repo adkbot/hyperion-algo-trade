@@ -14,17 +14,12 @@ export function SessionStatePanel() {
 
       const today = new Date().toISOString().split('T')[0];
       
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('session_state')
         .select('*')
         .eq('user_id', user.id)
         .eq('date', today)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching session state:', error);
-        return null;
-      }
+        .maybeSingle();
 
       return data;
     },
@@ -44,7 +39,7 @@ export function SessionStatePanel() {
         .select('*')
         .eq('user_id', user.id)
         .eq('date', today)
-        .single();
+        .maybeSingle();
 
       return data;
     },

@@ -23,7 +23,7 @@ export const SystemStatusPanel = () => {
         .eq('agent_name', 'Cycle Orchestrator')
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
       return data;
     },
     refetchInterval: 5000,
