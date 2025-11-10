@@ -53,7 +53,7 @@ serve(async (req) => {
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
 
-    const binanceUrl = `https://fapi.binance.com/fapi/v1/positionRisk?${queryString}&signature=${signature}`;
+    const binanceUrl = `https://fapi.binance.com/fapi/v2/positionRisk?${queryString}&signature=${signature}`;
     const response = await fetch(binanceUrl, {
       headers: {
         'X-MBX-APIKEY': settings.api_key,
@@ -67,10 +67,28 @@ serve(async (req) => {
 
     const allPositions = await response.json();
     
+    // Validar resposta da Binance
+    if (!allPositions || !Array.isArray(allPositions)) {
+      console.log('⚠️ Resposta da Binance inválida ou vazia');
+      return new Response(
+        JSON.stringify({ synced: true, positions_count: 0, added: 0, updated: 0, removed: 0 }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
     // 3. Filtrar apenas posições abertas (positionAmt != "0")
     const openPositions = allPositions.filter((pos: any) => parseFloat(pos.positionAmt) !== 0);
 
     console.log(`📊 Encontradas ${openPositions.length} posições abertas na Binance`);
+    
+    if (openPositions.length > 0) {
+      console.log(`Posições abertas:`);
+      openPositions.forEach((pos: any) => {
+        const direction = parseFloat(pos.positionAmt) > 0 ? 'LONG' : 'SHORT';
+        const pnl = parseFloat(pos.unRealizedProfit);
+        console.log(`├─ ${pos.symbol}: ${direction} | P&L: $${pnl.toFixed(2)}`);
+      });
+    }
 
     // 4. Buscar posições do banco de dados
     const { data: dbPositions } = await supabase
