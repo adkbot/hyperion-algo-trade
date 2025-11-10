@@ -2540,7 +2540,7 @@ async function scanMarketForValidPairs(): Promise<string[]> {
     const stats = await statsResponse.json();
     const statsMap = new Map(stats.map((s: any) => [s.symbol, s]));
 
-    // ✅ FASE 1: Reduzir volume mínimo de $50M para $30M e aumentar limite de 15 para 30 pares
+    // ✅ FASE 1: Reduzir volume mínimo de $50M para $30M e limitar a 10 pares (otimização de performance)
     const validPairs = perpetualPairs
       .filter((pair: any) => {
         const stat: any = statsMap.get(pair.symbol);
@@ -2559,8 +2559,8 @@ async function scanMarketForValidPairs(): Promise<string[]> {
     // ✅ FASE 5: Priorizar pares por volatilidade e volume
     const prioritizedPairs = await prioritizePairs(validPairs);
     
-    // Limitar aos 30 melhores
-    const finalPairs = prioritizedPairs.slice(0, 30);
+    // Limitar aos 10 melhores para evitar timeout (edge function limit ~60s)
+    const finalPairs = prioritizedPairs.slice(0, 10);
     
     console.log(`✅ Selecionados ${finalPairs.length} pares de maior probabilidade`);
     
