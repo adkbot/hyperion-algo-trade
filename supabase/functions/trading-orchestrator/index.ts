@@ -103,6 +103,21 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // ⏱️ SISTEMA DE CONTROLE DE TEMPO - Nunca ultrapassar 90% do limite (54s de 60s)
+  const MAX_EXECUTION_TIME_MS = 54000; // 90% de 60s
+  const startTime = Date.now();
+  
+  function getRemainingTime(): number {
+    const elapsed = Date.now() - startTime;
+    return MAX_EXECUTION_TIME_MS - elapsed;
+  }
+  
+  function shouldContinueAnalysis(): boolean {
+    const remaining = getRemainingTime();
+    const avgTimePerPair = 3500; // ~3.5s por par (baseado em histórico)
+    return remaining > (avgTimePerPair * 1.5); // Margem de segurança
+  }
+
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -132,6 +147,7 @@ serve(async (req) => {
 
     // ✅ MULTI-USER: Processar cada usuário individualmente
     const allResults: any[] = [];
+    let totalPairsAnalyzed = 0;
 
     for (const userSettings of activeUsers) {
       console.log(`\n👤 Processing user: ${userSettings.user_id}`);
@@ -139,8 +155,16 @@ serve(async (req) => {
       console.log(`📈 Max Positions: ${userSettings.max_positions}`);
 
       try {
-        const userResult = await processUserTradingCycle(supabase, userSettings, currentSession, cyclePhase);
+        const userResult = await processUserTradingCycle(
+          supabase, 
+          userSettings, 
+          currentSession, 
+          cyclePhase,
+          getRemainingTime,
+          shouldContinueAnalysis
+        );
         allResults.push(userResult);
+        totalPairsAnalyzed += userResult.pairsAnalyzed || 0;
       } catch (userError) {
         console.error(`❌ Error processing user ${userSettings.user_id}:`, userError);
         allResults.push({
@@ -150,6 +174,19 @@ serve(async (req) => {
       }
     }
 
+    // ⏱️ PERFORMANCE REPORT
+    const totalTime = Date.now() - startTime;
+    const utilizationPct = (totalTime / 60000) * 100;
+    
+    console.log(`
+⏱️ PERFORMANCE REPORT:
+├─ Tempo total: ${totalTime}ms (${utilizationPct.toFixed(1)}% do limite de 60s)
+├─ Pares analisados: ${totalPairsAnalyzed}
+├─ Tempo médio/par: ${totalPairsAnalyzed > 0 ? (totalTime / totalPairsAnalyzed).toFixed(0) : 'N/A'}ms
+├─ Utilização: ${utilizationPct < 90 ? '✅ SEGURO' : utilizationPct < 95 ? '⚠️ PRÓXIMO DO LIMITE' : '🔴 CRÍTICO'}
+└─ Status: ${utilizationPct < 90 ? 'Tudo OK' : 'Considere reduzir pares ou otimizar'}
+    `);
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -157,6 +194,12 @@ serve(async (req) => {
         phase: cyclePhase,
         users_processed: activeUsers.length,
         results: allResults,
+        performance: {
+          total_time_ms: totalTime,
+          utilization_pct: utilizationPct,
+          pairs_analyzed: totalPairsAnalyzed,
+          avg_time_per_pair_ms: totalPairsAnalyzed > 0 ? Math.round(totalTime / totalPairsAnalyzed) : null
+        }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -275,7 +318,14 @@ function isInOperatingWindow(session: string): { canOperate: boolean; message: s
 }
 
 // ✅ NOVA FUNÇÃO: Processar ciclo de trading para um usuário específico
-async function processUserTradingCycle(supabase: any, settings: any, currentSession: string, cyclePhase: string) {
+async function processUserTradingCycle(
+  supabase: any, 
+  settings: any, 
+  currentSession: string, 
+  cyclePhase: string,
+  getRemainingTime?: () => number,
+  shouldContinueAnalysis?: () => boolean
+) {
   const userId = settings.user_id;
   const now = new Date();
   const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
@@ -368,7 +418,8 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
       userId,
       status: 'daily_goal_completed',
       activePositions: 0,
-      message: 'Meta diária atingida - aguardando próximo dia'
+      message: 'Meta diária atingida - aguardando próximo dia',
+      pairsAnalyzed: 0 // ⏱️ Nenhum par analisado (meta já atingida)
     };
   }
 
@@ -391,7 +442,8 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
       userId,
       status: 'waiting_next_day',
       activePositions: 0,
-      message: 'Posição fechada sem atingir meta - aguardando próximo dia'
+      message: 'Posição fechada sem atingir meta - aguardando próximo dia',
+      pairsAnalyzed: 0 // ⏱️ Nenhum par analisado (aguardando próximo dia)
     };
   }
 
@@ -521,7 +573,8 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
       userId,
       status: 'waiting_position_close',
       activePositions: syncedCount,
-      message: 'Aguardando fechamento da posição ativa'
+      message: 'Aguardando fechamento da posição ativa',
+      pairsAnalyzed: 0 // ⏱️ Nenhum par analisado (aguardando fechamento)
     };
   }
 
@@ -532,20 +585,28 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
       userId,
       status: 'max_positions_reached',
       activePositions: syncedCount,
-      message: `Limite de ${settings.max_positions} posições atingido`
+      message: `Limite de ${settings.max_positions} posições atingido`,
+      pairsAnalyzed: 0 // ⏱️ Nenhum par analisado (limite atingido)
     };
   }
 
   // ✅ Scan market for valid pairs
   console.log('Scanning market for valid trading pairs...');
-  const validPairs = await scanMarketForValidPairs();
+  const validPairs = await scanMarketForValidPairs(getRemainingTime);
   
   console.log(`Found ${validPairs.length} valid trading pairs: ${validPairs.join(', ')}`);
 
-  // ✅ Análise de mercado para múltiplos pares
+  // ✅ Análise de mercado para múltiplos pares COM CONTROLE DE TEMPO
   const analysisResults: any[] = [];
+  let pairsAnalyzed = 0;
 
   for (const pair of validPairs) {
+    // ⏱️ CHECKPOINT: Verificar se ainda temos tempo antes de analisar
+    if (shouldContinueAnalysis && !shouldContinueAnalysis()) {
+      console.log(`⏱️ TIMEOUT PREVENTION: Analisados ${pairsAnalyzed}/${validPairs.length} pares. Parando para não estourar limite.`);
+      break;
+    }
+
     try {
       // ✅ VERIFICAR SE ATIVO JÁ TEM POSIÇÃO ABERTA
       const { data: existingPositionForAsset } = await supabase
@@ -677,6 +738,9 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     } catch (error) {
       console.error(`Error analyzing ${pair}:`, error);
     }
+    
+    // ⏱️ Incrementar contador de pares analisados
+    pairsAnalyzed++;
   }
 
   return {
@@ -684,6 +748,7 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
     phase: cyclePhase,
     analysis: analysisResults,
     activePositions: activePositions?.length || 0,
+    pairsAnalyzed, // ⏱️ Incluir no retorno para tracking de performance
   };
 }
 
@@ -2507,9 +2572,9 @@ async function prioritizePairs(pairs: string[]): Promise<string[]> {
 }
 
 // ============================================
-// FASE 1: EXPANDIR ANÁLISE PARA 30 PARES
+// FASE 1: EXPANDIR ANÁLISE COM CONTROLE DINÂMICO DE TEMPO
 // ============================================
-async function scanMarketForValidPairs(): Promise<string[]> {
+async function scanMarketForValidPairs(getRemainingTime?: () => number): Promise<string[]> {
   const now = Date.now();
   
   // ✅ FASE 3: Usar cache se ainda válido
@@ -2559,8 +2624,14 @@ async function scanMarketForValidPairs(): Promise<string[]> {
     // ✅ FASE 5: Priorizar pares por volatilidade e volume
     const prioritizedPairs = await prioritizePairs(validPairs);
     
-    // Limitar aos 10 melhores para evitar timeout (edge function limit ~60s)
-    const finalPairs = prioritizedPairs.slice(0, 10);
+    // ⏱️ AJUSTE DINÂMICO: Se tempo limitado, reduzir para 5 pares. Senão, usar 10.
+    let maxPairs = 10;
+    if (getRemainingTime && getRemainingTime() < 40000) {
+      console.log('⚠️ Tempo limitado detectado - reduzindo para 5 pares prioritários');
+      maxPairs = 5;
+    }
+    
+    const finalPairs = prioritizedPairs.slice(0, maxPairs);
     
     console.log(`✅ Selecionados ${finalPairs.length} pares de maior probabilidade`);
     
