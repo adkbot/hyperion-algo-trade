@@ -541,9 +541,9 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
       console.log(`Analyzing ${pair} - Session: ${currentSession}`);
       
       // Fetch candles
-      const candles = await fetchCandlesFromBinance(pair, ['5m', '15m', '1h']);
+      const candles = await fetchCandlesFromBinance(pair, ['1m', '5m', '15m', '1h']);
       
-      if (!candles['5m'] || !candles['15m'] || !candles['1h']) {
+      if (!candles['1m'] || !candles['5m'] || !candles['15m'] || !candles['1h']) {
         console.log(`❌ Insufficient candle data for ${pair}`);
         continue;
       }
@@ -710,8 +710,9 @@ async function analyzeCyclePhase(params: any) {
   const candles5m = candles['5m'];
   const candles15m = candles['15m'];
   const candles1h = candles['1h'];
+  const candles1m = candles['1m'];
 
-  if (!candles5m || !candles15m || !candles1h) {
+  if (!candles5m || !candles15m || !candles1h || !candles1m) {
     return null;
   }
 
@@ -742,6 +743,7 @@ async function analyzeCyclePhase(params: any) {
   else {
     console.log(`🔧 Modo STANDALONE HÍBRIDO ativado - ${session}`);
     return await analyzeTechnicalStandalone(
+      candles1m,
       candles5m,
       candles15m,
       candles1h,
@@ -1391,6 +1393,7 @@ function confirmM1Entry(
 // FUNÇÃO PRINCIPAL: ESTRATÉGIA H1+M15+M1 COM SWEEP
 // ============================================
 async function analyzeTechnicalStandalone(
+  candles1m: any[],
   candles5m: any[],
   candles15m: any[],
   candles1h: any[],
@@ -1483,29 +1486,43 @@ async function analyzeTechnicalStandalone(
   }
   
   // ============================================
-  // ETAPA 3: CONFIRMAR ENTRADA NO M1
+  // ETAPA 3: CONFIRMAR ENTRADA NO M1 (FLIP)
   // ============================================
-  // Buscar velas M1 (se disponível)
-  const candles1m: any[] = []; // TODO: Buscar velas M1 da Binance quando disponível
+  console.log(`🔍 Verificando confirmação M1 (flip)...`);
+  const m1Confirmation = confirmM1Entry(candles1m, sweepData, asset);
   
-  // Por enquanto, executar entrada diretamente após sweep M15
-  // (até implementarmos fetch de velas M1)
-  console.log(`
-✅ SWEEP CONFIRMADO - ${asset}:
-├─ Direção: ${sweepData.direction}
-├─ Nível varrido: ${sweepData.levelType} = $${sweepData.sweptLevel.toFixed(4)}
-├─ Pavio: ${sweepData.wickLength.toFixed(4)}
-└─ Força vela M15: ${(sweepData.candleStrength * 100).toFixed(1)}%
+  if (!m1Confirmation.entryConfirmed) {
+    console.log(`⏸️ ${asset}: Aguardando confirmação M1 (flip)...`);
+    return {
+      signal: 'STAY_OUT',
+      direction: 'NEUTRAL',
+      confidence: 0.5,
+      notes: 'Sweep detectado no M15 - aguardando confirmação M1 (flip)',
+      risk: null,
+      c1Direction: null,
+      volumeFactor: indicators.volume.factor,
+      confirmation: 'Aguardando flip M1',
+      marketData: { price: currentPrice, h1Structure, sweep: sweepData },
+      rangeHigh: h1Structure.previousHigh,
+      rangeLow: h1Structure.previousLow,
+    };
+  }
 
-⚠️ NOTA: Confirmação M1 temporariamente DESABILITADA (velas M1 não disponíveis)
-➡️ Executando entrada diretamente após sweep M15
+  console.log(`
+✅ CONFIRMAÇÃO M1 - ${asset}:
+├─ Direção: ${sweepData.direction}
+├─ Nível varrido M15: ${sweepData.levelType} = $${sweepData.sweptLevel.toFixed(4)}
+├─ Pavio M15: ${sweepData.wickLength.toFixed(4)}
+├─ Força vela M15: ${(sweepData.candleStrength * 100).toFixed(1)}%
+├─ Entrada M1: $${m1Confirmation.entryPrice.toFixed(4)}
+└─ Força flip M1: ${(m1Confirmation.m1Strength * 100).toFixed(1)}%
   `);
   
   // ============================================
   // CALCULAR SL/TP BASEADO NA ESTRATÉGIA
   // ============================================
   const direction = sweepData.direction!;
-  const entry = currentPrice;
+  const entry = m1Confirmation.entryPrice; // Usar preço confirmado no M1
   
   // Stop Loss: Abaixo/acima do pavio do sweep
   const stopLoss = direction === 'BUY'
@@ -2532,7 +2549,7 @@ async function fetchCandlesFromBinance(symbol: string, intervals: string[]) {
     try {
       await rateLimiter.checkAndWait(); // ✅ FASE 4: Rate limiting
       
-      const limit = interval === '1h' ? 100 : interval === '15m' ? 96 : 200;
+      const limit = interval === '1h' ? 100 : interval === '15m' ? 96 : interval === '1m' ? 60 : 200;
       const response = await fetch(
         `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
       );
