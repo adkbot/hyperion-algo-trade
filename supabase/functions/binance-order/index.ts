@@ -274,20 +274,85 @@ serve(async (req) => {
     const binanceResult = await response.json();
     console.log('✅ Order executed successfully on Binance:', binanceResult);
 
-    // ✅ Save to database COM user_id
+    // ✅ BUSCAR DADOS REAIS DA POSIÇÃO NA BINANCE
+    let entryPriceReal = price;
+    let currentPriceReal = price;
+    let pnlReal = 0;
+
+    try {
+      console.log('🔍 Buscando posição real na Binance...');
+      
+      const positionTimestamp = Date.now();
+      const positionParams = new URLSearchParams({
+        symbol: asset,
+        timestamp: positionTimestamp.toString(),
+      });
+
+      // Assinar requisição
+      const positionEncoder = new TextEncoder();
+      const positionKey = await crypto.subtle.importKey(
+        'raw',
+        positionEncoder.encode(userApiSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const positionSignature = await crypto.subtle.sign(
+        'HMAC',
+        positionKey,
+        positionEncoder.encode(positionParams.toString())
+      );
+      const positionSignatureHex = Array.from(new Uint8Array(positionSignature))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      positionParams.append('signature', positionSignatureHex);
+
+      // Buscar posição real na Binance
+      const positionResponse = await fetch(
+        `https://fapi.binance.com/fapi/v2/positionRisk?${positionParams}`,
+        { headers: { 'X-MBX-APIKEY': userApiKey } }
+      );
+
+      if (positionResponse.ok) {
+        const allPositions = await positionResponse.json();
+        const realPosition = allPositions.find((p: any) => 
+          p.symbol === asset && parseFloat(p.positionAmt) !== 0
+        );
+
+        if (realPosition) {
+          entryPriceReal = parseFloat(realPosition.entryPrice);
+          currentPriceReal = parseFloat(realPosition.markPrice);
+          pnlReal = parseFloat(realPosition.unRealizedProfit);
+
+          console.log(`✅ Dados reais da Binance:
+├─ Entry: $${entryPriceReal}
+├─ Current: $${currentPriceReal}
+└─ P&L: $${pnlReal}`);
+        } else {
+          console.log('⚠️ Posição não encontrada na Binance, usando dados calculados');
+        }
+      } else {
+        console.error('❌ Falha ao buscar posição real da Binance');
+      }
+    } catch (posError) {
+      console.error('⚠️ Erro ao buscar posição real:', posError);
+      // Continuar com dados calculados como fallback
+    }
+
+    // ✅ Save to database COM DADOS REAIS DA BINANCE
     const { error: insertError } = await supabase
       .from('active_positions')
       .insert({
         user_id,
         asset,
         direction,
-        entry_price: price,
-        current_price: price,
+        entry_price: entryPriceReal,      // ✅ Preço REAL da Binance
+        current_price: currentPriceReal,   // ✅ Preço REAL atual
         stop_loss: stopLoss,
         take_profit: takeProfit,
         risk_reward: riskReward,
-        current_pnl: 0,
-        projected_profit: (takeProfit - price) * quantity,
+        current_pnl: pnlReal,              // ✅ P&L REAL da Binance
+        projected_profit: (takeProfit - entryPriceReal) * quantity,
         agents,
         session,
       });

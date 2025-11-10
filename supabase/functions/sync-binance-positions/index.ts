@@ -115,6 +115,15 @@ serve(async (req) => {
 
       if (existingPos) {
         // ✅ Atualizar preço e P&L
+        console.log(`
+📊 SINCRONIZANDO ${symbol}:
+├─ Entry (DB): $${existingPos.entry_price} → Entry (Binance): $${entryPrice}
+├─ Current (DB): $${existingPos.current_price} → Current (Binance): $${markPrice}
+├─ P&L (DB): $${existingPos.current_pnl} → P&L (Binance): $${unrealizedPnl.toFixed(2)}
+├─ Leverage: ${leverage}x
+└─ Direction: ${direction}
+        `);
+
         const { error: updateError } = await supabase
           .from('active_positions')
           .update({
@@ -126,7 +135,7 @@ serve(async (req) => {
         
         if (!updateError) {
           updated++;
-          console.log(`🔄 Atualizado: ${symbol} - P&L: $${unrealizedPnl.toFixed(2)}`);
+          console.log(`✅ Atualizado: ${symbol} - P&L: $${unrealizedPnl.toFixed(2)}`);
         }
       } else {
         // ✅ Adicionar nova posição ao banco (estimando SL/TP)

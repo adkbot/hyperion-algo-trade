@@ -475,6 +475,25 @@ async function processUserTradingCycle(supabase: any, settings: any, currentSess
   // Monitor existing positions regardless of limit
   if (syncedPositions && syncedPositions.length > 0) {
     await monitorActivePositions(supabase, userId, settings);
+    
+    // ✅ SINCRONIZAR AUTOMATICAMENTE com Binance a cada ciclo (modo real)
+    if (!settings.paper_mode) {
+      console.log(`🔄 Sincronizando ${syncedCount} posições com Binance...`);
+      
+      try {
+        const autoSyncResponse = await supabase.functions.invoke('sync-binance-positions', {
+          body: { user_id: userId }
+        });
+        
+        if (autoSyncResponse.error) {
+          console.error('⚠️ Erro na sincronização automática:', autoSyncResponse.error);
+        } else if (autoSyncResponse.data?.synced) {
+          console.log(`✅ Sincronização automática completa - ${autoSyncResponse.data.positions_count} posições`);
+        }
+      } catch (autoSyncError) {
+        console.error('⚠️ Falha na sincronização automática:', autoSyncError);
+      }
+    }
   }
 
   // CRITICAL: If single_position_mode is enabled and there's ANY active position, stop here
