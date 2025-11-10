@@ -1083,7 +1083,312 @@ function detectPitchforkPattern(
 }
 
 // ============================================
-// ANÁLISE TÉCNICA - ESTRATÉGIA 4 FASES
+// NOVA ESTRATÉGIA: H1 + M15 + M1 COM SWEEP DE LIQUIDEZ
+// ============================================
+
+// ============================================
+// ETAPA 1: ANALISAR ESTRUTURA H1 (MARCAÇÕES)
+// ============================================
+function analyzeH1Structure(candles1h: any[]): {
+  previousHigh: number;
+  previousLow: number;
+  sessionHighs: { oceania: number; asia: number; london: number };
+  sessionLows: { oceania: number; asia: number; london: number };
+  structuralLevels: number[];
+  validStructure: boolean;
+  midRange: number;
+} {
+  if (candles1h.length < 24) {
+    return {
+      previousHigh: 0,
+      previousLow: 0,
+      sessionHighs: { oceania: 0, asia: 0, london: 0 },
+      sessionLows: { oceania: 0, asia: 0, london: 0 },
+      structuralLevels: [],
+      validStructure: false,
+      midRange: 0,
+    };
+  }
+
+  // Últimas 24 horas H1 (cobrem todas as sessões)
+  const last24h = candles1h.slice(-24);
+  
+  // Máxima e Mínima Anterior (últimas 15 velas)
+  const recent15 = last24h.slice(-15);
+  const previousHigh = Math.max(...recent15.map((c: any) => parseFloat(c.high)));
+  const previousLow = Math.min(...recent15.map((c: any) => parseFloat(c.low)));
+  const midRange = (previousHigh + previousLow) / 2;
+  
+  // Máximas/Mínimas por sessão (aproximação UTC)
+  const oceaniaCandles = last24h.slice(0, 3);   // 00:00-03:00 UTC
+  const asiaCandles = last24h.slice(3, 8);      // 03:00-08:00 UTC
+  const londonCandles = last24h.slice(8, 13);   // 08:00-13:00 UTC
+  
+  const sessionHighs = {
+    oceania: oceaniaCandles.length > 0 ? Math.max(...oceaniaCandles.map((c: any) => parseFloat(c.high))) : 0,
+    asia: asiaCandles.length > 0 ? Math.max(...asiaCandles.map((c: any) => parseFloat(c.high))) : 0,
+    london: londonCandles.length > 0 ? Math.max(...londonCandles.map((c: any) => parseFloat(c.high))) : 0,
+  };
+  
+  const sessionLows = {
+    oceania: oceaniaCandles.length > 0 ? Math.min(...oceaniaCandles.map((c: any) => parseFloat(c.low))) : 0,
+    asia: asiaCandles.length > 0 ? Math.min(...asiaCandles.map((c: any) => parseFloat(c.low))) : 0,
+    london: londonCandles.length > 0 ? Math.min(...londonCandles.map((c: any) => parseFloat(c.low))) : 0,
+  };
+  
+  // Níveis estruturais (imbalances, breakouts)
+  const structuralLevels: number[] = [];
+  for (let i = 1; i < recent15.length - 1; i++) {
+    const prev = parseFloat(recent15[i - 1].close);
+    const curr = parseFloat(recent15[i].close);
+    const next = parseFloat(recent15[i + 1].close);
+    
+    // Detectar swing highs/lows
+    if (curr > prev && curr > next) {
+      structuralLevels.push(parseFloat(recent15[i].high));
+    }
+    if (curr < prev && curr < next) {
+      structuralLevels.push(parseFloat(recent15[i].low));
+    }
+  }
+  
+  // Validação: Range deve ser > 2% do preço médio
+  const avgPrice = (previousHigh + previousLow) / 2;
+  const range = (previousHigh - previousLow) / avgPrice;
+  const validStructure = range > 0.02; // Mínimo 2% de range
+  
+  return {
+    previousHigh,
+    previousLow,
+    sessionHighs,
+    sessionLows,
+    structuralLevels,
+    validStructure,
+    midRange,
+  };
+}
+
+// ============================================
+// ETAPA 2: DETECTAR SWEEP DE LIQUIDEZ NO M15 (FAKE OUT)
+// ============================================
+function detectM15Sweep(
+  candles15m: any[],
+  h1Structure: any,
+  asset: string
+): {
+  sweepDetected: boolean;
+  sweptLevel: number;
+  levelType: 'previousHigh' | 'previousLow' | 'sessionHigh' | 'sessionLow' | null;
+  direction: 'BUY' | 'SELL' | null;
+  m15ClosePrice: number;
+  m15OpenPrice: number;
+  wickLength: number;
+  candleStrength: number;
+} {
+  if (candles15m.length < 5) {
+    return {
+      sweepDetected: false,
+      sweptLevel: 0,
+      levelType: null,
+      direction: null,
+      m15ClosePrice: 0,
+      m15OpenPrice: 0,
+      wickLength: 0,
+      candleStrength: 0,
+    };
+  }
+
+  // Última vela M15 (que acabou de fechar)
+  const lastCandle = candles15m[candles15m.length - 1];
+  const candleHigh = parseFloat(lastCandle.high);
+  const candleLow = parseFloat(lastCandle.low);
+  const candleClose = parseFloat(lastCandle.close);
+  const candleOpen = parseFloat(lastCandle.open);
+  
+  const candleBody = Math.abs(candleClose - candleOpen);
+  const candleRange = candleHigh - candleLow;
+  const candleStrength = candleRange > 0 ? candleBody / candleRange : 0;
+  
+  // Verificar todos os níveis importantes
+  const levelsToCheck = [
+    { value: h1Structure.previousHigh, type: 'previousHigh' as const, direction: 'SELL' as const },
+    { value: h1Structure.previousLow, type: 'previousLow' as const, direction: 'BUY' as const },
+    { value: h1Structure.sessionHighs.oceania, type: 'sessionHigh' as const, direction: 'SELL' as const },
+    { value: h1Structure.sessionHighs.asia, type: 'sessionHigh' as const, direction: 'SELL' as const },
+    { value: h1Structure.sessionHighs.london, type: 'sessionHigh' as const, direction: 'SELL' as const },
+    { value: h1Structure.sessionLows.oceania, type: 'sessionLow' as const, direction: 'BUY' as const },
+    { value: h1Structure.sessionLows.asia, type: 'sessionLow' as const, direction: 'BUY' as const },
+    { value: h1Structure.sessionLows.london, type: 'sessionLow' as const, direction: 'BUY' as const },
+  ];
+  
+  for (const level of levelsToCheck) {
+    if (level.value === 0) continue;
+    
+    // SWEEP PARA SELL (preço vai acima do nível mas fecha abaixo)
+    if (level.direction === 'SELL') {
+      const tolerance = level.value * 0.0005; // 0.05% de tolerância
+      
+      if (candleHigh > level.value && candleClose < (level.value - tolerance)) {
+        const wickLength = candleHigh - Math.max(candleClose, candleOpen);
+        
+        console.log(`
+🎯 SWEEP DETECTADO (SELL) - ${asset}:
+├─ Nível varrido: ${level.type} = $${level.value.toFixed(4)}
+├─ Candle High: $${candleHigh.toFixed(4)} (ultrapassou ✅)
+├─ Candle Close: $${candleClose.toFixed(4)} (fechou abaixo ✅)
+├─ Pavio: ${wickLength.toFixed(4)} (${(wickLength / level.value * 100).toFixed(2)}%)
+└─ Força da vela: ${(candleStrength * 100).toFixed(1)}% (corpo/range)
+        `);
+        
+        return {
+          sweepDetected: true,
+          sweptLevel: level.value,
+          levelType: level.type,
+          direction: 'SELL',
+          m15ClosePrice: candleClose,
+          m15OpenPrice: candleClose, // Linha de gatilho = fechamento do M15
+          wickLength,
+          candleStrength,
+        };
+      }
+    }
+    
+    // SWEEP PARA BUY (preço vai abaixo do nível mas fecha acima)
+    if (level.direction === 'BUY') {
+      const tolerance = level.value * 0.0005;
+      
+      if (candleLow < level.value && candleClose > (level.value + tolerance)) {
+        const wickLength = Math.min(candleClose, candleOpen) - candleLow;
+        
+        console.log(`
+🎯 SWEEP DETECTADO (BUY) - ${asset}:
+├─ Nível varrido: ${level.type} = $${level.value.toFixed(4)}
+├─ Candle Low: $${candleLow.toFixed(4)} (ultrapassou ✅)
+├─ Candle Close: $${candleClose.toFixed(4)} (fechou acima ✅)
+├─ Pavio: ${wickLength.toFixed(4)} (${(wickLength / level.value * 100).toFixed(2)}%)
+└─ Força da vela: ${(candleStrength * 100).toFixed(1)}% (corpo/range)
+        `);
+        
+        return {
+          sweepDetected: true,
+          sweptLevel: level.value,
+          levelType: level.type,
+          direction: 'BUY',
+          m15ClosePrice: candleClose,
+          m15OpenPrice: candleClose, // Linha de gatilho = fechamento do M15
+          wickLength,
+          candleStrength,
+        };
+      }
+    }
+  }
+  
+  return {
+    sweepDetected: false,
+    sweptLevel: 0,
+    levelType: null,
+    direction: null,
+    m15ClosePrice: candleClose,
+    m15OpenPrice: 0,
+    wickLength: 0,
+    candleStrength,
+  };
+}
+
+// ============================================
+// ETAPA 3: CONFIRMAR ENTRADA NO M1 (FLIP)
+// ============================================
+function confirmM1Entry(
+  candles1m: any[],
+  sweepData: any,
+  asset: string
+): {
+  entryConfirmed: boolean;
+  entryPrice: number;
+  confirmationTime: string;
+  m1Strength: number;
+  flipCandle: any;
+} {
+  if (!candles1m || candles1m.length < 3) {
+    return {
+      entryConfirmed: false,
+      entryPrice: 0,
+      confirmationTime: '',
+      m1Strength: 0,
+      flipCandle: null,
+    };
+  }
+
+  const triggerLine = sweepData.m15ClosePrice;
+  const direction = sweepData.direction;
+  
+  // Últimas 15 velas M1 (15 minutos)
+  const recent15m1 = candles1m.slice(-15);
+  
+  for (let i = recent15m1.length - 1; i >= 0; i--) {
+    const candle = recent15m1[i];
+    const candleClose = parseFloat(candle.close);
+    const candleOpen = parseFloat(candle.open);
+    const candleBody = Math.abs(candleClose - candleOpen);
+    const candleRange = parseFloat(candle.high) - parseFloat(candle.low);
+    const m1Strength = candleRange > 0 ? candleBody / candleRange : 0;
+    
+    // CONFIRMAR BUY: vela M1 fecha ACIMA da linha de gatilho
+    if (direction === 'BUY' && candleClose > triggerLine && candleOpen <= triggerLine) {
+      console.log(`
+✅ ENTRADA CONFIRMADA (BUY) - ${asset}:
+├─ Linha de gatilho: $${triggerLine.toFixed(4)}
+├─ M1 Open: $${candleOpen.toFixed(4)} (abaixo ✅)
+├─ M1 Close: $${candleClose.toFixed(4)} (acima ✅)
+├─ FLIP confirmado! 🎯
+├─ Força M1: ${(m1Strength * 100).toFixed(1)}%
+└─ Timestamp: ${candle.timestamp || 'N/A'}
+      `);
+      
+      return {
+        entryConfirmed: true,
+        entryPrice: candleClose,
+        confirmationTime: candle.timestamp || new Date().toISOString(),
+        m1Strength,
+        flipCandle: candle,
+      };
+    }
+    
+    // CONFIRMAR SELL: vela M1 fecha ABAIXO da linha de gatilho
+    if (direction === 'SELL' && candleClose < triggerLine && candleOpen >= triggerLine) {
+      console.log(`
+✅ ENTRADA CONFIRMADA (SELL) - ${asset}:
+├─ Linha de gatilho: $${triggerLine.toFixed(4)}
+├─ M1 Open: $${candleOpen.toFixed(4)} (acima ✅)
+├─ M1 Close: $${candleClose.toFixed(4)} (abaixo ✅)
+├─ FLIP confirmado! 🎯
+├─ Força M1: ${(m1Strength * 100).toFixed(1)}%
+└─ Timestamp: ${candle.timestamp || 'N/A'}
+      `);
+      
+      return {
+        entryConfirmed: true,
+        entryPrice: candleClose,
+        confirmationTime: candle.timestamp || new Date().toISOString(),
+        m1Strength,
+        flipCandle: candle,
+      };
+    }
+  }
+  
+  console.log(`⏳ Aguardando FLIP no M1 - ${asset}: Preço ainda não cruzou $${triggerLine.toFixed(4)}`);
+  
+  return {
+    entryConfirmed: false,
+    entryPrice: 0,
+    confirmationTime: '',
+    m1Strength: 0,
+    flipCandle: null,
+  };
+}
+
+// ============================================
+// FUNÇÃO PRINCIPAL: ESTRATÉGIA H1+M15+M1 COM SWEEP
 // ============================================
 async function analyzeTechnicalStandalone(
   candles5m: any[],
@@ -1096,213 +1401,176 @@ async function analyzeTechnicalStandalone(
   supabase: any,
   userId: string
 ): Promise<any> {
-  
-  const { volume, atr } = indicators;
+  console.log(`\n🔎 ESTRATÉGIA H1+M15+M1 - ${asset}`);
   
   // ============================================
-  // FASE 1: IDENTIFICAR LINHAS MÁGICAS (H1)
+  // ETAPA 1: ANALISAR ESTRUTURA H1
   // ============================================
-  const h1Lines = detectH1MagicLines(candles1h);
+  const h1Structure = analyzeH1Structure(candles1h);
   
-  if (!h1Lines.validZones) {
-    console.log(`⚠️ ${asset}: Linhas H1 inválidas (range muito pequeno) - STAY_OUT`);
+  if (!h1Structure.validStructure) {
+    console.log(`⚠️ ${asset}: Estrutura H1 inválida (range < 2%) - STAY_OUT`);
     return {
       signal: 'STAY_OUT',
       direction: 'NEUTRAL',
       confidence: 0,
-      notes: 'H1 sem estrutura clara (lateralização)',
+      notes: 'Estrutura H1 sem range suficiente',
       risk: null,
       c1Direction: null,
-      volumeFactor: volume.factor,
+      volumeFactor: indicators.volume.factor,
       confirmation: 'Range H1 insuficiente',
-      marketData: { price: currentPrice, h1Lines },
+      marketData: { price: currentPrice, h1Structure },
       rangeHigh: null,
       rangeLow: null,
     };
   }
   
   console.log(`
-📏 LINHAS MÁGICAS H1 - ${asset}:
-├─ Resistance (Previous High): $${h1Lines.resistance.toFixed(4)}
-├─ Support (Previous Low): $${h1Lines.support.toFixed(4)}
-├─ Mid-Range (ZONA PROIBIDA): $${h1Lines.midRange.toFixed(4)}
-├─ Range: ${((h1Lines.resistance - h1Lines.support) / h1Lines.support * 100).toFixed(2)}%
-└─ Breakout Areas: ${h1Lines.breakoutAreas.length} zonas detectadas
+📏 ESTRUTURA H1 - ${asset}:
+├─ Máxima Anterior: $${h1Structure.previousHigh.toFixed(4)}
+├─ Mínima Anterior: $${h1Structure.previousLow.toFixed(4)}
+├─ Mid-Range (Zona Proibida): $${h1Structure.midRange.toFixed(4)}
+├─ Range: ${((h1Structure.previousHigh - h1Structure.previousLow) / h1Structure.previousLow * 100).toFixed(2)}%
+├─ Sessão Oceania High: $${h1Structure.sessionHighs.oceania.toFixed(4)}
+├─ Sessão Asia High: $${h1Structure.sessionHighs.asia.toFixed(4)}
+├─ Sessão London High: $${h1Structure.sessionHighs.london.toFixed(4)}
+└─ Níveis estruturais: ${h1Structure.structuralLevels.length}
   `);
   
-  // ============================================
-  // FASE 2: VERIFICAR ZONA DE OPERAÇÃO
-  // ============================================
-  const tradingZone = checkTradingZone(currentPrice, h1Lines);
-  
-  console.log(`📍 Zona Atual: ${tradingZone.zone} (${tradingZone.distance.toFixed(2)}% da zona)`);
-  
-  if (tradingZone.zone === 'NO_TRADE_ZONE') {
-    console.log(`🚫 ${asset} no meio do range - NÃO OPERAR (zona de ruído)`);
+  // ✅ VALIDAÇÃO CRÍTICA: Trabalhar DENTRO do range H1
+  if (currentPrice < h1Structure.previousLow || currentPrice > h1Structure.previousHigh) {
+    console.log(`
+⚠️ ${asset}: Preço FORA do range H1 - NÃO OPERAR
+├─ Preço atual: $${currentPrice.toFixed(4)}
+├─ Range H1: $${h1Structure.previousLow.toFixed(4)} - $${h1Structure.previousHigh.toFixed(4)}
+└─ Regra: Só operar DENTRO do range (entre máxima e mínima anteriores)
+    `);
     return {
       signal: 'STAY_OUT',
       direction: 'NEUTRAL',
       confidence: 0,
-      notes: 'Preço no meio do range H1 (zona proibida)',
+      notes: 'Preço fora do range H1 (não trabalhar nas extremidades)',
       risk: null,
       c1Direction: null,
-      volumeFactor: volume.factor,
-      confirmation: tradingZone.status,
-      marketData: { price: currentPrice, h1Lines, tradingZone },
-      rangeHigh: h1Lines.resistance,
-      rangeLow: h1Lines.support,
+      volumeFactor: indicators.volume.factor,
+      confirmation: 'Fora do range H1',
+      marketData: { price: currentPrice, h1Structure },
+      rangeHigh: h1Structure.previousHigh,
+      rangeLow: h1Structure.previousLow,
     };
   }
   
   // ============================================
-  // FERRAMENTAS AUXILIARES (Volume Profile + Wyckoff)
+  // ETAPA 2: DETECTAR SWEEP NO M15
   // ============================================
-  const volumeProfile = calculateVolumeProfile(candles15m.slice(-50));
-  const wyckoff = detectWyckoffPhase(candles15m.slice(-20), volumeProfile);
+  const sweepData = detectM15Sweep(candles15m, h1Structure, asset);
   
+  if (!sweepData.sweepDetected) {
+    console.log(`⏸️ ${asset}: Aguardando sweep de liquidez no M15...`);
+    return {
+      signal: 'STAY_OUT',
+      direction: 'NEUTRAL',
+      confidence: 0.3,
+      notes: 'Aguardando sweep de liquidez (fake out)',
+      risk: null,
+      c1Direction: null,
+      volumeFactor: indicators.volume.factor,
+      confirmation: 'Nenhum sweep detectado',
+      marketData: { price: currentPrice, h1Structure },
+      rangeHigh: h1Structure.previousHigh,
+      rangeLow: h1Structure.previousLow,
+    };
+  }
+  
+  // ============================================
+  // ETAPA 3: CONFIRMAR ENTRADA NO M1
+  // ============================================
+  // Buscar velas M1 (se disponível)
+  const candles1m: any[] = []; // TODO: Buscar velas M1 da Binance quando disponível
+  
+  // Por enquanto, executar entrada diretamente após sweep M15
+  // (até implementarmos fetch de velas M1)
   console.log(`
-🔧 FERRAMENTAS AUXILIARES - ${asset}:
-├─ Volume Profile:
-│  ├─ POC: $${volumeProfile.poc.toFixed(4)}
-│  ├─ VAH: $${volumeProfile.valueAreaHigh.toFixed(4)}
-│  └─ VAL: $${volumeProfile.valueAreaLow.toFixed(4)}
-├─ Wyckoff:
-│  ├─ Fase: ${wyckoff.phase}
-│  └─ Relação VP: ${wyckoff.volumePriceRelation}
-└─ Volume Factor: ${volume.factor.toFixed(2)}
+✅ SWEEP CONFIRMADO - ${asset}:
+├─ Direção: ${sweepData.direction}
+├─ Nível varrido: ${sweepData.levelType} = $${sweepData.sweptLevel.toFixed(4)}
+├─ Pavio: ${sweepData.wickLength.toFixed(4)}
+└─ Força vela M15: ${(sweepData.candleStrength * 100).toFixed(1)}%
+
+⚠️ NOTA: Confirmação M1 temporariamente DESABILITADA (velas M1 não disponíveis)
+➡️ Executando entrada diretamente após sweep M15
   `);
   
   // ============================================
-  // FASE 3: DETECTAR PADRÃO PITCHFORK (5M)
+  // CALCULAR SL/TP BASEADO NA ESTRATÉGIA
   // ============================================
-  let signal = 'STAY_OUT';
-  let direction = 'NEUTRAL';
-  let pitchforkPattern: any = null;
-  let baseConfidence = 0;
+  const direction = sweepData.direction!;
+  const entry = currentPrice;
   
-  if (tradingZone.zone === 'BUY_ZONE') {
-    pitchforkPattern = detectPitchforkPattern(candles5m, 'LONG', h1Lines, asset);
-    
-    if (pitchforkPattern.confirmed) {
-      signal = 'LONG';
-      direction = 'LONG';
-      baseConfidence = 0.75; // Confiança base: 75%
-      
-      // Ajustar confiança com ferramentas auxiliares
-      if (wyckoff.phase === 'ACCUMULATION') baseConfidence += 0.10;
-      if (wyckoff.phase === 'NEUTRAL') baseConfidence += 0.05;
-      if (volume.factor > 0.15) baseConfidence += 0.05; // Volume forte
-      if (pitchforkPattern.sequenceLength >= 4) baseConfidence += 0.03; // Queda forte
-      
-      baseConfidence = Math.min(baseConfidence, 0.95); // Cap em 95%
-      
-      console.log(`✅ LONG CONFIRMADO:
-        ├─ Padrão: ${pitchforkPattern.status}
-        ├─ Sequência: ${pitchforkPattern.sequenceLength} velas vermelhas
-        ├─ Entry: $${pitchforkPattern.entryPrice.toFixed(4)}
-        ├─ Stop: $${pitchforkPattern.stopLoss.toFixed(4)}
-        ├─ Target: $${h1Lines.resistance.toFixed(4)} (Resistance H1)
-        ├─ Wyckoff: ${wyckoff.phase}
-        └─ Confiança: ${(baseConfidence * 100).toFixed(1)}%
-      `);
-    } else {
-      console.log(`⏳ BUY_ZONE detectada mas aguardando Pitchfork: ${pitchforkPattern.status}`);
-    }
-  }
+  // Stop Loss: Abaixo/acima do pavio do sweep
+  const stopLoss = direction === 'BUY'
+    ? sweepData.sweptLevel - (sweepData.wickLength * 1.2) // 20% além do pavio
+    : sweepData.sweptLevel + (sweepData.wickLength * 1.2);
   
-  else if (tradingZone.zone === 'SELL_ZONE') {
-    pitchforkPattern = detectPitchforkPattern(candles5m, 'SHORT', h1Lines, asset);
-    
-    if (pitchforkPattern.confirmed) {
-      signal = 'SHORT';
-      direction = 'SHORT';
-      baseConfidence = 0.75;
-      
-      if (wyckoff.phase === 'DISTRIBUTION') baseConfidence += 0.10;
-      if (wyckoff.phase === 'NEUTRAL') baseConfidence += 0.05;
-      if (volume.factor > 0.15) baseConfidence += 0.05;
-      if (pitchforkPattern.sequenceLength >= 4) baseConfidence += 0.03;
-      
-      baseConfidence = Math.min(baseConfidence, 0.95);
-      
-      console.log(`✅ SHORT CONFIRMADO:
-        ├─ Padrão: ${pitchforkPattern.status}
-        ├─ Sequência: ${pitchforkPattern.sequenceLength} velas (invertido corrigido)
-        ├─ Entry: $${pitchforkPattern.entryPrice.toFixed(4)}
-        ├─ Stop: $${pitchforkPattern.stopLoss.toFixed(4)}
-        ├─ Target: $${h1Lines.support.toFixed(4)} (Support H1)
-        ├─ Wyckoff: ${wyckoff.phase}
-        └─ Confiança: ${(baseConfidence * 100).toFixed(1)}%
-      `);
-    } else {
-      console.log(`⏳ SELL_ZONE detectada mas aguardando Pitchfork: ${pitchforkPattern.status}`);
-    }
-  }
+  // Take Profit: Próximo nível H1 na direção da operação
+  const takeProfit = direction === 'BUY'
+    ? h1Structure.previousHigh  // Alvo na resistência H1
+    : h1Structure.previousLow;  // Alvo no suporte H1
   
-  // Se não confirmou, retornar STAY_OUT
-  if (!pitchforkPattern || !pitchforkPattern.confirmed) {
+  const rrRatio = Math.abs((takeProfit - entry) / (entry - stopLoss));
+  
+  console.log(`
+💰 RISK/REWARD - ${asset}:
+├─ Entry: $${entry.toFixed(4)}
+├─ Stop Loss: $${stopLoss.toFixed(4)} (baseado no pavio do sweep)
+├─ Take Profit: $${takeProfit.toFixed(4)} (${direction === 'BUY' ? 'previousHigh' : 'previousLow'} H1)
+└─ R:R: 1:${rrRatio.toFixed(2)}
+  `);
+  
+  // Validar R:R mínimo (1:1.5)
+  if (rrRatio < 1.5) {
+    console.log(`❌ R:R insuficiente (${rrRatio.toFixed(2)} < 1.5) - REJEITADO`);
     return {
       signal: 'STAY_OUT',
-      direction: tradingZone.zone === 'BUY_ZONE' ? 'LONG' : 'SHORT',
-      confidence: 0.4, // Setup parcial
-      notes: `Na zona correta (${tradingZone.zone}) mas aguardando confirmação Pitchfork`,
+      direction: direction,
+      confidence: 0.5,
+      notes: `Sweep detectado mas R:R insuficiente (${rrRatio.toFixed(2)})`,
       risk: null,
       c1Direction: null,
-      volumeFactor: volume.factor,
-      confirmation: pitchforkPattern?.status || 'Aguardando padrão',
-      marketData: { price: currentPrice, h1Lines, tradingZone, pitchforkStatus: pitchforkPattern?.status, wyckoff, volumeProfile },
-      rangeHigh: h1Lines.resistance,
-      rangeLow: h1Lines.support,
+      volumeFactor: indicators.volume.factor,
+      confirmation: 'R:R < 1.5',
+      marketData: { price: currentPrice, h1Structure, sweepData },
+      rangeHigh: h1Structure.previousHigh,
+      rangeLow: h1Structure.previousLow,
     };
-  }
-  
-  // ============================================
-  // CALCULAR RISK/REWARD
-  // ============================================
-  const risk = {
-    entry: pitchforkPattern.entryPrice,
-    stop: pitchforkPattern.stopLoss,
-    target: signal === 'LONG' ? h1Lines.resistance : h1Lines.support,
-    rr_ratio: Math.abs((pitchforkPattern.entryPrice - (signal === 'LONG' ? h1Lines.resistance : h1Lines.support)) / 
-                       (pitchforkPattern.entryPrice - pitchforkPattern.stopLoss)),
-  };
-  
-  console.log(`💰 R:R calculado = ${risk.rr_ratio.toFixed(2)} (validação desabilitada - executando de qualquer forma)`);
-  
-  // Validação de R:R removida - executar independente do valor
-  
-  // ============================================
-  // VALIDAÇÃO COM IA (SE HABILITADA)
-  // ============================================
-  if (USE_AI_AGENTS) {
-    console.log(`🤖 Chamando agente-feedback-analitico para validação...`);
-    // [Código de validação IA aqui - mantido mas não usado]
-  } else {
-    console.log(`🔧 Agentes IA DESABILITADOS - Operando com estratégia 4 Fases pura`);
   }
   
   // ============================================
   // RETORNAR SINAL APROVADO
   // ============================================
+  const signal = direction === 'BUY' ? 'LONG' : 'SHORT';
+  
   return {
     signal,
     direction,
-    confidence: baseConfidence,
-    risk,
-    notes: `Estratégia 4 Fases: ${tradingZone.zone} + Pitchfork confirmado + R:R ${risk.rr_ratio.toFixed(2)} + Wyckoff ${wyckoff.phase}`,
+    confidence: 0.85, // Alta confiança (passou por H1 → M15 → validação)
+    risk: {
+      entry,
+      stop: stopLoss,
+      target: takeProfit,
+      rr_ratio: rrRatio,
+    },
+    notes: `Estratégia H1+M15: Sweep de ${sweepData.levelType} confirmado com R:R ${rrRatio.toFixed(2)}`,
     c1Direction: null,
-    volumeFactor: volume.factor,
-    confirmation: pitchforkPattern.status,
+    volumeFactor: indicators.volume.factor,
+    confirmation: `Sweep ${sweepData.levelType} + ${signal}`,
     marketData: {
       price: currentPrice,
-      h1Lines,
-      tradingZone,
-      pitchforkPattern,
-      volumeProfile,
-      wyckoff,
+      h1Structure,
+      sweepData,
     },
-    rangeHigh: h1Lines.resistance,
-    rangeLow: h1Lines.support,
+    rangeHigh: h1Structure.previousHigh,
+    rangeLow: h1Structure.previousLow,
   };
 }
 
