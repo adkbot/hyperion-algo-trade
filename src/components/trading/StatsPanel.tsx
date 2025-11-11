@@ -1,10 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TrendingUp, TrendingDown, DollarSign, Activity } from "lucide-react";
-import { useUserSettings, useDailyGoals } from "@/hooks/useTradingData";
+import { Button } from "@/components/ui/button";
+import { TrendingUp, TrendingDown, DollarSign, Activity, RefreshCw } from "lucide-react";
+import { useUserSettings, useDailyGoals, useSyncBinanceBalance } from "@/hooks/useTradingData";
 
 export const StatsPanel = () => {
   const { data: settings } = useUserSettings();
   const { data: dailyGoals } = useDailyGoals();
+  const syncBalance = useSyncBinanceBalance();
 
   const balance = settings?.balance || 0;
   const pnl = dailyGoals?.total_pnl || 0;
@@ -21,8 +23,18 @@ export const StatsPanel = () => {
 
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 flex flex-row items-center justify-between">
         <CardTitle className="text-lg">Estatísticas em Tempo Real</CardTitle>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => syncBalance.mutate()}
+          disabled={syncBalance.isPending}
+          className="gap-2"
+        >
+          <RefreshCw className={`h-4 w-4 ${syncBalance.isPending ? 'animate-spin' : ''}`} />
+          Sincronizar Saldo
+        </Button>
       </CardHeader>
       <CardContent className="space-y-3">
         {stats.map((stat, index) => {

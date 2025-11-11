@@ -489,6 +489,24 @@ async function processUserTradingCycle(
   }
 
   // ============================================
+  // 💰 SINCRONIZAR SALDO COM BINANCE
+  // ============================================
+  console.log(`💰 Sincronizando saldo com Binance...`);
+  try {
+    const { data: balanceData, error: balanceError } = await supabase.functions.invoke('sync-binance-balance', {
+      body: { user_id: userId }
+    });
+
+    if (balanceError) {
+      console.error(`❌ Erro ao sincronizar saldo:`, balanceError);
+    } else if (balanceData && balanceData.success) {
+      console.log(`✅ Saldo sincronizado: $${balanceData.oldBalance.toFixed(2)} → $${balanceData.newBalance.toFixed(2)} (${balanceData.difference >= 0 ? '+' : ''}$${balanceData.difference.toFixed(2)})`);
+    }
+  } catch (balanceErr) {
+    console.error(`❌ Falha ao chamar sync-binance-balance:`, balanceErr);
+  }
+
+  // ============================================
   // 🔄 SINCRONIZAR POSIÇÕES COM BINANCE
   // ============================================
   console.log(`🔄 Sincronizando posições com Binance...`);

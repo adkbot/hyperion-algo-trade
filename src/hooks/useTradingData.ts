@@ -220,3 +220,41 @@ export const useUpdateSettings = () => {
     },
   });
 };
+
+export const useSyncBinanceBalance = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+
+      const { data, error } = await supabase.functions.invoke("sync-binance-balance", {
+        body: { user_id: user.id },
+      });
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["user-settings"] });
+      
+      const difference = data.difference || 0;
+      const oldBalance = data.oldBalance || 0;
+      const newBalance = data.newBalance || 0;
+      
+      toast({
+        title: "✅ Saldo Sincronizado",
+        description: `$${oldBalance.toFixed(2)} → $${newBalance.toFixed(2)} (${difference >= 0 ? '+' : ''}$${difference.toFixed(2)})`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Erro ao sincronizar saldo",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+};

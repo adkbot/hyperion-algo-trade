@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.sync-binance-positions]
 verify_jwt = false
+
+[functions.sync-binance-balance]
+verify_jwt = false
