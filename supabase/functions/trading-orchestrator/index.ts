@@ -1306,6 +1306,265 @@ function detectH1MagicLines(candles1h: any[]): {
 }
 
 // ============================================
+// 🎯 ESTRATÉGIA "ONE CANDLESTICK" (PRIORIDADE MÁXIMA)
+// ============================================
+
+interface OneCandlestickSetup {
+  valid: boolean;
+  direction: 'BUY' | 'SELL' | null;
+  zone: { high: number; low: number } | null;
+  entry: number | null;
+  stop: number | null;
+  target: number | null;
+  confidence: number;
+  reason: string;
+}
+
+/**
+ * DETECTA ZONA NEGOCIÁVEL NO M15
+ * - SELL: Tendência de baixa (preço < MA20), último candle vermelho
+ * - BUY: Tendência de alta (preço > MA20), último candle verde
+ */
+function detectOneCandlestickZone(
+  candles15m: any[],
+  currentPrice: number,
+  asset: string
+): OneCandlestickSetup {
+  
+  if (!candles15m || candles15m.length < 20) {
+    return {
+      valid: false,
+      direction: null,
+      zone: null,
+      entry: null,
+      stop: null,
+      target: null,
+      confidence: 0,
+      reason: 'Dados M15 insuficientes'
+    };
+  }
+
+  // ✅ Calcular MA20 no M15
+  const last20Candles = candles15m.slice(-20);
+  const ma20 = last20Candles.reduce((sum, c) => sum + parseFloat(c.close), 0) / 20;
+
+  // ✅ Último candle M15 fechado
+  const lastCandle = candles15m[candles15m.length - 1];
+  const open = parseFloat(lastCandle.open);
+  const close = parseFloat(lastCandle.close);
+  const high = parseFloat(lastCandle.high);
+  const low = parseFloat(lastCandle.low);
+
+  const isBullish = close > open;
+  const isBearish = close < open;
+
+  // ============================================
+  // SETUP DE VENDA (BEARISH)
+  // ============================================
+  if (isBearish && close < ma20) {
+    // Zona Negociável: Entre HIGH e CLOSE do candle vermelho
+    const zoneHigh = high;
+    const zoneLow = close;
+
+    console.log(`
+🔴 ONE CANDLESTICK ZONE DETECTADA (SELL) - ${asset}:
+├─ Tendência: Baixa (preço < MA20)
+├─ MA20: $${ma20.toFixed(4)}
+├─ Candle M15: Vermelho (Baixa)
+├─ ZONA NEGOCIÁVEL:
+│  ├─ HIGH: $${zoneHigh.toFixed(4)}
+│  └─ CLOSE: $${zoneLow.toFixed(4)}
+└─ Preço Atual: $${currentPrice.toFixed(4)}
+    `);
+
+    return {
+      valid: true,
+      direction: 'SELL',
+      zone: { high: zoneHigh, low: zoneLow },
+      entry: null,
+      stop: null,
+      target: null,
+      confidence: 0.8,
+      reason: `Zona SELL detectada: HIGH $${zoneHigh.toFixed(4)} - CLOSE $${zoneLow.toFixed(4)}`
+    };
+  }
+
+  // ============================================
+  // SETUP DE COMPRA (BULLISH)
+  // ============================================
+  if (isBullish && close > ma20) {
+    // Zona Negociável: Entre LOW e CLOSE do candle verde
+    const zoneHigh = close;
+    const zoneLow = low;
+
+    console.log(`
+🟢 ONE CANDLESTICK ZONE DETECTADA (BUY) - ${asset}:
+├─ Tendência: Alta (preço > MA20)
+├─ MA20: $${ma20.toFixed(4)}
+├─ Candle M15: Verde (Alta)
+├─ ZONA NEGOCIÁVEL:
+│  ├─ CLOSE: $${zoneHigh.toFixed(4)}
+│  └─ LOW: $${zoneLow.toFixed(4)}
+└─ Preço Atual: $${currentPrice.toFixed(4)}
+    `);
+
+    return {
+      valid: true,
+      direction: 'BUY',
+      zone: { high: zoneHigh, low: zoneLow },
+      entry: null,
+      stop: null,
+      target: null,
+      confidence: 0.8,
+      reason: `Zona BUY detectada: CLOSE $${zoneHigh.toFixed(4)} - LOW $${zoneLow.toFixed(4)}`
+    };
+  }
+
+  return {
+    valid: false,
+    direction: null,
+    zone: null,
+    entry: null,
+    stop: null,
+    target: null,
+    confidence: 0,
+    reason: 'Nenhuma zona negociável detectada (tendência indefinida ou candle não qualifica)'
+  };
+}
+
+/**
+ * VALIDA PULLBACK + FIBONACCI + MA20 NO M1
+ */
+function validateOneCandlestickEntry(
+  candles1m: any[],
+  zone: { high: number; low: number },
+  direction: 'BUY' | 'SELL',
+  currentPrice: number,
+  asset: string
+): {
+  valid: boolean;
+  entry: number | null;
+  stop: number | null;
+  target: number | null;
+  confidence: number;
+  reason: string;
+} {
+  
+  if (!candles1m || candles1m.length < 20) {
+    return {
+      valid: false,
+      entry: null,
+      stop: null,
+      target: null,
+      confidence: 0,
+      reason: 'Dados M1 insuficientes'
+    };
+  }
+
+  // ✅ Calcular MA20 no M1
+  const last20Candles = candles1m.slice(-20);
+  const ma20M1 = last20Candles.reduce((sum, c) => sum + parseFloat(c.close), 0) / 20;
+
+  // ✅ Verificar se preço está dentro da Zona Negociável
+  const inZone = currentPrice >= zone.low && currentPrice <= zone.high;
+
+  if (!inZone) {
+    return {
+      valid: false,
+      entry: null,
+      stop: null,
+      target: null,
+      confidence: 0,
+      reason: `Preço fora da zona (${currentPrice.toFixed(4)} não está entre ${zone.low.toFixed(4)} - ${zone.high.toFixed(4)})`
+    };
+  }
+
+  // ✅ Calcular Fibonacci do pullback (últimas 10 velas M1)
+  const recentCandles = candles1m.slice(-10);
+  const pullbackHigh = Math.max(...recentCandles.map(c => parseFloat(c.high)));
+  const pullbackLow = Math.min(...recentCandles.map(c => parseFloat(c.low)));
+  const fibRange = pullbackHigh - pullbackLow;
+
+  const fib50 = pullbackLow + (fibRange * 0.5);
+  const fib618 = pullbackLow + (fibRange * 0.618);
+  const fib786 = pullbackLow + (fibRange * 0.786);
+
+  // ✅ Verificar se preço está na Golden Zone (50%-78.6%)
+  const inGoldenZone = currentPrice >= fib50 && currentPrice <= fib786;
+
+  // ✅ Último candle M1
+  const lastM1 = candles1m[candles1m.length - 1];
+  const closeM1 = parseFloat(lastM1.close);
+
+  // ============================================
+  // GATILHO DE ENTRADA
+  // ============================================
+  let entryTriggered = false;
+  let entryReason = '';
+
+  if (direction === 'SELL') {
+    // SELL: Preço deve cruzar e fechar ABAIXO da MA20 após estar na Golden Zone
+    if (inGoldenZone && closeM1 < ma20M1) {
+      entryTriggered = true;
+      entryReason = `Golden Zone (${fib50.toFixed(4)}-${fib786.toFixed(4)}) + Fechou abaixo MA20 (${ma20M1.toFixed(4)})`;
+    }
+  } else if (direction === 'BUY') {
+    // BUY: Preço deve cruzar e fechar ACIMA da MA20 após estar na Golden Zone
+    if (inGoldenZone && closeM1 > ma20M1) {
+      entryTriggered = true;
+      entryReason = `Golden Zone (${fib50.toFixed(4)}-${fib786.toFixed(4)}) + Fechou acima MA20 (${ma20M1.toFixed(4)})`;
+    }
+  }
+
+  if (!entryTriggered) {
+    return {
+      valid: false,
+      entry: null,
+      stop: null,
+      target: null,
+      confidence: 0,
+      reason: `Aguardando gatilho: ${direction === 'SELL' ? 'Fechar abaixo MA20' : 'Fechar acima MA20'} (MA20: ${ma20M1.toFixed(4)}, Close: ${closeM1.toFixed(4)})`
+    };
+  }
+
+  // ✅ CALCULAR NÍVEIS DE EXECUÇÃO
+  const entry = closeM1;
+  
+  const stop = direction === 'SELL' 
+    ? zone.high * 1.002
+    : zone.low * 0.998;
+
+  const riskDistance = Math.abs(entry - stop);
+  const target = direction === 'SELL'
+    ? entry - (riskDistance * 2)
+    : entry + (riskDistance * 2);
+
+  const rrRatio = Math.abs(target - entry) / Math.abs(entry - stop);
+
+  console.log(`
+✅ ONE CANDLESTICK - ENTRADA CONFIRMADA (${direction}) - ${asset}:
+├─ Preço na Zona: $${currentPrice.toFixed(4)} (${zone.low.toFixed(4)} - ${zone.high.toFixed(4)})
+├─ Fibonacci Golden Zone: $${fib50.toFixed(4)} - $${fib786.toFixed(4)}
+├─ MA20 M1: $${ma20M1.toFixed(4)}
+├─ Close M1: $${closeM1.toFixed(4)}
+├─ ✅ GATILHO: ${entryReason}
+├─ Entry: $${entry.toFixed(4)}
+├─ Stop Loss: $${stop.toFixed(4)} (${(Math.abs(entry - stop) / entry * 100).toFixed(2)}%)
+├─ Take Profit: $${target.toFixed(4)}
+└─ R:R: 1:${rrRatio.toFixed(2)}
+  `);
+
+  return {
+    valid: true,
+    entry,
+    stop,
+    target,
+    confidence: 0.95,
+    reason: `One Candlestick: ${entryReason}`
+  };
+}
+
+// ============================================
 // FASE 2: VERIFICAR ZONA DE OPERAÇÃO
 // ============================================
 function checkTradingZone(
@@ -2111,6 +2370,74 @@ async function analyzeTechnicalStandalone(
   userId: string
 ): Promise<any> {
   console.log(`\n🔎 ESTRATÉGIA H1+M15+M1 - ${asset}`);
+  
+  // ============================================
+  // 🎯 PRIORIDADE 1: ESTRATÉGIA "ONE CANDLESTICK"
+  // ============================================
+  console.log(`\n🎯 Verificando estratégia One Candlestick para ${asset}...`);
+
+  const oneCandlestickZone = detectOneCandlestickZone(candles15m, currentPrice, asset);
+
+  if (oneCandlestickZone.valid && oneCandlestickZone.zone && oneCandlestickZone.direction) {
+    console.log(`✅ Zona One Candlestick detectada: ${oneCandlestickZone.reason}`);
+    
+    // Validar entrada no M1
+    const entryValidation = validateOneCandlestickEntry(
+      candles1m,
+      oneCandlestickZone.zone,
+      oneCandlestickZone.direction,
+      currentPrice,
+      asset
+    );
+
+    if (entryValidation.valid && entryValidation.entry && entryValidation.stop && entryValidation.target) {
+      console.log(`
+🚀🚀🚀 ONE CANDLESTICK - ENTRADA APROVADA 🚀🚀🚀
+├─ Asset: ${asset}
+├─ Direção: ${oneCandlestickZone.direction}
+├─ Confiança: ${(entryValidation.confidence * 100).toFixed(0)}%
+├─ Entry: $${entryValidation.entry.toFixed(4)}
+├─ Stop: $${entryValidation.stop.toFixed(4)}
+├─ Target: $${entryValidation.target.toFixed(4)}
+└─ Estratégia: ONE CANDLESTICK (PRIORIDADE MÁXIMA)
+      `);
+
+      const signal = oneCandlestickZone.direction === 'BUY' ? 'LONG' : 'SHORT';
+
+      return {
+        signal,
+        direction: oneCandlestickZone.direction,
+        confidence: entryValidation.confidence,
+        risk: {
+          entry: entryValidation.entry,
+          stop: entryValidation.stop,
+          target: entryValidation.target,
+          rr_ratio: Math.abs(entryValidation.target - entryValidation.entry) / 
+                    Math.abs(entryValidation.entry - entryValidation.stop)
+        },
+        notes: `One Candlestick: ${entryValidation.reason}`,
+        c1Direction: null,
+        volumeFactor: indicators.volume.factor,
+        confirmation: `One Candlestick - ${oneCandlestickZone.direction}`,
+        marketData: {
+          price: currentPrice,
+          zone: oneCandlestickZone.zone,
+          strategy: 'ONE_CANDLESTICK'
+        },
+        rangeHigh: oneCandlestickZone.zone.high,
+        rangeLow: oneCandlestickZone.zone.low,
+      };
+    } else {
+      console.log(`⏳ Zona detectada, mas aguardando gatilho M1: ${entryValidation.reason}`);
+    }
+  } else {
+    console.log(`❌ Nenhuma zona One Candlestick: ${oneCandlestickZone.reason}`);
+  }
+
+  // ============================================
+  // SE ONE CANDLESTICK NÃO QUALIFICOU, USAR LÓGICA ATUAL (VIA EXPRESSA + COUNTER-TREND)
+  // ============================================
+  console.log(`\n🔄 One Candlestick não qualificou - Verificando estratégia atual (Sweep + Via Expressa)...`);
   
   // ============================================
   // ETAPA 1: ANALISAR ESTRUTURA H1
@@ -3685,9 +4012,22 @@ function classifyPricePosition(
 // Execute trade signal with COMPLETE validation
 async function executeTradeSignal(supabase: any, userId: string, asset: string, analysis: any, settings: any, currentSession: string) {
   try {
-    console.log(`\n🔍 VALIDAÇÃO ESTRATÉGIA 4 FASES - ${asset}`);
+    console.log(`\n🔍 VALIDAÇÃO ESTRATÉGIA - ${asset}`);
     
     const { signal, risk, confidence, marketData } = analysis;
+    
+    // ✅ BYPASS: Se estratégia é ONE_CANDLESTICK, PULAR VALIDAÇÕES H1/M5
+    if (marketData?.strategy === 'ONE_CANDLESTICK') {
+      console.log(`
+🎯 ONE CANDLESTICK DETECTADO - BYPASS DE VALIDAÇÕES H1/M5
+├─ Estratégia: One Candlestick (prioridade máxima)
+├─ Signal: ${signal}
+├─ Confidence: ${(confidence * 100).toFixed(0)}%
+└─ ✅ EXECUTANDO DIRETAMENTE (sem validação H1/M5)
+      `);
+      
+      // Pular direto para cálculo de posição (logo após os logs)
+    }
     
     // ✅ LOGS DE DEBUG
     console.log(`
@@ -3699,10 +4039,7 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
 ├─ Stop Loss: $${risk?.stop || 'N/A'}
 ├─ Take Profit: $${risk?.target || 'N/A'}
 ├─ R:R: ${risk?.rr_ratio?.toFixed(2) || 'N/A'}
-├─ H1 Lines: Support $${marketData?.h1Lines?.support?.toFixed(4)} | Resistance $${marketData?.h1Lines?.resistance?.toFixed(4)}
-├─ Trading Zone: ${marketData?.tradingZone?.zone}
-├─ Pitchfork: ${marketData?.pitchforkPattern?.confirmed ? '✅ Confirmed' : '❌ Not confirmed'}
-├─ Wyckoff Phase: ${marketData?.wyckoff?.phase || 'N/A'}
+├─ Strategy: ${marketData?.strategy || 'N/A'}
 └─ Session: ${currentSession}
     `);
 
@@ -3798,17 +4135,17 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
       return false;
     }
 
-    // 3️⃣ Verificar ordens recentes (últimos 10s) - prevenir duplicação simultânea
-    const tenSecondsAgo = new Date(Date.now() - 10000).toISOString();
+    // 3️⃣ Verificar ordens recentes (últimos 5s) - prevenir duplicação simultânea
+    const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
     const { data: recentOrders } = await supabase
       .from('operations')
       .select('*')
       .eq('user_id', userId)
       .eq('asset', asset)
-      .gte('created_at', tenSecondsAgo);
+      .gte('created_at', fiveSecondsAgo);
 
     if (recentOrders && recentOrders.length > 0) {
-      console.log(`⚠️ BLOQUEADO: Ordem recente em ${asset} (últimos 10s) - evitando duplicação`);
+      console.log(`⚠️ BLOQUEADO: Ordem recente em ${asset} (últimos 5s) - evitando duplicação`);
       console.log(`├─ Ordens recentes: ${recentOrders.length}`);
       console.log(`└─ Última ordem: ${new Date(recentOrders[0].created_at).toISOString()}`);
       return false;
