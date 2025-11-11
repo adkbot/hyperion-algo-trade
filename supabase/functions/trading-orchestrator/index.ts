@@ -3175,29 +3175,26 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     `);
 
     // ============================================
-    // VALIDAÇÕES SIMPLIFICADAS (SEM R:R)
+    // ✅ VALIDAÇÃO SIMPLIFICADA (Sweep + M1 já foram validados)
     // ============================================
-    const validations = {
-      h1Structure: marketData?.h1Lines?.validZones === true,
-      tradingZone: marketData?.tradingZone?.zone !== 'NO_TRADE_ZONE',
-      pitchforkConfirmed: marketData?.pitchforkPattern?.confirmed === true,
-    };
 
-    const passedValidations = Object.values(validations).filter(v => v).length;
+    // ✅ H1 é APENAS REFERENCIAL (máxima/mínima anterior para contexto)
     console.log(`
-📋 VALIDAÇÕES:
-├─ H1 Structure: ${validations.h1Structure ? '✅' : '❌'}
-├─ Trading Zone: ${validations.tradingZone ? '✅' : '❌'}
-├─ Pitchfork Confirmed: ${validations.pitchforkConfirmed ? '✅' : '❌'}
-├─ R:R: ${risk?.rr_ratio?.toFixed(2) || 'N/A'} (validação removida ✅)
-└─ Total: ${passedValidations}/3
+📏 H1 REFERENCIAL:
+├─ Máxima Anterior: $${marketData?.h1Structure?.previousHigh || 'N/A'}
+├─ Mínima Anterior: $${marketData?.h1Structure?.previousLow || 'N/A'}
+├─ Trading Zone: ${marketData?.tradingZone?.zone || 'N/A'}
+└─ Status: Apenas referência, NÃO bloqueia execução ✅
     `);
 
-    // Exigir todas as 3 validações (removido R:R)
-    if (passedValidations < 3) {
-      console.log(`❌ REJEITADO: Apenas ${passedValidations}/3 validações aprovadas (mínimo 3)`);
-      return false;
-    }
+    // ✅ TODAS as validações críticas JÁ foram feitas em analyzeMarket:
+    // 1. Sweep detectado (TOTAL/PARTIAL/NEAR) ✅
+    // 2. Confirmação M1 (STRONG/MODERATE/WEAK) ✅
+    // 3. R:R mínimo aprovado (dinâmico por sweep type) ✅
+    // 4. Cooldown verificado (30s baseado em operations) ✅
+    // 5. Max positions verificado (single_position_mode) ✅
+
+    console.log(`✅ VALIDAÇÕES COMPLETAS - Prosseguindo para execução`);
 
     // ============================================
     // VALIDAÇÃO COM IA (SE HABILITADA)
@@ -3270,7 +3267,7 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
       data: {
         signal,
         confidence,
-        validations,
+        validations_passed: 'sweep_m1_rr',
         risk,
         orderResponse: orderResponse.data,
       },
