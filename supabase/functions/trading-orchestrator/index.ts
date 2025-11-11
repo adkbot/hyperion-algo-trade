@@ -73,6 +73,47 @@ const RR_RANGES = {
   NY_REENTRY: { min: 1.2, max: 1.5 },
 };
 
+// ✅ FLEXIBILIZAÇÃO: Configuração de sensibilidade por sessão
+const SENSITIVITY_CONFIG = {
+  OCEANIA: {
+    sweep: 'MEDIUM' as const,
+    m1Confirmation: 'MODERATE' as const,
+    minRR: 2.0,
+    requireVolume: true,
+  },
+  ASIA: {
+    sweep: 'MEDIUM' as const,
+    m1Confirmation: 'MODERATE' as const,
+    minRR: 2.0,
+    requireVolume: true,
+  },
+  LONDON: {
+    sweep: 'HIGH' as const,
+    m1Confirmation: 'WEAK' as const,
+    minRR: 1.8,
+    requireVolume: false,
+  },
+  NY: {
+    sweep: 'HIGH' as const,
+    m1Confirmation: 'MODERATE' as const,
+    minRR: 2.0,
+    requireVolume: true,
+  },
+};
+
+// ✅ R:R Dinâmico baseado em tipo de sweep e confirmação
+const DYNAMIC_RR_MAP: Record<string, number> = {
+  'TOTAL_STRONG': 1.8,
+  'TOTAL_MODERATE': 2.0,
+  'TOTAL_WEAK': 2.2,
+  'PARTIAL_STRONG': 2.2,
+  'PARTIAL_MODERATE': 2.5,
+  'PARTIAL_WEAK': 2.8,
+  'NEAR_STRONG': 2.8,
+  'NEAR_MODERATE': 3.0,
+  'NEAR_WEAK': 3.5,
+};
+
 // ✅ Session time ranges in UTC - Adjusted for 30min transition buffers
 const SESSIONS = {
   OCEANIA: { start: 0, end: 2.5, name: 'Oceania' },        // 00:00 - 02:30 UTC
@@ -1273,14 +1314,16 @@ function analyzeH1Structure(candles1h: any[]): {
 }
 
 // ============================================
-// ETAPA 2: DETECTAR SWEEP DE LIQUIDEZ NO M15 (FAKE OUT)
+// ETAPA 2: DETECTAR SWEEP DE LIQUIDEZ NO M15 (FAKE OUT) - FLEXIBILIZADO
 // ============================================
 function detectM15Sweep(
   candles15m: any[],
   h1Structure: any,
-  asset: string
+  asset: string,
+  sensitivity: 'HIGH' | 'MEDIUM' | 'LOW' = 'MEDIUM'
 ): {
   sweepDetected: boolean;
+  sweepType: 'TOTAL' | 'PARTIAL' | 'NEAR';
   sweptLevel: number;
   levelType: 'previousHigh' | 'previousLow' | 'sessionHigh' | 'sessionLow' | null;
   direction: 'BUY' | 'SELL' | null;
@@ -1288,10 +1331,12 @@ function detectM15Sweep(
   m15OpenPrice: number;
   wickLength: number;
   candleStrength: number;
+  candleAge: number;
 } {
   if (candles15m.length < 5) {
     return {
       sweepDetected: false,
+      sweepType: 'TOTAL',
       sweptLevel: 0,
       levelType: null,
       direction: null,
@@ -1299,19 +1344,30 @@ function detectM15Sweep(
       m15OpenPrice: 0,
       wickLength: 0,
       candleStrength: 0,
+      candleAge: 0,
     };
   }
 
-  // Última vela M15 (que acabou de fechar)
-  const lastCandle = candles15m[candles15m.length - 1];
-  const candleHigh = parseFloat(lastCandle.high);
-  const candleLow = parseFloat(lastCandle.low);
-  const candleClose = parseFloat(lastCandle.close);
-  const candleOpen = parseFloat(lastCandle.open);
-  
-  const candleBody = Math.abs(candleClose - candleOpen);
-  const candleRange = candleHigh - candleLow;
-  const candleStrength = candleRange > 0 ? candleBody / candleRange : 0;
+  // ✅ Configurações de tolerância baseadas na sensibilidade
+  const tolerances = {
+    HIGH: { 
+      touch: 0.001,      // 0.1% - sweep próximo
+      close: 0.0002,     // 0.02% - fechamento mais próximo
+    },
+    MEDIUM: {
+      touch: 0.002,      // 0.2% - sweep parcial
+      close: 0.0005,     // 0.05% - atual
+    },
+    LOW: {
+      touch: 0.005,      // 0.5% - sweep total
+      close: 0.001,      // 0.1% - mais flexível
+    }
+  };
+
+  const config = tolerances[sensitivity];
+
+  // ✅ Analisar últimas 3 velas M15 (ao invés de apenas 1)
+  const recentCandles = candles15m.slice(-3);
   
   // Verificar todos os níveis importantes
   const levelsToCheck = [
@@ -1325,70 +1381,135 @@ function detectM15Sweep(
     { value: h1Structure.sessionLows.london, type: 'sessionLow' as const, direction: 'BUY' as const },
   ];
   
-  for (const level of levelsToCheck) {
-    if (level.value === 0) continue;
+  // ✅ Iterar sobre as últimas 3 velas M15
+  for (let candleIdx = 0; candleIdx < recentCandles.length; candleIdx++) {
+    const candle = recentCandles[candleIdx];
+    const candleAge = recentCandles.length - candleIdx - 1; // 0 = mais recente, 2 = mais antiga
     
-    // SWEEP PARA SELL (preço vai acima do nível mas fecha abaixo)
-    if (level.direction === 'SELL') {
-      const tolerance = level.value * 0.0005; // 0.05% de tolerância
+    const candleHigh = parseFloat(candle.high);
+    const candleLow = parseFloat(candle.low);
+    const candleClose = parseFloat(candle.close);
+    const candleOpen = parseFloat(candle.open);
+    
+    const candleBody = Math.abs(candleClose - candleOpen);
+    const candleRange = candleHigh - candleLow;
+    const candleStrength = candleRange > 0 ? candleBody / candleRange : 0;
+    
+    for (const level of levelsToCheck) {
+      if (level.value === 0) continue;
       
-      if (candleHigh > level.value && candleClose < (level.value - tolerance)) {
-        const wickLength = candleHigh - Math.max(candleClose, candleOpen);
+      // SWEEP PARA SELL (preço vai acima do nível mas fecha abaixo)
+      if (level.direction === 'SELL') {
+        let sweepType: 'TOTAL' | 'PARTIAL' | 'NEAR' = 'TOTAL';
+        let sweepDetected = false;
         
-        console.log(`
+        // SWEEP TOTAL: High ultrapassa + Close abaixo com tolerância LOW
+        if (candleHigh > level.value && candleClose < (level.value - level.value * config.close)) {
+          sweepType = 'TOTAL';
+          sweepDetected = true;
+        }
+        // SWEEP PARCIAL: High ultrapassa + Close próximo do nível
+        else if (candleHigh > level.value && candleClose < level.value) {
+          sweepType = 'PARTIAL';
+          sweepDetected = true;
+        }
+        // SWEEP PRÓXIMO: High chega perto do nível (dentro de touch tolerance)
+        else if (candleHigh > (level.value - level.value * config.touch) && candleHigh < level.value) {
+          sweepType = 'NEAR';
+          sweepDetected = true;
+        }
+        
+        if (sweepDetected) {
+          const wickLength = candleHigh - Math.max(candleClose, candleOpen);
+          
+          console.log(`
 🎯 SWEEP DETECTADO (SELL) - ${asset}:
+├─ Tipo: ${sweepType} (sensibilidade: ${sensitivity})
 ├─ Nível varrido: ${level.type} = $${level.value.toFixed(4)}
-├─ Candle High: $${candleHigh.toFixed(4)} (ultrapassou ✅)
-├─ Candle Close: $${candleClose.toFixed(4)} (fechou abaixo ✅)
+├─ Candle High: $${candleHigh.toFixed(4)}
+├─ Candle Close: $${candleClose.toFixed(4)}
 ├─ Pavio: ${wickLength.toFixed(4)} (${(wickLength / level.value * 100).toFixed(2)}%)
-└─ Força da vela: ${(candleStrength * 100).toFixed(1)}% (corpo/range)
-        `);
-        
-        return {
-          sweepDetected: true,
-          sweptLevel: level.value,
-          levelType: level.type,
-          direction: 'SELL',
-          m15ClosePrice: candleClose,
-          m15OpenPrice: candleClose, // Linha de gatilho = fechamento do M15
-          wickLength,
-          candleStrength,
-        };
+├─ Força da vela: ${(candleStrength * 100).toFixed(1)}% (corpo/range)
+└─ Idade: ${candleAge === 0 ? 'Última vela' : `${candleAge} velas atrás`}
+          `);
+          
+          return {
+            sweepDetected: true,
+            sweepType,
+            sweptLevel: level.value,
+            levelType: level.type,
+            direction: 'SELL',
+            m15ClosePrice: candleClose,
+            m15OpenPrice: candleClose,
+            wickLength,
+            candleStrength,
+            candleAge,
+          };
+        }
       }
-    }
-    
-    // SWEEP PARA BUY (preço vai abaixo do nível mas fecha acima)
-    if (level.direction === 'BUY') {
-      const tolerance = level.value * 0.0005;
       
-      if (candleLow < level.value && candleClose > (level.value + tolerance)) {
-        const wickLength = Math.min(candleClose, candleOpen) - candleLow;
+      // SWEEP PARA BUY (preço vai abaixo do nível mas fecha acima)
+      if (level.direction === 'BUY') {
+        let sweepType: 'TOTAL' | 'PARTIAL' | 'NEAR' = 'TOTAL';
+        let sweepDetected = false;
         
-        console.log(`
+        // SWEEP TOTAL: Low ultrapassa + Close acima com tolerância LOW
+        if (candleLow < level.value && candleClose > (level.value + level.value * config.close)) {
+          sweepType = 'TOTAL';
+          sweepDetected = true;
+        }
+        // SWEEP PARCIAL: Low ultrapassa + Close próximo do nível
+        else if (candleLow < level.value && candleClose > level.value) {
+          sweepType = 'PARTIAL';
+          sweepDetected = true;
+        }
+        // SWEEP PRÓXIMO: Low chega perto do nível (dentro de touch tolerance)
+        else if (candleLow < (level.value + level.value * config.touch) && candleLow > level.value) {
+          sweepType = 'NEAR';
+          sweepDetected = true;
+        }
+        
+        if (sweepDetected) {
+          const wickLength = Math.min(candleClose, candleOpen) - candleLow;
+          
+          console.log(`
 🎯 SWEEP DETECTADO (BUY) - ${asset}:
+├─ Tipo: ${sweepType} (sensibilidade: ${sensitivity})
 ├─ Nível varrido: ${level.type} = $${level.value.toFixed(4)}
-├─ Candle Low: $${candleLow.toFixed(4)} (ultrapassou ✅)
-├─ Candle Close: $${candleClose.toFixed(4)} (fechou acima ✅)
+├─ Candle Low: $${candleLow.toFixed(4)}
+├─ Candle Close: $${candleClose.toFixed(4)}
 ├─ Pavio: ${wickLength.toFixed(4)} (${(wickLength / level.value * 100).toFixed(2)}%)
-└─ Força da vela: ${(candleStrength * 100).toFixed(1)}% (corpo/range)
-        `);
-        
-        return {
-          sweepDetected: true,
-          sweptLevel: level.value,
-          levelType: level.type,
-          direction: 'BUY',
-          m15ClosePrice: candleClose,
-          m15OpenPrice: candleClose, // Linha de gatilho = fechamento do M15
-          wickLength,
-          candleStrength,
-        };
+├─ Força da vela: ${(candleStrength * 100).toFixed(1)}% (corpo/range)
+└─ Idade: ${candleAge === 0 ? 'Última vela' : `${candleAge} velas atrás`}
+          `);
+          
+          return {
+            sweepDetected: true,
+            sweepType,
+            sweptLevel: level.value,
+            levelType: level.type,
+            direction: 'BUY',
+            m15ClosePrice: candleClose,
+            m15OpenPrice: candleClose,
+            wickLength,
+            candleStrength,
+            candleAge,
+          };
+        }
       }
     }
   }
   
+  // Nenhum sweep encontrado
+  const lastCandle = recentCandles[recentCandles.length - 1];
+  const candleClose = parseFloat(lastCandle.close);
+  const candleBody = Math.abs(parseFloat(lastCandle.close) - parseFloat(lastCandle.open));
+  const candleRange = parseFloat(lastCandle.high) - parseFloat(lastCandle.low);
+  const candleStrength = candleRange > 0 ? candleBody / candleRange : 0;
+  
   return {
     sweepDetected: false,
+    sweepType: 'TOTAL',
     sweptLevel: 0,
     levelType: null,
     direction: null,
@@ -1396,18 +1517,22 @@ function detectM15Sweep(
     m15OpenPrice: 0,
     wickLength: 0,
     candleStrength,
+    candleAge: 0,
   };
 }
 
 // ============================================
-// ETAPA 3: CONFIRMAR ENTRADA NO M1 (FLIP)
+// ETAPA 3: CONFIRMAR ENTRADA NO M1 (FLIP) - COM GRADUAÇÃO
 // ============================================
 function confirmM1Entry(
   candles1m: any[],
   sweepData: any,
-  asset: string
+  asset: string,
+  confirmationMode: 'STRONG' | 'MODERATE' | 'WEAK' = 'MODERATE'
 ): {
   entryConfirmed: boolean;
+  confirmationStrength: 'STRONG' | 'MODERATE' | 'WEAK';
+  confidenceAdjustment: number;
   entryPrice: number;
   confirmationTime: string;
   m1Strength: number;
@@ -1416,6 +1541,8 @@ function confirmM1Entry(
   if (!candles1m || candles1m.length < 3) {
     return {
       entryConfirmed: false,
+      confirmationStrength: 'WEAK',
+      confidenceAdjustment: -0.2,
       entryPrice: 0,
       confirmationTime: '',
       m1Strength: 0,
@@ -1429,6 +1556,9 @@ function confirmM1Entry(
   // Últimas 15 velas M1 (15 minutos)
   const recent15m1 = candles1m.slice(-15);
   
+  // ============================================
+  // NÍVEL 1: CONFIRMAÇÃO FORTE (FLIP PERFEITO)
+  // ============================================
   for (let i = recent15m1.length - 1; i >= 0; i--) {
     const candle = recent15m1[i];
     const candleClose = parseFloat(candle.close);
@@ -1440,17 +1570,20 @@ function confirmM1Entry(
     // CONFIRMAR BUY: vela M1 fecha ACIMA da linha de gatilho
     if (direction === 'BUY' && candleClose > triggerLine && candleOpen <= triggerLine) {
       console.log(`
-✅ ENTRADA CONFIRMADA (BUY) - ${asset}:
+✅ ENTRADA CONFIRMADA FORTE (BUY) - ${asset}:
+├─ Tipo: FLIP PERFEITO 🎯
 ├─ Linha de gatilho: $${triggerLine.toFixed(4)}
 ├─ M1 Open: $${candleOpen.toFixed(4)} (abaixo ✅)
 ├─ M1 Close: $${candleClose.toFixed(4)} (acima ✅)
-├─ FLIP confirmado! 🎯
 ├─ Força M1: ${(m1Strength * 100).toFixed(1)}%
+├─ Ajuste de confiança: +0 (sem penalidade)
 └─ Timestamp: ${candle.timestamp || 'N/A'}
       `);
       
       return {
         entryConfirmed: true,
+        confirmationStrength: 'STRONG',
+        confidenceAdjustment: 0,
         entryPrice: candleClose,
         confirmationTime: candle.timestamp || new Date().toISOString(),
         m1Strength,
@@ -1461,17 +1594,20 @@ function confirmM1Entry(
     // CONFIRMAR SELL: vela M1 fecha ABAIXO da linha de gatilho
     if (direction === 'SELL' && candleClose < triggerLine && candleOpen >= triggerLine) {
       console.log(`
-✅ ENTRADA CONFIRMADA (SELL) - ${asset}:
+✅ ENTRADA CONFIRMADA FORTE (SELL) - ${asset}:
+├─ Tipo: FLIP PERFEITO 🎯
 ├─ Linha de gatilho: $${triggerLine.toFixed(4)}
 ├─ M1 Open: $${candleOpen.toFixed(4)} (acima ✅)
 ├─ M1 Close: $${candleClose.toFixed(4)} (abaixo ✅)
-├─ FLIP confirmado! 🎯
 ├─ Força M1: ${(m1Strength * 100).toFixed(1)}%
+├─ Ajuste de confiança: +0 (sem penalidade)
 └─ Timestamp: ${candle.timestamp || 'N/A'}
       `);
       
       return {
         entryConfirmed: true,
+        confirmationStrength: 'STRONG',
+        confidenceAdjustment: 0,
         entryPrice: candleClose,
         confirmationTime: candle.timestamp || new Date().toISOString(),
         m1Strength,
@@ -1480,10 +1616,141 @@ function confirmM1Entry(
     }
   }
   
-  console.log(`⏳ Aguardando FLIP no M1 - ${asset}: Preço ainda não cruzou $${triggerLine.toFixed(4)}`);
+  // ============================================
+  // NÍVEL 2: CONFIRMAÇÃO MODERADA (2 velas consecutivas)
+  // ============================================
+  if (confirmationMode === 'MODERATE' || confirmationMode === 'WEAK') {
+    for (let i = recent15m1.length - 1; i >= 1; i--) {
+      const candle1 = recent15m1[i];
+      const candle2 = recent15m1[i - 1];
+      
+      const close1 = parseFloat(candle1.close);
+      const close2 = parseFloat(candle2.close);
+      const open1 = parseFloat(candle1.open);
+      
+      const avgStrength = (
+        Math.abs(close1 - open1) / (parseFloat(candle1.high) - parseFloat(candle1.low))
+      );
+      
+      // BUY: 2 velas consecutivas fecham acima da linha
+      if (direction === 'BUY' && close1 > triggerLine && close2 > triggerLine) {
+        console.log(`
+✅ ENTRADA CONFIRMADA MODERADA (BUY) - ${asset}:
+├─ Tipo: 2 VELAS CONSECUTIVAS ACIMA 📊
+├─ Linha de gatilho: $${triggerLine.toFixed(4)}
+├─ M1[1] Close: $${close1.toFixed(4)} (acima ✅)
+├─ M1[2] Close: $${close2.toFixed(4)} (acima ✅)
+├─ Força média: ${(avgStrength * 100).toFixed(1)}%
+├─ Ajuste de confiança: -0.1 (moderada)
+└─ Timestamp: ${candle1.timestamp || 'N/A'}
+        `);
+        
+        return {
+          entryConfirmed: true,
+          confirmationStrength: 'MODERATE',
+          confidenceAdjustment: -0.1,
+          entryPrice: close1,
+          confirmationTime: candle1.timestamp || new Date().toISOString(),
+          m1Strength: avgStrength,
+          flipCandle: candle1,
+        };
+      }
+      
+      // SELL: 2 velas consecutivas fecham abaixo da linha
+      if (direction === 'SELL' && close1 < triggerLine && close2 < triggerLine) {
+        console.log(`
+✅ ENTRADA CONFIRMADA MODERADA (SELL) - ${asset}:
+├─ Tipo: 2 VELAS CONSECUTIVAS ABAIXO 📊
+├─ Linha de gatilho: $${triggerLine.toFixed(4)}
+├─ M1[1] Close: $${close1.toFixed(4)} (abaixo ✅)
+├─ M1[2] Close: $${close2.toFixed(4)} (abaixo ✅)
+├─ Força média: ${(avgStrength * 100).toFixed(1)}%
+├─ Ajuste de confiança: -0.1 (moderada)
+└─ Timestamp: ${candle1.timestamp || 'N/A'}
+        `);
+        
+        return {
+          entryConfirmed: true,
+          confirmationStrength: 'MODERATE',
+          confidenceAdjustment: -0.1,
+          entryPrice: close1,
+          confirmationTime: candle1.timestamp || new Date().toISOString(),
+          m1Strength: avgStrength,
+          flipCandle: candle1,
+        };
+      }
+    }
+  }
+  
+  // ============================================
+  // NÍVEL 3: CONFIRMAÇÃO FRACA (3 velas consecutivas)
+  // ============================================
+  if (confirmationMode === 'WEAK') {
+    for (let i = recent15m1.length - 1; i >= 2; i--) {
+      const candle1 = recent15m1[i];
+      const candle2 = recent15m1[i - 1];
+      const candle3 = recent15m1[i - 2];
+      
+      const close1 = parseFloat(candle1.close);
+      const close2 = parseFloat(candle2.close);
+      const close3 = parseFloat(candle3.close);
+      
+      // BUY: 3 velas consecutivas fecham acima da linha
+      if (direction === 'BUY' && close1 > triggerLine && close2 > triggerLine && close3 > triggerLine) {
+        console.log(`
+✅ ENTRADA CONFIRMADA FRACA (BUY) - ${asset}:
+├─ Tipo: 3 VELAS CONSECUTIVAS ACIMA 📈
+├─ Linha de gatilho: $${triggerLine.toFixed(4)}
+├─ M1[1] Close: $${close1.toFixed(4)} (acima ✅)
+├─ M1[2] Close: $${close2.toFixed(4)} (acima ✅)
+├─ M1[3] Close: $${close3.toFixed(4)} (acima ✅)
+├─ Ajuste de confiança: -0.2 (fraca)
+└─ Timestamp: ${candle1.timestamp || 'N/A'}
+        `);
+        
+        return {
+          entryConfirmed: true,
+          confirmationStrength: 'WEAK',
+          confidenceAdjustment: -0.2,
+          entryPrice: close1,
+          confirmationTime: candle1.timestamp || new Date().toISOString(),
+          m1Strength: 0.5,
+          flipCandle: candle1,
+        };
+      }
+      
+      // SELL: 3 velas consecutivas fecham abaixo da linha
+      if (direction === 'SELL' && close1 < triggerLine && close2 < triggerLine && close3 < triggerLine) {
+        console.log(`
+✅ ENTRADA CONFIRMADA FRACA (SELL) - ${asset}:
+├─ Tipo: 3 VELAS CONSECUTIVAS ABAIXO 📉
+├─ Linha de gatilho: $${triggerLine.toFixed(4)}
+├─ M1[1] Close: $${close1.toFixed(4)} (abaixo ✅)
+├─ M1[2] Close: $${close2.toFixed(4)} (abaixo ✅)
+├─ M1[3] Close: $${close3.toFixed(4)} (abaixo ✅)
+├─ Ajuste de confiança: -0.2 (fraca)
+└─ Timestamp: ${candle1.timestamp || 'N/A'}
+        `);
+        
+        return {
+          entryConfirmed: true,
+          confirmationStrength: 'WEAK',
+          confidenceAdjustment: -0.2,
+          entryPrice: close1,
+          confirmationTime: candle1.timestamp || new Date().toISOString(),
+          m1Strength: 0.5,
+          flipCandle: candle1,
+        };
+      }
+    }
+  }
+  
+  console.log(`⏳ Aguardando confirmação M1 (${confirmationMode}) - ${asset}: Preço ainda não cruzou $${triggerLine.toFixed(4)}`);
   
   return {
     entryConfirmed: false,
+    confirmationStrength: 'WEAK',
+    confidenceAdjustment: -0.2,
     entryPrice: 0,
     confirmationTime: '',
     m1Strength: 0,
@@ -1566,17 +1833,21 @@ async function analyzeTechnicalStandalone(
   }
   
   // ============================================
-  // ETAPA 2: DETECTAR SWEEP NO M15
+  // ETAPA 2: DETECTAR SWEEP NO M15 (FLEXIBILIZADO)
   // ============================================
-  const sweepData = detectM15Sweep(candles15m, h1Structure, asset);
+  // Determinar sensibilidade baseado na sessão atual
+  const sessionName = session.toUpperCase().replace(' ', '_') as keyof typeof SENSITIVITY_CONFIG;
+  const sessionConfig = SENSITIVITY_CONFIG[sessionName] || SENSITIVITY_CONFIG.OCEANIA;
+  
+  const sweepData = detectM15Sweep(candles15m, h1Structure, asset, sessionConfig.sweep);
   
   if (!sweepData.sweepDetected) {
-    console.log(`⏸️ ${asset}: Aguardando sweep de liquidez no M15...`);
+    console.log(`⏸️ ${asset}: Aguardando sweep de liquidez no M15 (sensibilidade: ${sessionConfig.sweep})...`);
     return {
       signal: 'STAY_OUT',
       direction: 'NEUTRAL',
       confidence: 0.3,
-      notes: 'Aguardando sweep de liquidez (fake out)',
+      notes: `Aguardando sweep de liquidez (sensibilidade ${sessionConfig.sweep})`,
       risk: null,
       c1Direction: null,
       volumeFactor: indicators.volume.factor,
@@ -1588,22 +1859,22 @@ async function analyzeTechnicalStandalone(
   }
   
   // ============================================
-  // ETAPA 3: CONFIRMAR ENTRADA NO M1 (FLIP)
+  // ETAPA 3: CONFIRMAR ENTRADA NO M1 (FLEXIBILIZADO)
   // ============================================
-  console.log(`🔍 Verificando confirmação M1 (flip)...`);
-  const m1Confirmation = confirmM1Entry(candles1m, sweepData, asset);
+  console.log(`🔍 Verificando confirmação M1 (modo: ${sessionConfig.m1Confirmation})...`);
+  const m1Confirmation = confirmM1Entry(candles1m, sweepData, asset, sessionConfig.m1Confirmation);
   
   if (!m1Confirmation.entryConfirmed) {
-    console.log(`⏸️ ${asset}: Aguardando confirmação M1 (flip)...`);
+    console.log(`⏸️ ${asset}: Aguardando confirmação M1 (${sessionConfig.m1Confirmation})...`);
     return {
       signal: 'STAY_OUT',
       direction: 'NEUTRAL',
       confidence: 0.5,
-      notes: 'Sweep detectado no M15 - aguardando confirmação M1 (flip)',
+      notes: `Sweep ${sweepData.sweepType} detectado - aguardando confirmação M1 ${sessionConfig.m1Confirmation}`,
       risk: null,
       c1Direction: null,
       volumeFactor: indicators.volume.factor,
-      confirmation: 'Aguardando flip M1',
+      confirmation: `Aguardando confirmação M1 (${sessionConfig.m1Confirmation})`,
       marketData: { price: currentPrice, h1Structure, sweep: sweepData },
       rangeHigh: h1Structure.previousHigh,
       rangeLow: h1Structure.previousLow,
@@ -1613,11 +1884,14 @@ async function analyzeTechnicalStandalone(
   console.log(`
 ✅ CONFIRMAÇÃO M1 - ${asset}:
 ├─ Direção: ${sweepData.direction}
+├─ Tipo de Sweep: ${sweepData.sweepType}
 ├─ Nível varrido M15: ${sweepData.levelType} = $${sweepData.sweptLevel.toFixed(4)}
 ├─ Pavio M15: ${sweepData.wickLength.toFixed(4)}
 ├─ Força vela M15: ${(sweepData.candleStrength * 100).toFixed(1)}%
+├─ Confirmação M1: ${m1Confirmation.confirmationStrength}
 ├─ Entrada M1: $${m1Confirmation.entryPrice.toFixed(4)}
-└─ Força flip M1: ${(m1Confirmation.m1Strength * 100).toFixed(1)}%
+├─ Força M1: ${(m1Confirmation.m1Strength * 100).toFixed(1)}%
+└─ Ajuste de confiança: ${m1Confirmation.confidenceAdjustment}
   `);
   
   // ============================================
@@ -1638,26 +1912,32 @@ async function analyzeTechnicalStandalone(
   
   const rrRatio = Math.abs((takeProfit - entry) / (entry - stopLoss));
   
+  // ✅ R:R DINÂMICO baseado no setup
+  const setupKey = `${sweepData.sweepType}_${m1Confirmation.confirmationStrength}`;
+  const minRR = DYNAMIC_RR_MAP[setupKey] || sessionConfig.minRR;
+  
   console.log(`
 💰 RISK/REWARD - ${asset}:
 ├─ Entry: $${entry.toFixed(4)}
 ├─ Stop Loss: $${stopLoss.toFixed(4)} (baseado no pavio do sweep)
 ├─ Take Profit: $${takeProfit.toFixed(4)} (${direction === 'BUY' ? 'previousHigh' : 'previousLow'} H1)
-└─ R:R: 1:${rrRatio.toFixed(2)}
+├─ R:R Calculado: 1:${rrRatio.toFixed(2)}
+├─ R:R Mínimo: 1:${minRR.toFixed(2)} (${sweepData.sweepType} + ${m1Confirmation.confirmationStrength})
+└─ Status: ${rrRatio >= minRR ? '✅ APROVADO' : '❌ REJEITADO'}
   `);
   
-  // Validar R:R mínimo (1:1.5)
-  if (rrRatio < 1.5) {
-    console.log(`❌ R:R insuficiente (${rrRatio.toFixed(2)} < 1.5) - REJEITADO`);
+  // Validar R:R mínimo dinâmico
+  if (rrRatio < minRR) {
+    console.log(`❌ R:R insuficiente (${rrRatio.toFixed(2)} < ${minRR.toFixed(2)}) - REJEITADO`);
     return {
       signal: 'STAY_OUT',
       direction: direction,
       confidence: 0.5,
-      notes: `Sweep detectado mas R:R insuficiente (${rrRatio.toFixed(2)})`,
+      notes: `Sweep ${sweepData.sweepType} detectado mas R:R insuficiente (${rrRatio.toFixed(2)} < ${minRR.toFixed(2)})`,
       risk: null,
       c1Direction: null,
       volumeFactor: indicators.volume.factor,
-      confirmation: 'R:R < 1.5',
+      confirmation: `R:R < ${minRR.toFixed(2)}`,
       marketData: { price: currentPrice, h1Structure, sweepData },
       rangeHigh: h1Structure.previousHigh,
       rangeLow: h1Structure.previousLow,
@@ -1665,14 +1945,47 @@ async function analyzeTechnicalStandalone(
   }
   
   // ============================================
-  // RETORNAR SINAL APROVADO
+  // RETORNAR SINAL APROVADO (COM CONFIANÇA AJUSTADA)
   // ============================================
   const signal = direction === 'BUY' ? 'LONG' : 'SHORT';
+  
+  // ✅ Confiança base ajustada pela força da confirmação
+  let baseConfidence = 0.85;
+  baseConfidence += m1Confirmation.confidenceAdjustment;
+  
+  // ✅ Ajustar confiança pelo tipo de sweep
+  if (sweepData.sweepType === 'PARTIAL') {
+    baseConfidence -= 0.05;
+  } else if (sweepData.sweepType === 'NEAR') {
+    baseConfidence -= 0.10;
+  }
+  
+  // ✅ Volume profile validation (se habilitado na sessão)
+  const volumeProfile = calculateVolumeProfile(candles15m);
+  const nearPOC = Math.abs(sweepData.sweptLevel - volumeProfile.poc) / volumeProfile.poc < 0.005;
+  const inValueArea = sweepData.sweptLevel >= volumeProfile.valueAreaLow && 
+                      sweepData.sweptLevel <= volumeProfile.valueAreaHigh;
+  
+  if (sessionConfig.requireVolume && (nearPOC || inValueArea)) {
+    baseConfidence += 0.05;
+    console.log(`📊 Volume Profile: Sweep próximo a zona de alto volume (+0.05 confiança)`);
+  }
+  
+  const finalConfidence = Math.min(0.95, Math.max(0.5, baseConfidence));
+  
+  console.log(`
+🎯 SETUP FINAL - ${asset}:
+├─ Tipo de Sweep: ${sweepData.sweepType}
+├─ Confirmação M1: ${m1Confirmation.confirmationStrength}
+├─ Confiança Base: ${baseConfidence.toFixed(2)}
+├─ Confiança Final: ${finalConfidence.toFixed(2)}
+└─ R:R: 1:${rrRatio.toFixed(2)} (min: ${minRR.toFixed(2)})
+  `);
   
   return {
     signal,
     direction,
-    confidence: 0.85, // Alta confiança (passou por H1 → M15 → validação)
+    confidence: finalConfidence,
     risk: {
       entry,
       stop: stopLoss,
