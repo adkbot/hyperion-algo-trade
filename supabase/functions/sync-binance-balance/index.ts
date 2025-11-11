@@ -27,7 +27,7 @@ serve(async (req) => {
     // Buscar configurações do usuário
     const { data: settings, error: settingsError } = await supabase
       .from('user_settings')
-      .select('balance, binance_api_key, binance_api_secret')
+      .select('balance, api_key, api_secret')
       .eq('user_id', user_id)
       .single();
 
@@ -39,7 +39,7 @@ serve(async (req) => {
     console.log(`💰 Saldo atual no DB: $${oldBalance.toFixed(2)}`);
 
     // Se não tiver API keys, retornar erro
-    if (!settings.binance_api_key || !settings.binance_api_secret) {
+    if (!settings.api_key || !settings.api_secret) {
       throw new Error("API Keys da Binance não configuradas");
     }
 
@@ -49,7 +49,7 @@ serve(async (req) => {
     
     // Gerar assinatura HMAC
     const encoder = new TextEncoder();
-    const keyData = encoder.encode(settings.binance_api_secret);
+    const keyData = encoder.encode(settings.api_secret);
     const messageData = encoder.encode(params);
     
     const cryptoKey = await crypto.subtle.importKey(
@@ -69,7 +69,7 @@ serve(async (req) => {
     const binanceResponse = await fetch(binanceUrl, {
       method: 'GET',
       headers: {
-        'X-MBX-APIKEY': settings.binance_api_key,
+        'X-MBX-APIKEY': settings.api_key,
       },
     });
 
