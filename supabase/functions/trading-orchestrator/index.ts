@@ -3804,8 +3804,10 @@ async function calculateProjectedCompletionTime(
 }
 
 // ============================================================
-// DETECTOR DE REVERSÃO DE PERNADA
+// DETECTOR DE REVERSÃO DE PERNADA - CONFIRMAÇÃO RIGOROSA
 // ============================================================
+// Exige confirmação FORTE em múltiplos timeframes antes de sair
+// O bot deve acompanhar a pernada completa até reversão CONFIRMADA
 function detectLegReversal(
   candles5m: any[],
   candles15m: any[],
@@ -3814,83 +3816,131 @@ function detectLegReversal(
   entryPrice: number
 ): { reversed: boolean; reason: string; confidence: number } {
   
-  if (!candles5m || candles5m.length < 10 || !candles15m || candles15m.length < 5) {
-    return { reversed: false, reason: 'Dados insuficientes', confidence: 0 };
+  if (!candles5m || candles5m.length < 20 || !candles15m || candles15m.length < 10) {
+    return { reversed: false, reason: '✅ Dados insuficientes - mantendo posição', confidence: 0 };
   }
   
-  const last10_5m = candles5m.slice(-10);
-  const last5_15m = candles15m.slice(-5);
+  const last20_5m = candles5m.slice(-20);
+  const last10_15m = candles15m.slice(-10);
+  const last5_5m = candles5m.slice(-5);  // Confirmação recente
+  const last3_15m = candles15m.slice(-3); // Confirmação recente
   
-  // Contar velas contrárias
-  let bullish5m = 0;
-  let bearish5m = 0;
-  
-  last10_5m.forEach(c => {
+  // Contar velas em todo o período
+  let bullish5m = 0, bearish5m = 0;
+  last20_5m.forEach(c => {
     if (c.close > c.open) bullish5m++;
     else bearish5m++;
   });
   
-  let bullish15m = 0;
-  let bearish15m = 0;
-  
-  last5_15m.forEach(c => {
+  let bullish15m = 0, bearish15m = 0;
+  last10_15m.forEach(c => {
     if (c.close > c.open) bullish15m++;
     else bearish15m++;
   });
   
-  // Se estava em LONG (BUY)
+  // Contar velas RECENTES (confirmação forte)
+  let bullishRecent5m = 0, bearishRecent5m = 0;
+  last5_5m.forEach(c => {
+    if (c.close > c.open) bullishRecent5m++;
+    else bearishRecent5m++;
+  });
+  
+  let bullishRecent15m = 0, bearishRecent15m = 0;
+  last3_15m.forEach(c => {
+    if (c.close > c.open) bullishRecent15m++;
+    else bearishRecent15m++;
+  });
+  
+  // Estrutura de preço
+  const highest5m = Math.max(...last20_5m.map(c => c.high));
+  const lowest5m = Math.min(...last20_5m.map(c => c.low));
+  const range5m = highest5m - lowest5m;
+  const pricePosition5m = range5m > 0 ? (currentPrice - lowest5m) / range5m : 0.5;
+  
+  const highest15m = Math.max(...last10_15m.map(c => c.high));
+  const lowest15m = Math.min(...last10_15m.map(c => c.low));
+  const range15m = highest15m - lowest15m;
+  const pricePosition15m = range15m > 0 ? (currentPrice - lowest15m) / range15m : 0.5;
+  
+  // =========================================
+  // LONG REVERSAL - Reversão RIGOROSA
+  // =========================================
   if (currentDirection === 'BUY') {
-    const bearishRatio5m = bearish5m / 10;
-    const bearishRatio15m = bearish15m / 5;
+    const bearishRatio5m = bearish5m / 20;
+    const bearishRatio15m = bearish15m / 10;
+    const bearishRecentRatio5m = bearishRecent5m / 5;
+    const bearishRecentRatio15m = bearishRecent15m / 3;
+    
+    // CRITÉRIOS PARA CONFIRMAÇÃO DE REVERSÃO:
+    // 1. Dominância bearish forte (75%+ em M5, 70%+ em M15)
+    // 2. Confirmação recente (80%+ das últimas velas bearish em ambos)
+    // 3. Estrutura de preço quebrada (abaixo de 25% do range)
+    // 4. Preço abaixo da entrada
+    
+    const strongBearishDominance = bearishRatio5m >= 0.75 && bearishRatio15m >= 0.70;
+    const recentConfirmation = bearishRecentRatio5m >= 0.80 && bearishRecentRatio15m >= 0.67;
+    const structureBroken = pricePosition5m < 0.25 && pricePosition15m < 0.30;
     const belowEntry = currentPrice < entryPrice;
     
-    // Reversão confirmada: 70%+ M5 bearish E 60%+ M15 bearish
-    if (bearishRatio5m >= 0.7 && bearishRatio15m >= 0.6) {
+    // REVERSÃO CONFIRMADA - todas as condições devem ser atendidas
+    if (strongBearishDominance && recentConfirmation && structureBroken && belowEntry) {
+      const confidence = (bearishRatio5m + bearishRatio15m + bearishRecentRatio5m + bearishRecentRatio15m) / 4;
       return {
         reversed: true,
-        reason: `M5: ${(bearishRatio5m*100).toFixed(0)}% bearish, M15: ${(bearishRatio15m*100).toFixed(0)}% bearish`,
-        confidence: (bearishRatio5m + bearishRatio15m) / 2
+        reason: `🔴 REVERSÃO CONFIRMADA (LONG→SHORT): M5 ${(bearishRatio5m*100).toFixed(0)}% bearish (recente ${(bearishRecentRatio5m*100).toFixed(0)}%), M15 ${(bearishRatio15m*100).toFixed(0)}% bearish (recente ${(bearishRecentRatio15m*100).toFixed(0)}%), Estrutura quebrada ${(pricePosition5m*100).toFixed(0)}% do range, Preço < Entrada`,
+        confidence
       };
     }
     
-    // Reversão forte: 80%+ M5 bearish + preço abaixo da entrada
-    if (bearishRatio5m >= 0.8 && belowEntry) {
-      return {
-        reversed: true,
-        reason: `M5: ${(bearishRatio5m*100).toFixed(0)}% bearish + Preço abaixo da entrada`,
-        confidence: 0.85
-      };
-    }
+    // Logging de monitoramento
+    console.log(`📊 Monitorando pernada LONG:
+├─ M5: ${(bearishRatio5m*100).toFixed(0)}% bearish (recente: ${(bearishRecentRatio5m*100).toFixed(0)}%) [precisa 75%+ geral, 80%+ recente]
+├─ M15: ${(bearishRatio15m*100).toFixed(0)}% bearish (recente: ${(bearishRecentRatio15m*100).toFixed(0)}%) [precisa 70%+ geral, 67%+ recente]
+├─ Estrutura: ${(pricePosition5m*100).toFixed(0)}% do range M5, ${(pricePosition15m*100).toFixed(0)}% do range M15 [precisa <25% e <30%]
+└─ Preço vs Entrada: ${currentPrice.toFixed(4)} vs ${entryPrice.toFixed(4)} ${belowEntry ? '✓' : '✗'}`);
   }
   
-  // Se estava em SHORT (SELL)
+  // =========================================
+  // SHORT REVERSAL - Reversão RIGOROSA
+  // =========================================
   if (currentDirection === 'SELL') {
-    const bullishRatio5m = bullish5m / 10;
-    const bullishRatio15m = bullish15m / 5;
+    const bullishRatio5m = bullish5m / 20;
+    const bullishRatio15m = bullish15m / 10;
+    const bullishRecentRatio5m = bullishRecent5m / 5;
+    const bullishRecentRatio15m = bullishRecent15m / 3;
+    
+    // CRITÉRIOS PARA CONFIRMAÇÃO DE REVERSÃO:
+    // 1. Dominância bullish forte (75%+ em M5, 70%+ em M15)
+    // 2. Confirmação recente (80%+ das últimas velas bullish em ambos)
+    // 3. Estrutura de preço quebrada (acima de 75% do range)
+    // 4. Preço acima da entrada
+    
+    const strongBullishDominance = bullishRatio5m >= 0.75 && bullishRatio15m >= 0.70;
+    const recentConfirmation = bullishRecentRatio5m >= 0.80 && bullishRecentRatio15m >= 0.67;
+    const structureBroken = pricePosition5m > 0.75 && pricePosition15m > 0.70;
     const aboveEntry = currentPrice > entryPrice;
     
-    // Reversão confirmada: 70%+ M5 bullish E 60%+ M15 bullish
-    if (bullishRatio5m >= 0.7 && bullishRatio15m >= 0.6) {
+    // REVERSÃO CONFIRMADA - todas as condições devem ser atendidas
+    if (strongBullishDominance && recentConfirmation && structureBroken && aboveEntry) {
+      const confidence = (bullishRatio5m + bullishRatio15m + bullishRecentRatio5m + bullishRecentRatio15m) / 4;
       return {
         reversed: true,
-        reason: `M5: ${(bullishRatio5m*100).toFixed(0)}% bullish, M15: ${(bullishRatio15m*100).toFixed(0)}% bullish`,
-        confidence: (bullishRatio5m + bullishRatio15m) / 2
+        reason: `🟢 REVERSÃO CONFIRMADA (SHORT→LONG): M5 ${(bullishRatio5m*100).toFixed(0)}% bullish (recente ${(bullishRecentRatio5m*100).toFixed(0)}%), M15 ${(bullishRatio15m*100).toFixed(0)}% bullish (recente ${(bullishRecentRatio15m*100).toFixed(0)}%), Estrutura quebrada ${(pricePosition5m*100).toFixed(0)}% do range, Preço > Entrada`,
+        confidence
       };
     }
     
-    // Reversão forte: 80%+ M5 bullish + preço acima da entrada
-    if (bullishRatio5m >= 0.8 && aboveEntry) {
-      return {
-        reversed: true,
-        reason: `M5: ${(bullishRatio5m*100).toFixed(0)}% bullish + Preço acima da entrada`,
-        confidence: 0.85
-      };
-    }
+    // Logging de monitoramento
+    console.log(`📊 Monitorando pernada SHORT:
+├─ M5: ${(bullishRatio5m*100).toFixed(0)}% bullish (recente: ${(bullishRecentRatio5m*100).toFixed(0)}%) [precisa 75%+ geral, 80%+ recente]
+├─ M15: ${(bullishRatio15m*100).toFixed(0)}% bullish (recente: ${(bullishRecentRatio15m*100).toFixed(0)}%) [precisa 70%+ geral, 67%+ recente]
+├─ Estrutura: ${(pricePosition5m*100).toFixed(0)}% do range M5, ${(pricePosition15m*100).toFixed(0)}% do range M15 [precisa >75% e >70%]
+└─ Preço vs Entrada: ${currentPrice.toFixed(4)} vs ${entryPrice.toFixed(4)} ${aboveEntry ? '✓' : '✗'}`);
   }
   
   return {
     reversed: false,
-    reason: 'Pernada ainda ativa',
+    reason: '✅ Pernada ainda intacta - aguardando confirmação de reversão',
     confidence: 0
   };
 }
