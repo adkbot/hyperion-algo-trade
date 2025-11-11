@@ -3362,9 +3362,16 @@ async function scanMarketForValidPairs(getRemainingTime?: () => number): Promise
       maxPairs = 5;
     }
     
-    const finalPairs = prioritizedPairs.slice(0, maxPairs);
+    // 🔒 FORÇAR INCLUSÃO DE BTCUSDT E ETHUSDT SEMPRE
+    const mandatoryPairs = ['BTCUSDT', 'ETHUSDT'];
     
-    console.log(`✅ Selecionados ${finalPairs.length} pares de maior probabilidade`);
+    // Filtrar pares obrigatórios da lista priorizada para evitar duplicação
+    const otherPairs = prioritizedPairs.filter(pair => !mandatoryPairs.includes(pair));
+    
+    // Combinar: pares obrigatórios primeiro, depois os outros até atingir maxPairs
+    const finalPairs = [...mandatoryPairs, ...otherPairs.slice(0, maxPairs - mandatoryPairs.length)];
+    
+    console.log(`✅ Selecionados ${finalPairs.length} pares (${mandatoryPairs.length} obrigatórios: ${mandatoryPairs.join(', ')})`);
     
     const rateLimitStatus = rateLimiter.getStats();
     console.log(`📊 Rate Limit: ${rateLimitStatus.current}/${rateLimitStatus.max} (${rateLimitStatus.percentage.toFixed(1)}%)`);
