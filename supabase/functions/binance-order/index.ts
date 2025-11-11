@@ -24,7 +24,36 @@ serve(async (req) => {
       throw new Error('user_id is required');
     }
 
-    console.log(`Processing order for user ${user_id}:`, { asset, direction, quantity, price });
+    console.log('\n================================================================================');
+    console.log('📋 VALIDAÇÃO DE DIREÇÃO - INÍCIO DA ORDEM');
+    console.log('================================================================================');
+    console.log(`👤 User ID: ${user_id}`);
+    console.log(`🎯 Asset: ${asset}`);
+    console.log(`📊 Direction recebida: ${direction}`);
+    console.log(`💰 Quantity: ${quantity}`);
+    console.log(`💵 Price: ${price}`);
+    
+    // Decodificar informações dos agentes se disponível
+    if (agents) {
+      console.log('\n🤖 ANÁLISE DOS AGENTES:');
+      console.log(`├─ Agentes ativos: ${JSON.stringify(agents)}`);
+      
+      // Tentar extrair informações de sweep e confirmação M1 se estiverem nos metadados
+      if (agents.sweep_info) {
+        console.log(`├─ 🎯 SWEEP DETECTADO: ${agents.sweep_info.type}`);
+        console.log(`├─ 📍 Nível do sweep: $${agents.sweep_info.level}`);
+        console.log(`├─ 🔄 Direção indicada pelo sweep: ${agents.sweep_info.suggested_direction}`);
+      }
+      
+      if (agents.m1_confirmation) {
+        console.log(`├─ ✅ CONFIRMAÇÃO M1: ${agents.m1_confirmation.status}`);
+        console.log(`├─ 📊 Candle fechou: ${agents.m1_confirmation.close_position}`);
+        console.log(`├─ 🎯 Trigger: $${agents.m1_confirmation.trigger_price}`);
+        console.log(`└─ 🔄 Direção confirmada: ${agents.m1_confirmation.direction}`);
+      }
+    }
+    
+    console.log('================================================================================\n');
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -187,6 +216,11 @@ serve(async (req) => {
     // Map direction to Binance side (LONG -> BUY, SHORT -> SELL)
     const side = direction === 'LONG' ? 'BUY' : direction === 'SHORT' ? 'SELL' : direction;
     
+    console.log('\n🔄 MAPEAMENTO DE DIREÇÃO:');
+    console.log(`├─ Direction do sistema: ${direction}`);
+    console.log(`├─ Side para Binance: ${side}`);
+    console.log(`└─ Lógica: ${direction === 'LONG' ? 'LONG → BUY' : direction === 'SHORT' ? 'SHORT → SELL' : 'Direto'}`);
+    
     // ✅ CRÍTICO: Formatar quantidade com precisão EXATA da Binance
     // Regras de precisão:
     // - Pares com "1000" (1000PEPE, 1000FLOKI, etc): 0 decimais (inteiros)
@@ -206,8 +240,17 @@ serve(async (req) => {
       formattedQuantity = Math.floor(quantity);
     }
     
-    console.log(`📡 Sending order to Binance: ${asset} ${side} @ ${price || 'MARKET'}`);
-    console.log(`📊 Quantity: ${quantity} → Formatted: ${formattedQuantity} (precision adjusted)`);
+    console.log('\n================================================================================');
+    console.log('📡 ORDEM FINAL ENVIADA À BINANCE');
+    console.log('================================================================================');
+    console.log(`🎯 Symbol: ${asset}`);
+    console.log(`📊 Side: ${side} (${direction})`);
+    console.log(`💰 Quantity: ${quantity} → ${formattedQuantity} (adjusted)`);
+    console.log(`💵 Type: MARKET`);
+    console.log(`📍 Stop Loss: $${stopLoss}`);
+    console.log(`🎯 Take Profit: $${takeProfit}`);
+    console.log(`⚖️ Risk/Reward: ${riskReward}`);
+    console.log('================================================================================\n');
 
     const timestamp = Date.now();
     const params = new URLSearchParams({
