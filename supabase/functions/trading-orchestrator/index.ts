@@ -935,8 +935,10 @@ function validateTrendDirection(
   candles15m: any[],
   indicators: any,
   proposedDirection: 'BUY' | 'SELL',
-  asset: string
-): { valid: boolean; reason: string; trendStrength: number } {
+  asset: string,
+  sweepData?: any,
+  m1Confirmation?: any
+): { valid: boolean; reason: string; trendStrength: number; mode: string } {
   
   console.log(`\n🔍 VALIDANDO TENDÊNCIA - ${asset} (Proposto: ${proposedDirection})`);
   
@@ -982,37 +984,70 @@ function validateTrendDirection(
 └─ Proposta: ${proposedDirection}
   `);
   
-  // 4. VALIDAÇÃO: TODOS os 3 indicadores DEVEM estar alinhados (100%)
+  // ============================================
+  // 🔄 VALIDAÇÃO ESPECIAL: COUNTER-TREND EM SWEEPS DE ALTA QUALIDADE
+  // ============================================
+  if (sweepData && m1Confirmation) {
+    const isSweepQuality = sweepData.sweepType === 'TOTAL' || sweepData.sweepType === 'PARTIAL';
+    const isStrongConfirmation = m1Confirmation.confirmationStrength === 'STRONG';
+    
+    if (isSweepQuality && isStrongConfirmation) {
+      // Validar MOMENTUM DE REVERSÃO (últimas 5 velas M15)
+      const recent5_m15 = candles15m.slice(-5);
+      const reversalMomentum = checkReversalMomentum(recent5_m15, proposedDirection);
+      
+      if (reversalMomentum.detected) {
+        console.log(`
+🔄 COUNTER-TREND APROVADO - ${asset}:
+├─ Sweep: ${sweepData.sweepType}
+├─ M1: ${m1Confirmation.confirmationStrength}
+├─ Reversão M15: ${reversalMomentum.strength.toFixed(0)}% das últimas 5 velas
+├─ H1 Trend: ${h1Trend} (contra)
+├─ M15 Trend: ${m15Trend} (contra)
+└─ Justificativa: Sweep confirmado de alta qualidade + momentum de reversão
+        `);
+        
+        return {
+          valid: true,
+          reason: `✅ Counter-trend aprovado: Sweep ${sweepData.sweepType} + M1 STRONG + Reversão ${reversalMomentum.strength.toFixed(0)}%`,
+          trendStrength: 0.8, // 80% de confiança em counter-trend
+          mode: 'COUNTER_TREND'
+        };
+      }
+    }
+  }
+  
+  // ============================================
+  // 📊 VALIDAÇÃO FLEXIBILIZADA: 66% ALIGNMENT (2 de 3 indicadores)
+  // ============================================
   const h1Align = h1Trend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH');
   const m15Align = m15Trend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH');
   const priceAlign = priceTrend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH');
   
-  // CRITICAL: ALL 3 MUST ALIGN for 100%
-  const allAligned = h1Align && m15Align && priceAlign;
-  const trendStrength = allAligned ? 1.0 : 0;
+  const alignmentScore = (h1Align ? 1 : 0) + (m15Align ? 1 : 0) + (priceAlign ? 1 : 0);
+  const trendStrength = alignmentScore / 3;
   
-  // CRITICAL: Require 100% alignment - ALL indicators must agree
-  const valid = allAligned;
+  // REGRA FLEXIBILIZADA: Aceitar 66% (2 de 3 indicadores)
+  const valid = trendStrength >= 0.66;
   
   let reason = '';
   if (!valid) {
-    reason = `❌ TENDÊNCIA NÃO ALINHADA 100%: H1=${h1Trend} (${h1Align ? '✅' : '❌'}), M15=${m15Trend} (${m15Align ? '✅' : '❌'}), Price=${priceTrend} (${priceAlign ? '✅' : '❌'}) | Exigido: 100% | Atual: ${(trendStrength * 100).toFixed(1)}%`;
-  } else {
-    reason = `✅ Tendência 100% alinhada: H1=${h1Trend}, M15=${m15Trend}, Price=${priceTrend}`;
-  }
-  
-  // Log detailed rejection if not valid
-  if (!valid) {
+    reason = `❌ Alinhamento insuficiente: ${(trendStrength * 100).toFixed(0)}% (mínimo: 66%)`;
+    
     console.log(`
-❌❌❌ TRADE REJEITADO - TENDÊNCIA NÃO ALINHADA 100% ❌❌❌
+❌ TRADE REJEITADO - ALINHAMENTO < 66% - ${asset}
 ├─ Ativo: ${asset}
 ├─ Direção proposta: ${proposedDirection}
-├─ H1 Trend: ${h1Trend} (${h1Align ? '✅ ALINHADO' : '❌ DESALINHADO'})
-├─ M15 Trend: ${m15Trend} (${m15Align ? '✅ ALINHADO' : '❌ DESALINHADO'})
-├─ Price Trend: ${priceTrend} (${priceAlign ? '✅ ALINHADO' : '❌ DESALINHADO'})
-├─ Score: ${(trendStrength * 100).toFixed(1)}% (min: 100%)
-└─ MOTIVO: TODOS os 3 indicadores devem estar alinhados
+├─ H1 Trend: ${h1Trend} (${h1Align ? '✅' : '❌'})
+├─ M15 Trend: ${m15Trend} (${m15Align ? '✅' : '❌'})
+├─ Price Trend: ${priceTrend} (${priceAlign ? '✅' : '❌'})
+├─ Score: ${(trendStrength * 100).toFixed(0)}% (min: 66%)
+└─ Motivo: Pelo menos 2 de 3 indicadores devem estar alinhados
     `);
+  } else if (trendStrength === 1.0) {
+    reason = `✅ Tendência 100% alinhada: H1=${h1Trend}, M15=${m15Trend}, Price=${priceTrend}`;
+  } else {
+    reason = `✅ Tendência ${(trendStrength * 100).toFixed(0)}% alinhada (${alignmentScore}/3)`;
   }
   
   console.log(`
@@ -1023,6 +1058,33 @@ ${valid ? '✅' : '❌'} RESULTADO: ${reason}
     valid,
     reason,
     trendStrength,
+    mode: 'WITH_TREND'
+  };
+}
+
+// ============================================
+// FUNÇÃO AUXILIAR: DETECTAR MOMENTUM DE REVERSÃO
+// ============================================
+function checkReversalMomentum(
+  recentCandles: any[],
+  proposedDirection: 'BUY' | 'SELL'
+): { detected: boolean; strength: number } {
+  let alignedCandles = 0;
+  
+  for (const candle of recentCandles) {
+    const close = parseFloat(candle.close);
+    const open = parseFloat(candle.open);
+    const isBullish = close > open;
+    
+    if (proposedDirection === 'BUY' && isBullish) alignedCandles++;
+    if (proposedDirection === 'SELL' && !isBullish) alignedCandles++;
+  }
+  
+  const strength = (alignedCandles / recentCandles.length) * 100;
+  
+  return {
+    detected: strength >= 60, // 60% das últimas 5 velas alinhadas com a direção proposta
+    strength
   };
 }
 
@@ -2134,7 +2196,7 @@ async function analyzeTechnicalStandalone(
   // VALIDAR TENDÊNCIA GERAL (CRÍTICO)
   // ============================================
   const direction = sweepData.direction!;
-  const trendValidation = validateTrendDirection(candles1h, candles15m, indicators, direction, asset);
+  const trendValidation = validateTrendDirection(candles1h, candles15m, indicators, direction, asset, sweepData, m1Confirmation);
   
   if (!trendValidation.valid) {
     console.log(`
@@ -2165,10 +2227,13 @@ async function analyzeTechnicalStandalone(
   // ============================================
   const entry = m1Confirmation.entryPrice; // Usar preço confirmado no M1
   
-  // Stop Loss: Abaixo/acima do pavio do sweep
+  // Stop Loss: Ajustado baseado no modo (counter-trend = mais apertado)
+  const stopMultiplier = trendValidation.mode === 'COUNTER_TREND' ? 0.8 : 1.2;
   const stopLoss = direction === 'BUY'
-    ? sweepData.sweptLevel - (sweepData.wickLength * 1.2) // 20% além do pavio
-    : sweepData.sweptLevel + (sweepData.wickLength * 1.2);
+    ? sweepData.sweptLevel - (sweepData.wickLength * stopMultiplier)
+    : sweepData.sweptLevel + (sweepData.wickLength * stopMultiplier);
+  
+  console.log(`🛡️ Stop Loss: Modo ${trendValidation.mode} (multiplicador: ${stopMultiplier}x)`);
   
   // Take Profit: Próximo nível H1 na direção da operação
   const takeProfit = direction === 'BUY'
@@ -3355,11 +3420,11 @@ async function scanMarketForValidPairs(getRemainingTime?: () => number): Promise
     // ✅ FASE 5: Priorizar pares por volatilidade e volume
     const prioritizedPairs = await prioritizePairs(validPairs);
     
-    // ⏱️ AJUSTE DINÂMICO: Se tempo limitado, reduzir para 5 pares. Senão, usar 10.
-    let maxPairs = 10;
+    // ⏱️ AJUSTE DINÂMICO: Se tempo limitado, reduzir para 8 pares. Senão, usar 15.
+    let maxPairs = 15; // ⬆️ Aumentado de 10 para 15
     if (getRemainingTime && getRemainingTime() < 40000) {
-      console.log('⚠️ Tempo limitado detectado - reduzindo para 5 pares prioritários');
-      maxPairs = 5;
+      console.log('⚠️ Tempo limitado detectado - reduzindo para 8 pares prioritários');
+      maxPairs = 8; // ⬆️ Aumentado de 5 para 8 mesmo em tempo limitado
     }
     
     // 🔒 FORÇAR INCLUSÃO DE BTCUSDT E ETHUSDT SEMPRE
