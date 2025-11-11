@@ -704,15 +704,15 @@ async function processUserTradingCycle(
           ...analysis
         });
 
-        // ✅ COOLDOWN: Verificar se já enviamos sinal recente para este ativo (últimos 5 minutos)
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        // ✅ COOLDOWN: Verificar se já enviamos sinal recente para este ativo (últimos 30 segundos apenas)
+        const thirtySecondsAgo = new Date(Date.now() - 30 * 1000).toISOString();
         const { data: recentSignal } = await supabase
           .from('session_history')
           .select('*')
           .eq('user_id', userId)
           .eq('pair', pair)
           .eq('signal', analysis.signal)
-          .gte('timestamp', fiveMinutesAgo)
+          .gte('timestamp', thirtySecondsAgo)
           .order('timestamp', { ascending: false })
           .limit(1)
           .single();
@@ -720,7 +720,7 @@ async function processUserTradingCycle(
         const shouldSkipDueToCooldown = recentSignal && analysis.signal !== 'STAY_OUT';
         
         if (shouldSkipDueToCooldown) {
-          console.log(`⏸️ COOLDOWN ATIVO: Sinal ${analysis.signal} para ${pair} já foi detectado há menos de 5 minutos. Aguardando...`);
+          console.log(`⏸️ COOLDOWN ATIVO: Sinal ${analysis.signal} para ${pair} já foi detectado há menos de 30 segundos. Aguardando...`);
         }
 
         // ✅ Gravar análise no histórico (sempre, inclusive em cooldown)
@@ -734,7 +734,7 @@ async function processUserTradingCycle(
           confidence_score: analysis.confidence,
           volume_factor: analysis.volumeFactor,
           notes: shouldSkipDueToCooldown 
-            ? `${analysis.notes} [COOLDOWN ATIVO - Aguardando 5min]`
+            ? `${analysis.notes} [COOLDOWN ATIVO - Aguardando 30s]`
             : analysis.notes,
           confirmation: analysis.confirmation,
           c1_direction: analysis.c1Direction,
