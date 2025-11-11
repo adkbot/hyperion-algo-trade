@@ -988,8 +988,19 @@ function validateTrendDirection(
   // 🔄 VALIDAÇÃO ESPECIAL: COUNTER-TREND EM SWEEPS DE ALTA QUALIDADE
   // ============================================
   if (sweepData && m1Confirmation) {
-    const isSweepQuality = sweepData.sweepType === 'TOTAL' || sweepData.sweepType === 'PARTIAL';
+    const isSweepTotalOrPartial = sweepData.sweepType === 'TOTAL' || sweepData.sweepType === 'PARTIAL';
+    const isSweepNear = sweepData.sweepType === 'NEAR';
     const isStrongConfirmation = m1Confirmation.confirmationStrength === 'STRONG';
+    
+    // Calcular força da vela M15 (wickLength / (high - low))
+    const m15CandleStrength = sweepData.candleStrength || 0; // Já calculado no sweep
+    
+    // Validar sweep quality com 2 níveis:
+    // NÍVEL 1: TOTAL/PARTIAL - sempre qualifica
+    // NÍVEL 2: NEAR - qualifica SE força M15 >= 70%
+    const isSweepQuality = 
+      isSweepTotalOrPartial || 
+      (isSweepNear && m15CandleStrength >= 0.70);
     
     if (isSweepQuality && isStrongConfirmation) {
       // Validar MOMENTUM DE REVERSÃO (últimas 5 velas M15)
@@ -1001,10 +1012,11 @@ function validateTrendDirection(
 🔄 COUNTER-TREND APROVADO - ${asset}:
 ├─ Sweep: ${sweepData.sweepType}
 ├─ M1: ${m1Confirmation.confirmationStrength}
+├─ Força M15: ${(m15CandleStrength * 100).toFixed(1)}% ${isSweepNear ? '(req: 70%)' : '(sem requisito)'}
 ├─ Reversão M15: ${reversalMomentum.strength.toFixed(0)}% das últimas 5 velas
 ├─ H1 Trend: ${h1Trend} (contra)
 ├─ M15 Trend: ${m15Trend} (contra)
-└─ Justificativa: Sweep confirmado de alta qualidade + momentum de reversão
+└─ Justificativa: ${isSweepTotalOrPartial ? 'Sweep TOTAL/PARTIAL' : 'Sweep NEAR + Força M15 alta'} + M1 STRONG + Reversão
         `);
         
         return {
