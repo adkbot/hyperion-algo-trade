@@ -846,8 +846,10 @@ function getCyclePhase(session: string): string {
 async function analyzeCyclePhase(params: any) {
   const { candles, asset, session, phase, sessionState, supabase, userId } = params;
 
+  // ✅ AGORA PERMITE TRADING EM TRANSITION (Buffer desabilitado)
   if (session === 'Transition') {
-    return null; // No trading during transitions
+    console.log(`⚠️ TRANSITION MODE - Usando análise STANDALONE (buffer desabilitado)`);
+    // Não retornar null - continuar com análise standalone
   }
 
   const candles5m = candles['5m'];
@@ -882,9 +884,9 @@ async function analyzeCyclePhase(params: any) {
     }
   }
   
-  // ✅ MODO STANDALONE HÍBRIDO (quando NÃO há session_state)
+  // ✅ MODO STANDALONE HÍBRIDO (quando NÃO há session_state OU em Transition)
   else {
-    console.log(`🔧 Modo STANDALONE HÍBRIDO ativado - ${session}`);
+    console.log(`🔧 Modo STANDALONE HÍBRIDO ativado - Session: ${session} | Phase: ${phase}`);
     return await analyzeTechnicalStandalone(
       candles1m,
       candles5m,
