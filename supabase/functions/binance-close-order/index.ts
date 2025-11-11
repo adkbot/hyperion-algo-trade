@@ -6,6 +6,44 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Helper para aguardar
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Consultar status da ordem
+async function checkOrderStatus(orderId: number, symbol: string, apiKey: string, apiSecret: string) {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&orderId=${orderId}&timestamp=${timestamp}`;
+  const signature = createHmac('sha256', apiSecret)
+    .update(queryString)
+    .digest('hex');
+  
+  const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
+  const response = await fetch(url, {
+    headers: { 'X-MBX-APIKEY': apiKey },
+  });
+  
+  return await response.json();
+}
+
+// Aguardar execução da ordem
+async function waitForOrderExecution(orderId: number, symbol: string, apiKey: string, apiSecret: string, maxAttempts = 5) {
+  console.log(`⏳ Aguardando execução da ordem ${orderId}...`);
+  
+  for (let i = 0; i < maxAttempts; i++) {
+    await sleep(2000); // Aguardar 2 segundos
+    
+    const orderStatus = await checkOrderStatus(orderId, symbol, apiKey, apiSecret);
+    console.log(`🔍 Tentativa ${i + 1}/${maxAttempts} - Status: ${orderStatus.status}, Executed: ${orderStatus.executedQty}`);
+    
+    if (orderStatus.status === 'FILLED' && parseFloat(orderStatus.executedQty) > 0) {
+      console.log(`✅ Ordem executada com sucesso! avgPrice: ${orderStatus.avgPrice}`);
+      return orderStatus;
+    }
+  }
+  
+  throw new Error(`Ordem ${orderId} não foi executada após ${maxAttempts * 2} segundos`);
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -254,7 +292,27 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`✅ Posição fechada com sucesso na Binance:`, data);
+    console.log(`✅ Ordem enviada para Binance:`, data);
+    console.log(`📋 OrderId: ${data.orderId}, Status: ${data.status}`);
+
+    // ============================================
+    // AGUARDAR EXECUÇÃO DA ORDEM
+    // ============================================
+    let finalOrderData = data;
+    
+    // Se a ordem não foi executada instantaneamente, aguardar
+    if (data.status !== 'FILLED' || parseFloat(data.avgPrice || '0') === 0) {
+      try {
+        finalOrderData = await waitForOrderExecution(data.orderId, asset, apiKey, apiSecret);
+      } catch (error) {
+        console.error('⚠️ Timeout ao aguardar execução da ordem:', error);
+        // Continuar mesmo assim e usar o último preço conhecido
+        console.log('⚠️ Usando entry_price como fallback para exit_price');
+      }
+    }
+
+    const exitPrice = parseFloat(finalOrderData.avgPrice || activePosition.entry_price);
+    console.log(`💰 Exit Price Final: $${exitPrice}`);
 
     // ============================================
     // LIMPAR REGISTROS NO BANCO DE DADOS
@@ -274,11 +332,20 @@ Deno.serve(async (req) => {
       console.log(`✅ Removido de active_positions`);
     }
 
-    // 2. Atualizar operations
-    const exitPrice = parseFloat(data.avgPrice || activePosition.entry_price);
+    // 2. Calcular P&L com o exit_price real
+    const entryPrice = parseFloat(activePosition.entry_price);
     const pnl = direction === 'SHORT' || direction === 'SELL'
-      ? (activePosition.entry_price - exitPrice) * realQuantity
-      : (exitPrice - activePosition.entry_price) * realQuantity;
+      ? (entryPrice - exitPrice) * realQuantity
+      : (exitPrice - entryPrice) * realQuantity;
+    
+    console.log(`📊 Cálculo P&L:
+├─ Entry: $${entryPrice}
+├─ Exit: $${exitPrice}
+├─ Quantidade: ${realQuantity}
+├─ Direction: ${direction}
+└─ P&L: $${pnl.toFixed(2)} (${pnl > 0 ? 'WIN ✅' : 'LOSS ❌'})`);
+
+    // 3. Atualizar operations
 
     const { error: updateError } = await supabase
       .from('operations')
@@ -302,10 +369,12 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         mode: 'real',
-        binance_response: data,
+        binance_response: finalOrderData,
         asset,
         side: closeSide,
         quantity: realQuantity,
+        entry_price: entryPrice,
+        exit_price: exitPrice,
         pnl: pnl.toFixed(2),
         result: pnl > 0 ? 'WIN' : 'LOSS',
       }),
