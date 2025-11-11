@@ -358,7 +358,20 @@ serve(async (req) => {
       });
 
     if (insertError) {
-      console.error('Error inserting position:', insertError);
+      console.error('❌ ERRO CRÍTICO ao inserir em active_positions:', insertError);
+      console.error('❌ Dados da ordem:', {
+        user_id,
+        asset,
+        direction,
+        entry_price: entryPriceReal,
+        stop_loss: stopLoss,
+        take_profit: takeProfit,
+      });
+      
+      // ✅ CRÍTICO: Não abortar execução, mas registrar erro grave
+      // A ordem foi executada na Binance, precisamos garantir registro
+    } else {
+      console.log(`✅ Posição inserida em active_positions: ${asset} ${direction}`);
     }
 
     // ✅ Insert operation COM user_id

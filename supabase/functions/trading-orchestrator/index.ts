@@ -3230,6 +3230,61 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     `);
 
     // ============================================
+    // ✅ VERIFICAÇÃO ANTI-DUPLICAÇÃO
+    // ============================================
+
+    console.log(`\n🔒 VERIFICAÇÃO ANTI-DUPLICAÇÃO para ${asset}...`);
+
+    // 1️⃣ Verificar active_positions
+    const { data: activePositions } = await supabase
+      .from('active_positions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('asset', asset);
+
+    if (activePositions && activePositions.length > 0) {
+      console.log(`⚠️ BLOQUEADO: Já existe posição ativa em ${asset}`);
+      console.log(`├─ Posições encontradas: ${activePositions.length}`);
+      console.log(`└─ Entry: $${activePositions[0].entry_price}`);
+      return false;
+    }
+
+    // 2️⃣ Verificar operations (fallback se active_positions vazia)
+    const { data: openOperations } = await supabase
+      .from('operations')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('asset', asset)
+      .eq('result', 'OPEN')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (openOperations && openOperations.length > 0) {
+      console.log(`⚠️ BLOQUEADO: Posição OPEN detectada em operations para ${asset}`);
+      console.log(`├─ Entry: $${openOperations[0].entry_price}`);
+      console.log(`└─ Opened: ${new Date(openOperations[0].entry_time).toISOString()}`);
+      return false;
+    }
+
+    // 3️⃣ Verificar ordens recentes (últimos 10s) - prevenir duplicação simultânea
+    const tenSecondsAgo = new Date(Date.now() - 10000).toISOString();
+    const { data: recentOrders } = await supabase
+      .from('operations')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('asset', asset)
+      .gte('created_at', tenSecondsAgo);
+
+    if (recentOrders && recentOrders.length > 0) {
+      console.log(`⚠️ BLOQUEADO: Ordem recente em ${asset} (últimos 10s) - evitando duplicação`);
+      console.log(`├─ Ordens recentes: ${recentOrders.length}`);
+      console.log(`└─ Última ordem: ${new Date(recentOrders[0].created_at).toISOString()}`);
+      return false;
+    }
+
+    console.log(`✅ VERIFICAÇÃO ANTI-DUPLICAÇÃO: OK para executar ${asset}`);
+
+    // ============================================
     // EXECUTAR ORDEM
     // ============================================
     // ✅ CONVERTER SIGNAL PARA DIRECTION VÁLIDO (BUY/SELL)
