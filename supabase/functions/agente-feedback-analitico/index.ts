@@ -34,6 +34,14 @@ Analise os seguintes aspectos:
 6. Qualidade do setup de risco/recompensa
 7. Fatores que podem validar ou invalidar o sinal
 
+**CRITICAL - VALIDAÇÃO DE TENDÊNCIA OBRIGATÓRIA:**
+- Verifique tendência H1 (EMA20 vs EMA50)
+- Verifique tendência M15 (últimas 10 velas bullish/bearish)
+- Verifique momentum de preço (preço atual vs média últimas 20 H1)
+- REJEITE se score < 100% (todos os 3 indicadores devem estar alinhados)
+- NUNCA aprove trades contra a tendência dominante
+- Verifique se preço está em mid-range (zona proibida ±1.5%)
+
 **CRITICAL - Volume Profile Analysis:**
 - Identifique o POC (Point of Control) - nível de maior volume
 - Marque Value Area (VA) - região com 70% do volume (20 níveis)
@@ -46,7 +54,10 @@ Analise os seguintes aspectos:
 - Analise eventos (Spring, Upthrust, Test)
 - Verifique volume em pontos-chave
 
-Seja objetivo, técnico e forneça uma pontuação de 0-100 para a qualidade do sinal.`;
+Seja EXTREMAMENTE rigoroso:
+- Pontuação 0-100 para a qualidade do sinal
+- REJEITE sinais contra a tendência (score < 60)
+- REJEITE sinais em zona proibida (mid-range)`;
 
     const userPrompt = `Analise este sinal de trading:
 

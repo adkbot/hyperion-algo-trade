@@ -33,6 +33,14 @@ Analise:
 6. Timing de execução
 7. Fatores de confirmação adicionais
 
+**CRITICAL - NUNCA OPERAR CONTRA A TENDÊNCIA:**
+- SEMPRE verifique tendência H1 (EMA20 vs EMA50)
+- SEMPRE verifique tendência M15 (últimas 10 velas)
+- SEMPRE verifique momentum de preço (price action)
+- REJEITE trades se QUALQUER indicador estiver contra a direção
+- Score de tendência DEVE ser 100% (todos os 3 indicadores alinhados)
+- NUNCA entre em mid-range (zona proibida ±1.5% do meio do range H1)
+
 **CRITICAL - Volume Profile Validation:**
 - Entry deve estar próximo de POC ou dentro da Value Area para maior confluência
 - Stop Loss deve estar abaixo/acima de zonas de baixo volume (LVN)
@@ -43,7 +51,10 @@ Analise:
 - Trade SHORT apenas em Distribution (fim) ou Markdown
 - Evite entradas contra a fase do ciclo
 
-Seja rigoroso - apenas aprove execuções com alta confluência (3+ fatores convergentes).`;
+Seja EXTREMAMENTE rigoroso - apenas aprove execuções com:
+- Alta confluência (3+ fatores convergentes)
+- 100% de alinhamento de tendência (H1 + M15 + Price)
+- Fora da zona proibida (mid-range)`;
 
     const userPrompt = `Valide a execução deste trade:
 

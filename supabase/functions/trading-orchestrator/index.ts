@@ -982,26 +982,37 @@ function validateTrendDirection(
 └─ Proposta: ${proposedDirection}
   `);
   
-  // 4. VALIDAÇÃO: Trade deve estar alinhado com a tendência
-  const trendScore = {
-    h1: h1Trend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH') ? 1 : 0,
-    m15: m15Trend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH') ? 1 : 0,
-    price: priceTrend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH') ? 1 : 
-           priceTrend === 'NEUTRAL' ? 0.5 : 0,
-  };
+  // 4. VALIDAÇÃO: TODOS os 3 indicadores DEVEM estar alinhados (100%)
+  const h1Align = h1Trend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH');
+  const m15Align = m15Trend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH');
+  const priceAlign = priceTrend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH');
   
-  const totalScore = trendScore.h1 + trendScore.m15 + trendScore.price;
-  const trendStrength = totalScore / 3;
+  // CRITICAL: ALL 3 MUST ALIGN for 100%
+  const allAligned = h1Align && m15Align && priceAlign;
+  const trendStrength = allAligned ? 1.0 : 0;
   
-  // REGRA: Pelo menos 2 de 3 indicadores devem estar alinhados (score >= 0.67)
-  const valid = trendStrength >= 0.67;
+  // CRITICAL: Require 100% alignment - ALL indicators must agree
+  const valid = allAligned;
   
   let reason = '';
   if (!valid) {
-    reason = `Tendência contra o trade proposto. Score: ${(trendStrength * 100).toFixed(1)}% | ` +
-             `H1: ${h1Trend}, M15: ${m15Trend}, Preço: ${priceTrend}`;
+    reason = `❌ TENDÊNCIA NÃO ALINHADA 100%: H1=${h1Trend} (${h1Align ? '✅' : '❌'}), M15=${m15Trend} (${m15Align ? '✅' : '❌'}), Price=${priceTrend} (${priceAlign ? '✅' : '❌'}) | Exigido: 100% | Atual: ${(trendStrength * 100).toFixed(1)}%`;
   } else {
-    reason = `Tendência alinhada com ${proposedDirection}. Score: ${(trendStrength * 100).toFixed(1)}%`;
+    reason = `✅ Tendência 100% alinhada: H1=${h1Trend}, M15=${m15Trend}, Price=${priceTrend}`;
+  }
+  
+  // Log detailed rejection if not valid
+  if (!valid) {
+    console.log(`
+❌❌❌ TRADE REJEITADO - TENDÊNCIA NÃO ALINHADA 100% ❌❌❌
+├─ Ativo: ${asset}
+├─ Direção proposta: ${proposedDirection}
+├─ H1 Trend: ${h1Trend} (${h1Align ? '✅ ALINHADO' : '❌ DESALINHADO'})
+├─ M15 Trend: ${m15Trend} (${m15Align ? '✅ ALINHADO' : '❌ DESALINHADO'})
+├─ Price Trend: ${priceTrend} (${priceAlign ? '✅ ALINHADO' : '❌ DESALINHADO'})
+├─ Score: ${(trendStrength * 100).toFixed(1)}% (min: 100%)
+└─ MOTIVO: TODOS os 3 indicadores devem estar alinhados
+    `);
   }
   
   console.log(`
@@ -1012,6 +1023,123 @@ ${valid ? '✅' : '❌'} RESULTADO: ${reason}
     valid,
     reason,
     trendStrength,
+  };
+}
+
+// ============================================================================
+// MID-RANGE CHECK: Evitar Zona Proibida
+// ============================================================================
+
+function checkMidRangeProhibited(
+  currentPrice: number,
+  h1Structure: any
+): { allowed: boolean; reason: string } {
+  const midRange = h1Structure.midRange;
+  const tolerance = 0.015; // 1.5% de cada lado do mid-range
+  
+  const distanceToMid = Math.abs(currentPrice - midRange) / midRange;
+  
+  if (distanceToMid < tolerance) {
+    return {
+      allowed: false,
+      reason: `❌ Preço em ZONA PROIBIDA (mid-range ±1.5%): $${midRange.toFixed(6)}`
+    };
+  }
+  
+  return {
+    allowed: true,
+    reason: `✅ Preço fora da zona proibida (distância: ${(distanceToMid * 100).toFixed(2)}%)`
+  };
+}
+
+// ============================================================================
+// TRADE SETUP VALIDATION: Validação Centralizada Completa
+// ============================================================================
+
+async function validateTradeSetup(
+  direction: 'BUY' | 'SELL',
+  currentPrice: number,
+  candles1h: any[],
+  candles15m: any[],
+  indicators: any,
+  h1Structure: any,
+  asset: string
+): Promise<{ valid: boolean; reason: string; details: any }> {
+  
+  // 1. Validar tendência (score DEVE ser 100%)
+  const trendValidation = validateTrendDirection(
+    candles1h, 
+    candles15m, 
+    indicators, 
+    direction, 
+    asset
+  );
+  
+  if (!trendValidation.valid || trendValidation.trendStrength < 1.0) {
+    return {
+      valid: false,
+      reason: `Tendência não alinhada 100%: ${trendValidation.reason}`,
+      details: { trendValidation }
+    };
+  }
+  
+  // 2. Validar mid-range (zona proibida)
+  const midRangeCheck = checkMidRangeProhibited(currentPrice, h1Structure);
+  
+  if (!midRangeCheck.allowed) {
+    console.log(`
+❌❌❌ TRADE REJEITADO - ZONA PROIBIDA ❌❌❌
+├─ Ativo: ${asset}
+├─ Preço atual: $${currentPrice.toFixed(6)}
+├─ Mid-Range: $${h1Structure.midRange.toFixed(6)}
+├─ Distância: ${(Math.abs(currentPrice - h1Structure.midRange) / h1Structure.midRange * 100).toFixed(2)}%
+└─ MOTIVO: Preço muito próximo do mid-range (zona neutra)
+    `);
+    return {
+      valid: false,
+      reason: midRangeCheck.reason,
+      details: { midRange: h1Structure.midRange, currentPrice }
+    };
+  }
+  
+  // 3. Validar momentum H1 (força mínima 60%)
+  const last5_h1 = candles1h.slice(-5);
+  const h1Momentum = detectTrend(last5_h1);
+  
+  if (h1Momentum.strength < 0.6) {
+    console.log(`
+❌❌❌ TRADE REJEITADO - MOMENTUM H1 FRACO ❌❌❌
+├─ Ativo: ${asset}
+├─ Momentum H1: ${(h1Momentum.strength * 100).toFixed(1)}%
+├─ Mínimo exigido: 60%
+├─ Direção H1: ${h1Momentum.direction}
+└─ MOTIVO: Momentum insuficiente no H1
+    `);
+    return {
+      valid: false,
+      reason: `❌ Momentum H1 fraco: ${(h1Momentum.strength * 100).toFixed(1)}% (min: 60%)`,
+      details: { h1Momentum }
+    };
+  }
+  
+  console.log(`
+✅✅✅ SETUP VALIDADO - TODOS OS CRITÉRIOS ATENDIDOS ✅✅✅
+├─ Ativo: ${asset}
+├─ Direção: ${direction}
+├─ Tendência: 100% alinhada
+├─ Mid-Range: OK (distância segura)
+├─ Momentum H1: ${(h1Momentum.strength * 100).toFixed(1)}%
+└─ STATUS: APROVADO PARA EXECUÇÃO
+  `);
+  
+  return {
+    valid: true,
+    reason: '✅ Setup validado: Tendência 100% alinhada + Zona segura + Momentum forte',
+    details: {
+      trendValidation,
+      midRangeCheck,
+      h1Momentum
+    }
   };
 }
 
@@ -2149,6 +2277,9 @@ async function analyzeOceaniaPhase(candles15m: any[], candles1h: any[], indicato
   const now = new Date();
   const utcHour = now.getUTCHours();
   
+  // Calcular H1 structure para validação
+  const h1Structure = analyzeH1Structure(candles1h);
+  
   // Primeira hora de Oceania (00:00-01:00) - Detectar C1
   const isFirstHour = utcHour === 0;
   
@@ -2206,7 +2337,31 @@ async function analyzeOceaniaPhase(candles15m: any[], candles1h: any[], indicato
     
     // ✅ CRITÉRIOS MAIS PERMISSIVOS: trend.strength > 0.4 (era 0.5)
     if (isAligned && (hasVolume || hasModerateVolume) && trend.strength > 0.4) {
-      const stopLoss = c1Direction === 'LONG' 
+      
+      // ✅ Validação final completa antes de aprovar
+      const setupValidation = await validateTradeSetup(
+        c1Direction === 'LONG' ? 'BUY' : 'SELL',
+        currentPrice,
+        candles1h,
+        candles15m,
+        indicators,
+        h1Structure,
+        asset
+      );
+      
+      if (!setupValidation.valid) {
+        console.log(`❌ ${asset}: Oceania C1 rejeitado - ${setupValidation.reason}`);
+        return {
+          signal: 'STAY_OUT',
+          direction: c1Direction === 'LONG' ? 'BUY' : 'SELL',
+          confidence: 0,
+          notes: `Oceania C1 rejeitado: ${setupValidation.reason}`,
+          phase: 'oceania_c1_rejected',
+          timestamp: new Date().toISOString(),
+        };
+      }
+      
+      const stopLoss = c1Direction === 'LONG'
         ? currentPrice - (atr * 0.6)  // SCALPING: mais próximo
         : currentPrice + (atr * 0.6);
       
@@ -2266,6 +2421,9 @@ async function analyzeOceaniaPhase(candles15m: any[], candles1h: any[], indicato
 async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
   const { rsi, volume, atr } = indicators;
   const c1Direction = sessionState?.c1_direction;
+  
+  // Calcular H1 structure para validação
+  const h1Structure = analyzeH1Structure(candles1h);
   
   if (!c1Direction) {
     return {
@@ -2334,6 +2492,29 @@ async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], candles1h: 
   // Asia REVERTE C1
   else if (asiaTrend.direction !== c1Direction && asiaTrend.strength > 0.7) {
     const newDirection = asiaTrend.direction;
+    
+    // Validar setup de reversão
+    const setupValidation = await validateTradeSetup(
+      newDirection === 'LONG' ? 'BUY' : 'SELL',
+      currentPrice,
+      candles1h,
+      candles15m,
+      indicators,
+      h1Structure,
+      asset
+    );
+    
+    if (!setupValidation.valid) {
+      console.log(`❌ ${asset}: Asia C1 reversão rejeitada - ${setupValidation.reason}`);
+      return {
+        signal: 'STAY_OUT',
+        direction: newDirection === 'LONG' ? 'BUY' : 'SELL',
+        confidence: 0,
+        notes: `Asia C1 reversão rejeitada: ${setupValidation.reason}`,
+        phase: 'asia_c1_reversal_rejected',
+        timestamp: new Date().toISOString(),
+      };
+    }
     
     await updateSessionState(supabase, userId, {
       c1_direction: newDirection, // ATUALIZA C1!
@@ -2422,6 +2603,9 @@ async function analyzeLondonPhase(candles15m: any[], candles1h: any[], indicator
   const { rsi, vwma, ema, volume, atr } = indicators;
   const c1Direction = sessionState?.c1_direction;
   
+  // Calcular H1 structure para validação
+  const h1Structure = analyzeH1Structure(candles1h);
+  
   // Calcular London Range (primeiras 8 velas = 2h)
   const londonCandles = candles15m.slice(-32); // 8h de dados
   const rangeHigh = Math.max(...londonCandles.map((c: any) => parseFloat(c.high)));
@@ -2442,6 +2626,30 @@ async function analyzeLondonPhase(candles15m: any[], candles1h: any[], indicator
   
   // LONG setup - bounce no suporte alinhado com C1
   if (nearSupport && c1Direction === 'LONG' && volume.factor > 1.1 && rsi < 45) {
+    
+    // Validar setup London LONG
+    const setupValidation = await validateTradeSetup(
+      'BUY',
+      currentPrice,
+      candles1h,
+      candles15m,
+      indicators,
+      h1Structure,
+      asset
+    );
+    
+    if (!setupValidation.valid) {
+      console.log(`❌ ${asset}: London LONG rejeitado - ${setupValidation.reason}`);
+      return {
+        signal: 'STAY_OUT',
+        direction: 'BUY',
+        confidence: 0,
+        notes: `London LONG rejeitado: ${setupValidation.reason}`,
+        phase: 'london_long_rejected',
+        timestamp: new Date().toISOString(),
+      };
+    }
+    
     const entry = currentPrice;
     const stop = rangeLow - (atr * 0.5);
     const target = (rangeHigh + rangeLow) / 2; // Meio do range
@@ -2471,6 +2679,30 @@ async function analyzeLondonPhase(candles15m: any[], candles1h: any[], indicator
   
   // SHORT setup - rejeição na resistência alinhado com C1
   if (nearResistance && c1Direction === 'SHORT' && volume.factor > 1.1 && rsi > 55) {
+    
+    // Validar setup London SHORT
+    const setupValidation = await validateTradeSetup(
+      'SELL',
+      currentPrice,
+      candles1h,
+      candles15m,
+      indicators,
+      h1Structure,
+      asset
+    );
+    
+    if (!setupValidation.valid) {
+      console.log(`❌ ${asset}: London SHORT rejeitado - ${setupValidation.reason}`);
+      return {
+        signal: 'STAY_OUT',
+        direction: 'SELL',
+        confidence: 0,
+        notes: `London SHORT rejeitado: ${setupValidation.reason}`,
+        phase: 'london_short_rejected',
+        timestamp: new Date().toISOString(),
+      };
+    }
+    
     const entry = currentPrice;
     const stop = rangeHigh + (atr * 0.5);
     const target = (rangeHigh + rangeLow) / 2;
@@ -2517,6 +2749,9 @@ async function analyzeLondonPhase(candles15m: any[], candles1h: any[], indicator
 async function analyzeNYPhase(candles5m: any[], candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any) {
   const { rsi, vwma, ema, macd, volume, atr } = indicators;
   
+  // Calcular H1 structure para validação
+  const h1Structure = analyzeH1Structure(candles1h);
+  
   const c1Direction = sessionState?.c1_direction;
   const londonHigh = sessionState?.london_range_high;
   const londonLow = sessionState?.london_range_low;
@@ -2558,6 +2793,29 @@ async function analyzeNYPhase(candles5m: any[], candles15m: any[], candles1h: an
   if (breakoutUp && volumeConfirmed && bullishAlignment) {
     // Apenas operar se alinhado com C1 ou Asia confirmou
     if (c1Direction === 'LONG' || asiaConfirmation === 'REVERSED') {
+      
+      // ✅ Validar setup NY LONG primeiro
+      const setupValidation = await validateTradeSetup(
+        'BUY',
+        currentPrice,
+        candles1h,
+        candles15m,
+        indicators,
+        h1Structure,
+        asset
+      );
+      
+      if (!setupValidation.valid) {
+        console.log(`❌ ${asset}: NY Breakout LONG rejeitado - ${setupValidation.reason}`);
+        return {
+          signal: 'STAY_OUT',
+          direction: 'BUY',
+          confidence: 0,
+          notes: `NY Breakout LONG rejeitado: ${setupValidation.reason}`,
+          phase: 'ny_breakout_long_rejected',
+          timestamp: new Date().toISOString(),
+        };
+      }
       
       // 🔍 VALIDAÇÃO H1/M5 PROTOCOL
       const h1m5Validation = validateH1M5Entry(
@@ -2617,6 +2875,29 @@ async function analyzeNYPhase(candles5m: any[], candles15m: any[], candles1h: an
   // SHORT breakout
   if (breakoutDown && volumeConfirmed && bearishAlignment) {
     if (c1Direction === 'SHORT' || asiaConfirmation === 'REVERSED') {
+      
+      // ✅ Validar setup NY SHORT primeiro
+      const setupValidation = await validateTradeSetup(
+        'SELL',
+        currentPrice,
+        candles1h,
+        candles15m,
+        indicators,
+        h1Structure,
+        asset
+      );
+      
+      if (!setupValidation.valid) {
+        console.log(`❌ ${asset}: NY Breakout SHORT rejeitado - ${setupValidation.reason}`);
+        return {
+          signal: 'STAY_OUT',
+          direction: 'SELL',
+          confidence: 0,
+          notes: `NY Breakout SHORT rejeitado: ${setupValidation.reason}`,
+          phase: 'ny_breakout_short_rejected',
+          timestamp: new Date().toISOString(),
+        };
+      }
       
       // 🔍 VALIDAÇÃO H1/M5 PROTOCOL
       const h1m5Validation = validateH1M5Entry(
