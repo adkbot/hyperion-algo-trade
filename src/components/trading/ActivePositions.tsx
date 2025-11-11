@@ -7,6 +7,7 @@ import { useActivePositions } from "@/hooks/useTradingData";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
+import { ClosePositionButton } from "./ClosePositionButton";
 
 export const ActivePositions = () => {
   const { data: positions } = useActivePositions();
@@ -86,6 +87,7 @@ export const ActivePositions = () => {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">Posições Ativas</CardTitle>
           <div className="flex items-center gap-2">
+            <ClosePositionButton />
             <Button
               variant="outline"
               size="sm"
