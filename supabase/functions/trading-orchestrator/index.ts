@@ -985,6 +985,33 @@ function validateTrendDirection(
   `);
   
   // ============================================
+  // 🚀 VIA EXPRESSA: FLIP PERFEITO COM FORÇA 95%+
+  // ============================================
+  if (m1Confirmation && m1Confirmation.confirmationStrength === 'STRONG' && m1Confirmation.m1Strength >= 0.95) {
+    console.log(`
+🚀 VIA EXPRESSA ATIVADA - ${asset}:
+├─ M1 Confirmation: ${m1Confirmation.confirmationStrength}
+├─ M1 Strength: ${(m1Confirmation.m1Strength * 100).toFixed(1)}% (mín: 95%)
+├─ Sweep: ${sweepData?.sweepType || 'N/A'}
+├─ Justificativa: FLIP PERFEITO com momentum extremo
+└─ ✅ APROVADO SEM VALIDAÇÕES ADICIONAIS
+
+⚡ IGNORANDO:
+├─ ❌ Tipo de sweep (aceita TOTAL, PARTIAL, NEAR)
+├─ ❌ Força da vela M15
+├─ ❌ Reversão M15
+└─ ❌ Alinhamento de tendência
+    `);
+    
+    return {
+      valid: true,
+      reason: `🚀 Via Expressa: FLIP PERFEITO com ${(m1Confirmation.m1Strength * 100).toFixed(1)}% de força M1`,
+      trendStrength: 1.0, // Confiança máxima
+      mode: 'EXPRESS_ENTRY'
+    };
+  }
+
+  // ============================================
   // 🔄 VALIDAÇÃO ESPECIAL: COUNTER-TREND EM SWEEPS DE ALTA QUALIDADE
   // ============================================
   if (sweepData && m1Confirmation) {
@@ -2239,8 +2266,11 @@ async function analyzeTechnicalStandalone(
   // ============================================
   const entry = m1Confirmation.entryPrice; // Usar preço confirmado no M1
   
-  // Stop Loss: Ajustado baseado no modo (counter-trend = mais apertado)
-  const stopMultiplier = trendValidation.mode === 'COUNTER_TREND' ? 0.8 : 1.2;
+  // Stop Loss: Ajustado baseado no modo (counter-trend e express = mais apertado)
+  const stopMultiplier = 
+    trendValidation.mode === 'EXPRESS_ENTRY' ? 0.8 :  // Stop apertado em via expressa
+    trendValidation.mode === 'COUNTER_TREND' ? 0.8 : 
+    1.2;
   const stopLoss = direction === 'BUY'
     ? sweepData.sweptLevel - (sweepData.wickLength * stopMultiplier)
     : sweepData.sweptLevel + (sweepData.wickLength * stopMultiplier);
