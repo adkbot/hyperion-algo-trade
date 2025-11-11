@@ -704,23 +704,23 @@ async function processUserTradingCycle(
           ...analysis
         });
 
-        // ✅ COOLDOWN: Verificar se já enviamos sinal recente para este ativo (últimos 30 segundos apenas)
+        // ✅ COOLDOWN: Verificar se já EXECUTAMOS uma ordem recente para este ativo (últimos 30 segundos)
         const thirtySecondsAgo = new Date(Date.now() - 30 * 1000).toISOString();
-        const { data: recentSignal } = await supabase
-          .from('session_history')
+        const { data: recentOrder } = await supabase
+          .from('operations')
           .select('*')
           .eq('user_id', userId)
-          .eq('pair', pair)
-          .eq('signal', analysis.signal)
-          .gte('timestamp', thirtySecondsAgo)
-          .order('timestamp', { ascending: false })
+          .eq('asset', pair)
+          .eq('direction', mapDirection(analysis.signal))
+          .gte('created_at', thirtySecondsAgo)
+          .order('created_at', { ascending: false })
           .limit(1)
           .single();
 
-        const shouldSkipDueToCooldown = recentSignal && analysis.signal !== 'STAY_OUT';
+        const shouldSkipDueToCooldown = recentOrder && analysis.signal !== 'STAY_OUT';
         
         if (shouldSkipDueToCooldown) {
-          console.log(`⏸️ COOLDOWN ATIVO: Sinal ${analysis.signal} para ${pair} já foi detectado há menos de 30 segundos. Aguardando...`);
+          console.log(`⏸️ COOLDOWN ATIVO: Ordem ${analysis.signal} para ${pair} já foi EXECUTADA há menos de 30 segundos. Aguardando...`);
         }
 
         // ✅ Gravar análise no histórico (sempre, inclusive em cooldown)
