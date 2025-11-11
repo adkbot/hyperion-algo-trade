@@ -3803,6 +3803,98 @@ async function calculateProjectedCompletionTime(
   return estimatedCompletionTime.toISOString();
 }
 
+// ============================================================
+// DETECTOR DE REVERSÃO DE PERNADA
+// ============================================================
+function detectLegReversal(
+  candles5m: any[],
+  candles15m: any[],
+  currentDirection: 'BUY' | 'SELL',
+  currentPrice: number,
+  entryPrice: number
+): { reversed: boolean; reason: string; confidence: number } {
+  
+  if (!candles5m || candles5m.length < 10 || !candles15m || candles15m.length < 5) {
+    return { reversed: false, reason: 'Dados insuficientes', confidence: 0 };
+  }
+  
+  const last10_5m = candles5m.slice(-10);
+  const last5_15m = candles15m.slice(-5);
+  
+  // Contar velas contrárias
+  let bullish5m = 0;
+  let bearish5m = 0;
+  
+  last10_5m.forEach(c => {
+    if (c.close > c.open) bullish5m++;
+    else bearish5m++;
+  });
+  
+  let bullish15m = 0;
+  let bearish15m = 0;
+  
+  last5_15m.forEach(c => {
+    if (c.close > c.open) bullish15m++;
+    else bearish15m++;
+  });
+  
+  // Se estava em LONG (BUY)
+  if (currentDirection === 'BUY') {
+    const bearishRatio5m = bearish5m / 10;
+    const bearishRatio15m = bearish15m / 5;
+    const belowEntry = currentPrice < entryPrice;
+    
+    // Reversão confirmada: 70%+ M5 bearish E 60%+ M15 bearish
+    if (bearishRatio5m >= 0.7 && bearishRatio15m >= 0.6) {
+      return {
+        reversed: true,
+        reason: `M5: ${(bearishRatio5m*100).toFixed(0)}% bearish, M15: ${(bearishRatio15m*100).toFixed(0)}% bearish`,
+        confidence: (bearishRatio5m + bearishRatio15m) / 2
+      };
+    }
+    
+    // Reversão forte: 80%+ M5 bearish + preço abaixo da entrada
+    if (bearishRatio5m >= 0.8 && belowEntry) {
+      return {
+        reversed: true,
+        reason: `M5: ${(bearishRatio5m*100).toFixed(0)}% bearish + Preço abaixo da entrada`,
+        confidence: 0.85
+      };
+    }
+  }
+  
+  // Se estava em SHORT (SELL)
+  if (currentDirection === 'SELL') {
+    const bullishRatio5m = bullish5m / 10;
+    const bullishRatio15m = bullish15m / 5;
+    const aboveEntry = currentPrice > entryPrice;
+    
+    // Reversão confirmada: 70%+ M5 bullish E 60%+ M15 bullish
+    if (bullishRatio5m >= 0.7 && bullishRatio15m >= 0.6) {
+      return {
+        reversed: true,
+        reason: `M5: ${(bullishRatio5m*100).toFixed(0)}% bullish, M15: ${(bullishRatio15m*100).toFixed(0)}% bullish`,
+        confidence: (bullishRatio5m + bullishRatio15m) / 2
+      };
+    }
+    
+    // Reversão forte: 80%+ M5 bullish + preço acima da entrada
+    if (bullishRatio5m >= 0.8 && aboveEntry) {
+      return {
+        reversed: true,
+        reason: `M5: ${(bullishRatio5m*100).toFixed(0)}% bullish + Preço acima da entrada`,
+        confidence: 0.85
+      };
+    }
+  }
+  
+  return {
+    reversed: false,
+    reason: 'Pernada ainda ativa',
+    confidence: 0
+  };
+}
+
 // Monitor active positions
 async function monitorActivePositions(supabase: any, userId: string, settings: any) {
   const { data: positions, error } = await supabase
@@ -3820,6 +3912,36 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
     const symbol = position.asset;
     
     try {
+      // Buscar velas M5 e M15 para detectar reversão
+      let candles5m = [];
+      let candles15m = [];
+      
+      try {
+        const response5m = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=5m&limit=50`);
+        const data5m = await response5m.json();
+        candles5m = data5m.map((k: any) => ({
+          time: k[0],
+          open: parseFloat(k[1]),
+          high: parseFloat(k[2]),
+          low: parseFloat(k[3]),
+          close: parseFloat(k[4]),
+          volume: parseFloat(k[5]),
+        }));
+        
+        const response15m = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=15m&limit=20`);
+        const data15m = await response15m.json();
+        candles15m = data15m.map((k: any) => ({
+          time: k[0],
+          open: parseFloat(k[1]),
+          high: parseFloat(k[2]),
+          low: parseFloat(k[3]),
+          close: parseFloat(k[4]),
+          volume: parseFloat(k[5]),
+        }));
+      } catch (candleError) {
+        console.error(`⚠️ Erro ao buscar velas para ${symbol}:`, candleError);
+      }
+      
       const priceResponse = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`);
       const priceData = await priceResponse.json();
       const currentPrice = parseFloat(priceData.price);
@@ -3866,15 +3988,46 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
 
       let closePosition = false;
       let result = '';
+      let exitReason = '';
+
+      // ============================================
+      // REGRA 0: REVERSÃO DE PERNADA (PRIORIDADE MÁXIMA)
+      // ============================================
+      const legReversal = detectLegReversal(
+        candles5m,
+        candles15m,
+        direction,
+        currentPrice,
+        entryPrice
+      );
+      
+      if (legReversal.reversed) {
+        closePosition = true;
+        result = currentPnL > 0 ? 'WIN' : 'LOSS';
+        exitReason = 'LEG_REVERSAL';
+        
+        console.log(`
+🔄🔄🔄 REVERSÃO DE PERNADA DETECTADA 🔄🔄🔄
+├─ Ativo: ${symbol}
+├─ Direção: ${direction}
+├─ Preço entrada: $${entryPrice.toFixed(4)}
+├─ Preço atual: $${currentPrice.toFixed(4)}
+├─ P&L: $${currentPnL.toFixed(2)} (${((currentPnL/settings.balance)*100).toFixed(2)}%)
+├─ Confiança: ${(legReversal.confidence * 100).toFixed(0)}%
+├─ Motivo: ${legReversal.reason}
+└─ AÇÃO: FECHAR POSIÇÃO IMEDIATAMENTE
+        `);
+      }
 
       // ============================================
       // REGRA 1: ATINGIU META DE LUCRO (100% do saldo)
       // ============================================
       let metaAtingida = false;
-      if (currentPnL >= targetProfit) {
+      if (!closePosition && currentPnL >= targetProfit) {
         closePosition = true;
         result = 'WIN';
-        metaAtingida = true; // ✅ FLAG: Meta foi batida!
+        exitReason = 'TARGET_PROFIT';
+        metaAtingida = true;
         console.log(`🎯 META ATINGIDA! ${symbol}: $${currentPnL.toFixed(2)} / $${targetProfit.toFixed(2)} (${profitTargetPercent}%)`);
       }
 
@@ -3885,10 +4038,12 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
         if (direction === 'BUY' && currentPrice <= stopLoss) {
           closePosition = true;
           result = 'LOSS';
+          exitReason = 'STOP_LOSS';
           console.log(`❌ Stop Loss atingido - ${symbol} LONG: $${currentPrice.toFixed(4)} <= $${stopLoss.toFixed(4)}`);
         } else if (direction === 'SELL' && currentPrice >= stopLoss) {
           closePosition = true;
           result = 'LOSS';
+          exitReason = 'STOP_LOSS';
           console.log(`❌ Stop Loss atingido - ${symbol} SHORT: $${currentPrice.toFixed(4)} >= $${stopLoss.toFixed(4)}`);
         }
       }
@@ -3900,10 +4055,12 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
         if (direction === 'BUY' && currentPrice >= takeProfit) {
           closePosition = true;
           result = 'WIN';
+          exitReason = 'TAKE_PROFIT';
           console.log(`✅ Take Profit H1/M5 atingido - ${symbol} LONG: $${currentPrice.toFixed(4)} >= $${takeProfit.toFixed(4)}`);
         } else if (direction === 'SELL' && currentPrice <= takeProfit) {
           closePosition = true;
           result = 'WIN';
+          exitReason = 'TAKE_PROFIT';
           console.log(`✅ Take Profit H1/M5 atingido - ${symbol} SHORT: $${currentPrice.toFixed(4)} <= $${takeProfit.toFixed(4)}`);
         }
       }
@@ -3919,6 +4076,7 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
         if (minutesInPosition >= 60) {
           closePosition = true;
           result = currentPnL > 0 ? 'WIN' : 'LOSS';
+          exitReason = 'TIME_LIMIT';
           console.log(`⏰ Tempo máximo (60min) - Fechando ${symbol} com P&L: $${currentPnL.toFixed(2)}`);
         }
       }
@@ -3961,6 +4119,7 @@ async function monitorActivePositions(supabase: any, userId: string, settings: a
             exit_time: new Date().toISOString(),
             pnl: currentPnL,
             result,
+            notes: exitReason ? `Saída: ${exitReason}` : undefined,
           })
           .eq('asset', symbol)
           .eq('entry_price', entryPrice)
