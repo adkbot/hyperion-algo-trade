@@ -21,10 +21,12 @@ export const ClosePositionButton = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
 
-      console.log("📤 Chamando binance-close-order...");
+      console.log("📤 Chamando binance-close-order para user:", user.id);
 
       const { data, error } = await supabase.functions.invoke('binance-close-order', {
-        body: { user_id: user.id }
+        body: { 
+          user_id: user.id 
+        }
       });
 
       if (error) {
