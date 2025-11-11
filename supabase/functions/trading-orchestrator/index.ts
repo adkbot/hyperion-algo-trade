@@ -928,6 +928,94 @@ async function analyzeCyclePhase(params: any) {
 const USE_AI_AGENTS = false; // ⬅️ Desabilitado conforme solicitado
 
 // ============================================
+// VALIDAÇÃO DE TENDÊNCIA - EVITAR TRADES CONTRA A TENDÊNCIA
+// ============================================
+function validateTrendDirection(
+  candles1h: any[],
+  candles15m: any[],
+  indicators: any,
+  proposedDirection: 'BUY' | 'SELL',
+  asset: string
+): { valid: boolean; reason: string; trendStrength: number } {
+  
+  console.log(`\n🔍 VALIDANDO TENDÊNCIA - ${asset} (Proposto: ${proposedDirection})`);
+  
+  // 1. TENDÊNCIA H1: Comparar EMA20 vs EMA50
+  const ema20_h1 = indicators.ema_5m; // Aproximação
+  const ema50_h1 = indicators.ema_15m; // Aproximação
+  
+  const h1Trend = ema20_h1 > ema50_h1 ? 'BULLISH' : 'BEARISH';
+  
+  // 2. TENDÊNCIA M15: Últimas 10 velas
+  const recent10_m15 = candles15m.slice(-10);
+  let bullishCandles = 0;
+  let bearishCandles = 0;
+  
+  for (const candle of recent10_m15) {
+    const close = parseFloat(candle.close);
+    const open = parseFloat(candle.open);
+    
+    if (close > open) bullishCandles++;
+    else bearishCandles++;
+  }
+  
+  const m15Trend = bullishCandles > bearishCandles ? 'BULLISH' : 'BEARISH';
+  const m15TrendStrength = Math.abs(bullishCandles - bearishCandles) / 10;
+  
+  // 3. INCLINAÇÃO DE PREÇO: Comparar preço atual vs média das últimas 20 velas H1
+  const last20_h1 = candles1h.slice(-20);
+  const avgPrice_h1 = last20_h1.reduce((sum, c) => sum + parseFloat(c.close), 0) / last20_h1.length;
+  const currentPrice = parseFloat(candles1h[candles1h.length - 1].close);
+  
+  const priceVsAvg = (currentPrice - avgPrice_h1) / avgPrice_h1;
+  const priceTrend = priceVsAvg > 0.005 ? 'BULLISH' : priceVsAvg < -0.005 ? 'BEARISH' : 'NEUTRAL';
+  
+  console.log(`
+📊 ANÁLISE DE TENDÊNCIA - ${asset}:
+├─ H1 Trend (EMA20 vs EMA50): ${h1Trend}
+├─ M15 Trend (10 velas): ${m15Trend} | Força: ${(m15TrendStrength * 100).toFixed(1)}%
+│  ├─ Bullish: ${bullishCandles}/10
+│  └─ Bearish: ${bearishCandles}/10
+├─ Preço vs Média H1(20): ${priceTrend} | ${(priceVsAvg * 100).toFixed(2)}%
+│  ├─ Preço atual: $${currentPrice.toFixed(4)}
+│  └─ Média H1(20): $${avgPrice_h1.toFixed(4)}
+└─ Proposta: ${proposedDirection}
+  `);
+  
+  // 4. VALIDAÇÃO: Trade deve estar alinhado com a tendência
+  const trendScore = {
+    h1: h1Trend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH') ? 1 : 0,
+    m15: m15Trend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH') ? 1 : 0,
+    price: priceTrend === (proposedDirection === 'BUY' ? 'BULLISH' : 'BEARISH') ? 1 : 
+           priceTrend === 'NEUTRAL' ? 0.5 : 0,
+  };
+  
+  const totalScore = trendScore.h1 + trendScore.m15 + trendScore.price;
+  const trendStrength = totalScore / 3;
+  
+  // REGRA: Pelo menos 2 de 3 indicadores devem estar alinhados (score >= 0.67)
+  const valid = trendStrength >= 0.67;
+  
+  let reason = '';
+  if (!valid) {
+    reason = `Tendência contra o trade proposto. Score: ${(trendStrength * 100).toFixed(1)}% | ` +
+             `H1: ${h1Trend}, M15: ${m15Trend}, Preço: ${priceTrend}`;
+  } else {
+    reason = `Tendência alinhada com ${proposedDirection}. Score: ${(trendStrength * 100).toFixed(1)}%`;
+  }
+  
+  console.log(`
+${valid ? '✅' : '❌'} RESULTADO: ${reason}
+  `);
+  
+  return {
+    valid,
+    reason,
+    trendStrength,
+  };
+}
+
+// ============================================
 // FASE 1: DETECTAR LINHAS MÁGICAS H1
 // ============================================
 function detectH1MagicLines(candles1h: any[]): {
@@ -1915,9 +2003,38 @@ async function analyzeTechnicalStandalone(
   `);
   
   // ============================================
-  // CALCULAR SL/TP BASEADO NA ESTRATÉGIA
+  // VALIDAR TENDÊNCIA GERAL (CRÍTICO)
   // ============================================
   const direction = sweepData.direction!;
+  const trendValidation = validateTrendDirection(candles1h, candles15m, indicators, direction, asset);
+  
+  if (!trendValidation.valid) {
+    console.log(`
+❌ TRADE REJEITADO - ${asset}:
+├─ Motivo: ${trendValidation.reason}
+├─ Força da tendência: ${(trendValidation.trendStrength * 100).toFixed(1)}%
+└─ Direção proposta: ${direction}
+    `);
+    return {
+      signal: 'STAY_OUT',
+      direction: direction,
+      confidence: 0.4,
+      notes: `Trade rejeitado: ${trendValidation.reason}`,
+      risk: null,
+      c1Direction: null,
+      volumeFactor: indicators.volume.factor,
+      confirmation: `Tendência contra o trade (Score: ${(trendValidation.trendStrength * 100).toFixed(1)}%)`,
+      marketData: { price: currentPrice, h1Structure, sweepData, trendValidation },
+      rangeHigh: h1Structure.previousHigh,
+      rangeLow: h1Structure.previousLow,
+    };
+  }
+  
+  console.log(`✅ Tendência validada: ${trendValidation.reason}`);
+  
+  // ============================================
+  // CALCULAR SL/TP BASEADO NA ESTRATÉGIA
+  // ============================================
   const entry = m1Confirmation.entryPrice; // Usar preço confirmado no M1
   
   // Stop Loss: Abaixo/acima do pavio do sweep
