@@ -35,7 +35,8 @@ export const ClosePositionButton = () => {
       }
 
       if (!data?.success) {
-        throw new Error(data?.error || "Falha ao fechar posição");
+        const errorMessage = data?.message || data?.error || "Falha ao fechar posição";
+        throw new Error(errorMessage);
       }
 
       console.log("✅ Posição fechada:", data);
