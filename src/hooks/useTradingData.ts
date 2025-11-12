@@ -190,6 +190,7 @@ export const useUpdateSettings = () => {
       api_secret?: string | null;
       leverage?: number;
       profit_target_percent?: number;
+      trading_strategy?: string;
     }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");

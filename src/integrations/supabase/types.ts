@@ -224,6 +224,39 @@ export type Database = {
         }
         Relationships: []
       }
+      session_foundation: {
+        Row: {
+          created_at: string | null
+          date: string
+          high: number
+          id: string
+          low: number
+          session: string
+          timestamp: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          date: string
+          high: number
+          id?: string
+          low: number
+          session: string
+          timestamp: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          date?: string
+          high?: number
+          id?: string
+          low?: number
+          session?: string
+          timestamp?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       session_history: {
         Row: {
           c1_direction: string | null
@@ -335,6 +368,36 @@ export type Database = {
         }
         Relationships: []
       }
+      session_trade_count: {
+        Row: {
+          created_at: string | null
+          date: string
+          id: string
+          session: string
+          trade_count: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          date: string
+          id?: string
+          session: string
+          trade_count?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          date?: string
+          id?: string
+          session?: string
+          trade_count?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_settings: {
         Row: {
           api_key: string | null
@@ -349,6 +412,7 @@ export type Database = {
           profit_target_percent: number | null
           risk_per_trade: number | null
           single_position_mode: boolean | null
+          trading_strategy: string | null
           updated_at: string | null
           user_id: string | null
         }
@@ -365,6 +429,7 @@ export type Database = {
           profit_target_percent?: number | null
           risk_per_trade?: number | null
           single_position_mode?: boolean | null
+          trading_strategy?: string | null
           updated_at?: string | null
           user_id?: string | null
         }
@@ -381,6 +446,7 @@ export type Database = {
           profit_target_percent?: number | null
           risk_per_trade?: number | null
           single_position_mode?: boolean | null
+          trading_strategy?: string | null
           updated_at?: string | null
           user_id?: string | null
         }

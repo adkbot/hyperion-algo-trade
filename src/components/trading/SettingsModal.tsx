@@ -25,6 +25,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
   const [apiSecret, setApiSecret] = useState("");
   const [leverage, setLeverage] = useState(20);
   const [profitTarget, setProfitTarget] = useState(100);
+  const [tradingStrategy, setTradingStrategy] = useState<'SWEEP_LIQUIDITY' | 'SCALPING_1MIN'>('SWEEP_LIQUIDITY');
 
   useEffect(() => {
     if (settings) {
@@ -36,6 +37,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
       setApiSecret(settings.api_secret || "");
       setLeverage(settings.leverage || 20);
       setProfitTarget(settings.profit_target_percent || 100);
+      setTradingStrategy(settings.trading_strategy as 'SWEEP_LIQUIDITY' | 'SCALPING_1MIN' || 'SWEEP_LIQUIDITY');
     }
   }, [settings]);
 
@@ -97,6 +99,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
       api_secret: apiSecret || null,
       leverage,
       profit_target_percent: profitTarget,
+      trading_strategy: tradingStrategy,
     });
     onOpenChange(false);
   };
@@ -185,6 +188,23 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
             />
             <p className="text-xs text-muted-foreground">
               Ex: 100% = dobrar saldo em cada trade
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="tradingStrategy">Estratégia de Trading</Label>
+            <select
+              id="tradingStrategy"
+              value={tradingStrategy}
+              onChange={(e) => setTradingStrategy(e.target.value as 'SWEEP_LIQUIDITY' | 'SCALPING_1MIN')}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <option value="SWEEP_LIQUIDITY">Sweep de Liquidez + IA</option>
+              <option value="SCALPING_1MIN">Scalping 1 Minuto (Mecânico)</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {tradingStrategy === 'SCALPING_1MIN' 
+                ? '🎯 Estratégia mecânica 100% baseada em FVG e vela de engolfo. R:R fixo 3:1. Máximo 1 trade por sessão.'
+                : '📊 Estratégia baseada em sweep de liquidez, confirmação M1 e validação por IA.'}
             </p>
           </div>
           <div className="flex items-center justify-between space-x-2">

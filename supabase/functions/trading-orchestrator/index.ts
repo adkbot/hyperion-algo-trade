@@ -885,16 +885,33 @@ async function processUserTradingCycle(
         continue;
       }
 
-      // ✅ FASE 2-5: Análise baseada na sessão atual
-      const analysis = await analyzeCyclePhase({
-        candles,
-        asset: pair,
-        session: currentSession,
-        phase: cyclePhase,
-        sessionState,
-        supabase,
-        userId
-      });
+      // ✅ ESCOLHER ESTRATÉGIA: Scalping 1Min ou Sweep de Liquidez
+      const strategy = settings.trading_strategy || 'SWEEP_LIQUIDITY';
+      
+      let analysis;
+      
+      if (strategy === 'SCALPING_1MIN') {
+        // NOVA ESTRATÉGIA: Scalping 1 Minuto
+        const { analyzeScalping1Min } = await import('./scalping-1min-analyzer.ts');
+        analysis = await analyzeScalping1Min({
+          candles: { '1m': candles['1m'], '5m': candles['5m'] },
+          asset: pair,
+          session: currentSession,
+          userId,
+          supabase
+        });
+      } else {
+        // ESTRATÉGIA ORIGINAL: Sweep de Liquidez + IA
+        analysis = await analyzeCyclePhase({
+          candles,
+          asset: pair,
+          session: currentSession,
+          phase: cyclePhase,
+          sessionState,
+          supabase,
+          userId
+        });
+      }
 
       if (analysis) {
         analysisResults.push({
