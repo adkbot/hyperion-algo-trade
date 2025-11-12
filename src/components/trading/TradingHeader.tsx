@@ -1,10 +1,11 @@
 import { Button } from "@/components/ui/button";
-import { Play, Pause, Square, Settings, LogOut, Zap } from "lucide-react";
+import { Play, Pause, Square, Settings, LogOut, Zap, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { SettingsModal } from "./SettingsModal";
 import { ClearHistoryButton } from "./ClearHistoryButton";
 import { useUserSettings, useUpdateBotStatus } from "@/hooks/useTradingData";
 import { useSetupScalping1Min } from "@/hooks/useSetupScalping1Min";
+import { useClearScalpingHistory } from "@/hooks/useClearScalpingHistory";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface TradingHeaderProps {
@@ -17,6 +18,7 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
   const { data: settings } = useUserSettings();
   const updateBotStatus = useUpdateBotStatus();
   const setupScalping = useSetupScalping1Min();
+  const clearHistory = useClearScalpingHistory();
   const { signOut, user } = useAuth();
 
   const handleStatusChange = (status: "stopped" | "running" | "paused") => {
@@ -57,6 +59,18 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
                 >
                   <Zap className="h-4 w-4 mr-2" />
                   {setupScalping.isPending ? "Ativando..." : "🎯 Ativar Scalping 1 Min"}
+                </Button>
+              )}
+              
+              {isScalping1Min && (
+                <Button
+                  onClick={() => clearHistory.mutate()}
+                  disabled={clearHistory.isPending}
+                  variant="outline"
+                  className="border-warning text-warning hover:bg-warning/10"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  {clearHistory.isPending ? "Limpando..." : "🧹 Limpar Logs Antigos"}
                 </Button>
               )}
               

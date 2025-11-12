@@ -40,12 +40,20 @@ interface AnalysisParams {
 
 interface AnalysisResult {
   signal: 'BUY' | 'SELL' | 'STAY_OUT';
+  direction?: string | null;
   entryPrice: number;
   stopLoss: number;
   takeProfit: number;
   riskReward: number;
   confidence: number;
   notes: string;
+  confirmation?: string;
+  volumeFactor?: number;
+  c1Direction?: string | null;
+  rangeHigh?: number;
+  rangeLow?: number;
+  marketData?: any;
+  risk?: any;
   foundation?: any;
   fvg?: any;
   retestCandle?: any;
@@ -72,6 +80,7 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   if (!foundation.valid) {
     return {
       signal: 'STAY_OUT',
+      direction: null,
       entryPrice: 0,
       stopLoss: 0,
       takeProfit: 0,
@@ -93,6 +102,7 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   if (!fvg.fvgDetected || !fvg.breakoutConfirmed) {
     return {
       signal: 'STAY_OUT',
+      direction: null,
       entryPrice: 0,
       stopLoss: 0,
       takeProfit: 0,
@@ -117,6 +127,7 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   if (!fvg.direction) {
     return {
       signal: 'STAY_OUT',
+      direction: null,
       entryPrice: 0,
       stopLoss: 0,
       takeProfit: 0,
@@ -139,6 +150,7 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   if (!pullback.retestDetected) {
     return {
       signal: 'STAY_OUT',
+      direction: null,
       entryPrice: 0,
       stopLoss: 0,
       takeProfit: 0,
@@ -167,6 +179,7 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   if (!engulfing.engulfingDetected) {
     return {
       signal: 'STAY_OUT',
+      direction: null,
       entryPrice: 0,
       stopLoss: 0,
       takeProfit: 0,
@@ -192,6 +205,7 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
     console.log(`⏸️ Limite atingido: ${tradeCount}/1 trade executado nesta sessão`);
     return {
       signal: 'STAY_OUT',
+      direction: null,
       entryPrice: 0,
       stopLoss: 0,
       takeProfit: 0,
@@ -216,6 +230,7 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   if (!fvg.direction || (fvg.direction !== 'BUY' && fvg.direction !== 'SELL')) {
     return {
       signal: 'STAY_OUT',
+      direction: null,
       entryPrice: 0,
       stopLoss: 0,
       takeProfit: 0,
@@ -245,12 +260,30 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   
   return {
     signal: fvg.direction,
+    direction: fvg.direction === 'BUY' ? 'LONG' : 'SHORT',
     entryPrice: engulfing.entryPrice,
     stopLoss: engulfing.stopLoss,
     takeProfit: engulfing.takeProfit,
     riskReward: 3,  // SEMPRE 3:1
     confidence: 0.95,  // Alta confiança (estratégia mecânica)
     notes: `✅ Scalping 1Min: Foundation ${foundation.high.toFixed(5)}/${foundation.low.toFixed(5)} | FVG ${fvg.direction} confirmado | Engulfing ✅ | R:R 3:1`,
+    confirmation: `FVG ${fvg.direction} + Pullback + Engulfing`,
+    volumeFactor: 1.0,
+    c1Direction: null,
+    rangeHigh: foundation.high,
+    rangeLow: foundation.low,
+    marketData: {
+      foundation: { high: foundation.high, low: foundation.low },
+      fvg: { top: fvg.fvgTop, bottom: fvg.fvgBottom, direction: fvg.direction },
+      retestCandle: pullback.retestCandle,
+      engulfingCandle: engulfing.engulfingCandle,
+    },
+    risk: {
+      entry: engulfing.entryPrice,
+      stop: engulfing.stopLoss,
+      target: engulfing.takeProfit,
+      rr_ratio: 3,
+    },
     foundation,
     fvg,
     retestCandle: pullback.retestCandle,
