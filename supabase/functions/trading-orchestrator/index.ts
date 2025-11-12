@@ -232,10 +232,10 @@ const DYNAMIC_RR_MAP: Record<string, number> = {
 
 // ✅ Session time ranges in UTC - Adjusted for 30min transition buffers
 const SESSIONS = {
-  OCEANIA: { start: 0, end: 2.5, name: 'Oceania' },        // 00:00 - 02:30 UTC
-  ASIA: { start: 3, end: 7.5, name: 'Asia' },              // 03:00 - 07:30 UTC
-  LONDON: { start: 8, end: 12.5, name: 'London' },         // 08:00 - 12:30 UTC
-  NEW_YORK: { start: 13, end: 23.5, name: 'NewYork' },     // 13:00 - 23:30 UTC
+  OCEANIA: { start: 0, end: 2.5, name: 'OCEANIA' },        // 00:00 - 02:30 UTC
+  ASIA: { start: 3, end: 7.5, name: 'ASIA' },              // 03:00 - 07:30 UTC
+  LONDON: { start: 8, end: 12.5, name: 'LONDON' },         // 08:00 - 12:30 UTC
+  NEW_YORK: { start: 13, end: 23.5, name: 'NY' },          // 13:00 - 23:30 UTC
 };
 
 // Map direction from LONG/SHORT to BUY/SELL for database
@@ -243,17 +243,7 @@ function mapDirection(signal: string): 'BUY' | 'SELL' {
   return signal === 'LONG' ? 'BUY' : 'SELL';
 }
 
-// Map session names to database format
-function mapSession(sessionName: string): 'OCEANIA' | 'ASIA' | 'LONDON' | 'NY' {
-  const sessionMap: Record<string, 'OCEANIA' | 'ASIA' | 'LONDON' | 'NY'> = {
-    'Oceania': 'OCEANIA',
-    'Asia': 'ASIA', 
-    'London': 'LONDON',
-    'NewYork': 'NY',
-    'NY': 'NY'
-  };
-  return sessionMap[sessionName] || 'NY';
-}
+// REMOVED: mapSession() function - no longer needed as detectCurrentSession() now returns standardized names directly
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -1025,13 +1015,13 @@ function detectCurrentSession(): string {
 
   if (inTransitionBuffer) {
     let nextSession = '';
-    if (utcDecimal >= 2.5 && utcDecimal < 3) nextSession = 'Asia';
-    else if (utcDecimal >= 7.5 && utcDecimal < 8) nextSession = 'London';
-    else if (utcDecimal >= 12.5 && utcDecimal < 13) nextSession = 'NewYork';
-    else if (utcDecimal >= 23.5) nextSession = 'Oceania';
+    if (utcDecimal >= 2.5 && utcDecimal < 3) nextSession = 'ASIA';
+    else if (utcDecimal >= 7.5 && utcDecimal < 8) nextSession = 'LONDON';
+    else if (utcDecimal >= 12.5 && utcDecimal < 13) nextSession = 'NY';
+    else if (utcDecimal >= 23.5) nextSession = 'OCEANIA';
     
     console.log(`⏸️ Buffer de transição pré-${nextSession} em ${utcHour}:${utcMinutes.toString().padStart(2, '0')} UTC`);
-    return 'Transition';
+    return 'TRANSITION';
   }
 
   // ✅ DETECTAR SESSÃO ATIVA (usando hora decimal para precisão)
@@ -1042,18 +1032,18 @@ function detectCurrentSession(): string {
     }
   }
   
-  // Fallback para Oceania (00:00-02:30)
-  console.log(`✅ Sessão ativa: Oceania em ${utcHour}:${utcMinutes.toString().padStart(2, '0')} UTC (fallback)`);
-  return 'Oceania';
+  // Fallback para OCEANIA (00:00-02:30)
+  console.log(`✅ Sessão ativa: OCEANIA em ${utcHour}:${utcMinutes.toString().padStart(2, '0')} UTC (fallback)`);
+  return 'OCEANIA';
 }
 
 // Determine cycle phase based on session
 function getCyclePhase(session: string): string {
-  if (session === 'Transition') return 'Waiting';
-  if (session === 'Oceania') return 'Projection_Oceania';
-  if (session === 'Asia') return 'Projection_Asia';
-  if (session === 'London') return 'Consolidation';
-  if (session === 'NewYork') return 'Execution';
+  if (session === 'TRANSITION') return 'Waiting';
+  if (session === 'OCEANIA') return 'Projection_Oceania';
+  if (session === 'ASIA') return 'Projection_Asia';
+  if (session === 'LONDON') return 'Consolidation';
+  if (session === 'NY') return 'Execution';
   return 'Unknown';
 }
 
@@ -1062,7 +1052,7 @@ async function analyzeCyclePhase(params: any) {
   const { candles, asset, session, phase, sessionState, supabase, userId } = params;
 
   // ✅ AGORA PERMITE TRADING EM TRANSITION (Buffer desabilitado)
-  if (session === 'Transition') {
+  if (session === 'TRANSITION') {
     console.log(`⚠️ TRANSITION MODE - Usando análise STANDALONE (buffer desabilitado)`);
     // Não retornar null - continuar com análise standalone
   }

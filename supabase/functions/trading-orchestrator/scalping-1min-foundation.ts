@@ -25,12 +25,13 @@ interface Candle {
 
 /**
  * Horários de início de cada sessão (UTC)
+ * CORRIGIDO: Alinhado com os horários reais das sessões
  */
 const SESSION_START_TIMES = {
-  OCEANIA: { hour: 22, minute: 0 }, // 22:00 UTC (dia anterior)
-  ASIA: { hour: 0, minute: 0 },     // 00:00 UTC
+  OCEANIA: { hour: 0, minute: 0 },  // 00:00 UTC
+  ASIA: { hour: 3, minute: 0 },     // 03:00 UTC
   LONDON: { hour: 8, minute: 0 },   // 08:00 UTC
-  NY: { hour: 13, minute: 30 }      // 13:30 UTC (9:30 AM EST)
+  NY: { hour: 13, minute: 0 }       // 13:00 UTC
 };
 
 /**
@@ -133,11 +134,6 @@ function detectSessionFoundation(
   // Encontrar a primeira vela de 5min após o início da sessão
   const now = new Date();
   const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  
-  // Para Oceania, sessão começa no dia anterior
-  if (session === 'OCEANIA') {
-    todayUTC.setUTCDate(todayUTC.getUTCDate() - 1);
-  }
   
   todayUTC.setUTCHours(sessionStart.hour, sessionStart.minute, 0, 0);
   const sessionStartTimestamp = todayUTC.getTime();
