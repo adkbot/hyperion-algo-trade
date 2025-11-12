@@ -97,16 +97,78 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Se não encontrou no banco, buscar diretamente na Binance
     if (!activePosition) {
-      console.log('⚠️ Nenhuma posição ativa encontrada');
-      return new Response(
-        JSON.stringify({ 
-          success: false,
-          error: 'Nenhuma posição ativa encontrada',
-          message: 'Não há posições abertas para fechar'
-        }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.log('⚠️ Nenhuma posição no banco - buscando diretamente na Binance...');
+      
+      // Get user settings (API keys)
+      const { data: settings } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('user_id', user_id)
+        .single();
+
+      if (!settings || !settings.api_key || !settings.api_secret) {
+        return new Response(
+          JSON.stringify({ error: 'Binance API credentials not configured' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const apiKey = settings.api_key;
+      const apiSecret = settings.api_secret;
+
+      // Buscar posições abertas na Binance
+      const positionTimestamp = Date.now();
+      const positionParams = `timestamp=${positionTimestamp}`;
+      const positionSignature = createHmac('sha256', apiSecret)
+        .update(positionParams)
+        .digest('hex');
+
+      const positionUrl = `https://fapi.binance.com/fapi/v2/positionRisk?${positionParams}&signature=${positionSignature}`;
+      const positionResponse = await fetch(positionUrl, {
+        headers: { 'X-MBX-APIKEY': apiKey },
+      });
+
+      if (!positionResponse.ok) {
+        return new Response(
+          JSON.stringify({ 
+            success: false,
+            error: 'Erro ao consultar Binance',
+            message: 'Não foi possível consultar posições na Binance'
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const allPositions = await positionResponse.json();
+      const openPositions = allPositions.filter((p: any) => parseFloat(p.positionAmt) !== 0);
+
+      if (openPositions.length === 0) {
+        console.log('⚠️ Nenhuma posição aberta encontrada na Binance');
+        return new Response(
+          JSON.stringify({ 
+            success: false,
+            error: 'Nenhuma posição ativa encontrada',
+            message: 'Não há posições abertas para fechar'
+          }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Pegar a primeira posição aberta
+      const binancePosition = openPositions[0];
+      const positionAmt = parseFloat(binancePosition.positionAmt);
+      
+      activePosition = {
+        asset: binancePosition.symbol,
+        direction: positionAmt > 0 ? 'LONG' : 'SHORT',
+        entry_price: parseFloat(binancePosition.entryPrice),
+        quantity: Math.abs(positionAmt),
+        user_id: user_id
+      };
+
+      console.log(`✅ Posição encontrada na Binance: ${activePosition.asset} ${activePosition.direction} ${activePosition.quantity}`);
     }
 
     const asset = activePosition.asset;
