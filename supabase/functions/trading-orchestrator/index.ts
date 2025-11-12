@@ -285,9 +285,10 @@ serve(async (req) => {
       .eq('bot_status', 'running');
 
     if (settingsError || !activeUsers || activeUsers.length === 0) {
+      console.log('No active bots running');
       return new Response(
-        JSON.stringify({ message: 'No active bots running' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ message: 'No active bots running', success: true }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
       );
     }
 
@@ -361,6 +362,23 @@ serve(async (req) => {
 ${TEST_MODE.enabled ? `└─ 🧪 MODO TESTE: ${TEST_MODE.maxTrades} trades máximo, ${(TEST_MODE.minConfidence * 100).toFixed(0)}% confiança mínima` : ''}
       `);
     }
+    
+    return new Response(
+      JSON.stringify({
+        success: true,
+        session: currentSession,
+        phase: cyclePhase,
+        users_processed: activeUsers.length,
+        results: allResults,
+        performance: {
+          total_time_ms: totalTime,
+          utilization_pct: utilizationPct,
+          pairs_analyzed: totalPairsAnalyzed,
+          avg_time_per_pair_ms: totalPairsAnalyzed > 0 ? Math.round(totalTime / totalPairsAnalyzed) : null
+        }
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   } catch (error) {
     console.error('Error in trading-orchestrator:', error);
     return new Response(
@@ -765,7 +783,7 @@ async function processUserTradingCycle(
 
   // Monitor existing positions regardless of limit
   if (syncedPositions && syncedPositions.length > 0) {
-    await monitorActivePositions(supabase, userId, settings);
+    await monitorActivePositions(supabase, userId);
     
     // ✅ SINCRONIZAR AUTOMATICAMENTE com Binance a cada ciclo (modo real)
     if (!settings.paper_mode) {
@@ -2802,14 +2820,12 @@ async function analyzeTechnicalStandalone(
   const signal = direction === 'BUY' ? 'LONG' : 'SHORT';
   
   // ✅ Confiança: sweep (60-80%) + confirmação M1
-  let finalConfidence = sweepConfidence;
-  finalConfidence += m1Confirmation.confidenceAdjustment;
   
   // ✅ Ajustar confiança pelo tipo de sweep
   if (sweepData.sweepType === 'PARTIAL') {
-    baseConfidence -= 0.05;
+    sweepConfidence -= 0.05;
   } else if (sweepData.sweepType === 'NEAR') {
-    baseConfidence -= 0.10;
+    sweepConfidence -= 0.10;
   }
   
   // ✅ Volume profile validation (se habilitado na sessão)
@@ -2819,17 +2835,17 @@ async function analyzeTechnicalStandalone(
                       sweepData.sweptLevel <= volumeProfile.valueAreaHigh;
   
   if (sessionConfig.requireVolume && (nearPOC || inValueArea)) {
-    baseConfidence += 0.05;
+    sweepConfidence += 0.05;
     console.log(`📊 Volume Profile: Sweep próximo a zona de alto volume (+0.05 confiança)`);
   }
   
-  const finalConfidence = Math.min(0.95, Math.max(0.5, baseConfidence));
+  const finalConfidence = Math.min(0.95, Math.max(0.5, sweepConfidence));
   
   console.log(`
 🎯 SETUP FINAL - ${asset}:
 ├─ Tipo de Sweep: ${sweepData.sweepType}
 ├─ Confirmação M1: ${m1Confirmation.confirmationStrength}
-├─ Confiança Base: ${baseConfidence.toFixed(2)}
+├─ Confiança Base: ${sweepConfidence.toFixed(2)}
 ├─ Confiança Final: ${finalConfidence.toFixed(2)}
 └─ R:R: 1:${rrRatio.toFixed(2)} (min: ${minRR.toFixed(2)})
   `);
@@ -4537,256 +4553,5 @@ function detectLegReversal(
 
 // ✅ TODAS AS FUNÇÕES DE MONITORAMENTO JÁ ESTÃO DEFINIDAS NO TOPO DO ARQUIVO
 // monitorActivePositions (linha ~125) - Com trailing stop implementado
-// calculateATR (linha ~79) - Cálculo de Average True Range
+// calculateATR (linha ~79) - Cálculo de Average True Range  
 // executeTradeSignal - Já implementada acima com risco adaptativo
-      
-      const priceResponse = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`);
-      const priceData = await priceResponse.json();
-      const currentPrice = parseFloat(priceData.price);
-
-      const entryPrice = parseFloat(position.entry_price);
-      const stopLoss = parseFloat(position.stop_loss);
-      const takeProfit = parseFloat(position.take_profit);
-      const direction = position.direction;
-
-      // Calculate P&L with 20x leverage system
-      const priceDiff = direction === 'BUY' 
-        ? currentPrice - entryPrice 
-        : entryPrice - currentPrice;
-      
-      // Recalcular quantidade baseada no sistema 20x
-      const leverage = settings.leverage || 20;
-      const profitTargetPercent = settings.profit_target_percent || 100;
-      const targetProfit = settings.balance * (profitTargetPercent / 100);
-      const profitPerUnit = Math.abs(takeProfit - entryPrice);
-      
-      let quantity = targetProfit / profitPerUnit;
-      
-      // Ajuste se margem exceder saldo (mesma lógica da execução)
-      const positionValue = quantity * entryPrice;
-      const marginRequired = positionValue / leverage;
-      
-      if (marginRequired > settings.balance) {
-        const adjustmentFactor = settings.balance / marginRequired;
-        quantity = quantity * adjustmentFactor;
-      }
-      
-      const currentPnL = priceDiff * quantity;
-
-      // Update position
-      await supabase
-        .from('active_positions')
-        .update({
-          current_price: currentPrice,
-          current_pnl: currentPnL,
-        })
-        .eq('id', position.id);
-
-      console.log(`📊 ${symbol}: Preço $${currentPrice.toFixed(4)} | P&L $${currentPnL.toFixed(2)} | Meta $${targetProfit.toFixed(2)}`);
-
-      let closePosition = false;
-      let result = '';
-      let exitReason = '';
-
-      // ============================================
-      // REGRA 0: REVERSÃO DE PERNADA (PRIORIDADE MÁXIMA)
-      // ============================================
-      const legReversal = detectLegReversal(
-        candles5m,
-        candles15m,
-        direction,
-        currentPrice,
-        entryPrice
-      );
-      
-      if (legReversal.reversed) {
-        closePosition = true;
-        result = currentPnL > 0 ? 'WIN' : 'LOSS';
-        exitReason = 'LEG_REVERSAL';
-        
-        console.log(`
-🔄🔄🔄 REVERSÃO DE PERNADA DETECTADA 🔄🔄🔄
-├─ Ativo: ${symbol}
-├─ Direção: ${direction}
-├─ Preço entrada: $${entryPrice.toFixed(4)}
-├─ Preço atual: $${currentPrice.toFixed(4)}
-├─ P&L: $${currentPnL.toFixed(2)} (${((currentPnL/settings.balance)*100).toFixed(2)}%)
-├─ Confiança: ${(legReversal.confidence * 100).toFixed(0)}%
-├─ Motivo: ${legReversal.reason}
-└─ AÇÃO: FECHAR POSIÇÃO IMEDIATAMENTE
-        `);
-      }
-
-      // ============================================
-      // REGRA 1: ATINGIU META DE LUCRO (100% do saldo)
-      // ============================================
-      let metaAtingida = false;
-      if (!closePosition && currentPnL >= targetProfit) {
-        closePosition = true;
-        result = 'WIN';
-        exitReason = 'TARGET_PROFIT';
-        metaAtingida = true;
-        console.log(`🎯 META ATINGIDA! ${symbol}: $${currentPnL.toFixed(2)} / $${targetProfit.toFixed(2)} (${profitTargetPercent}%)`);
-      }
-
-      // ============================================
-      // REGRA 2: STOP LOSS ATINGIDO
-      // ============================================
-      if (!closePosition) {
-        if (direction === 'BUY' && currentPrice <= stopLoss) {
-          closePosition = true;
-          result = 'LOSS';
-          exitReason = 'STOP_LOSS';
-          console.log(`❌ Stop Loss atingido - ${symbol} LONG: $${currentPrice.toFixed(4)} <= $${stopLoss.toFixed(4)}`);
-        } else if (direction === 'SELL' && currentPrice >= stopLoss) {
-          closePosition = true;
-          result = 'LOSS';
-          exitReason = 'STOP_LOSS';
-          console.log(`❌ Stop Loss atingido - ${symbol} SHORT: $${currentPrice.toFixed(4)} >= $${stopLoss.toFixed(4)}`);
-        }
-      }
-
-      // ============================================
-      // REGRA 3: TAKE PROFIT H1/M5 ATINGIDO
-      // ============================================
-      if (!closePosition) {
-        if (direction === 'BUY' && currentPrice >= takeProfit) {
-          closePosition = true;
-          result = 'WIN';
-          exitReason = 'TAKE_PROFIT';
-          console.log(`✅ Take Profit H1/M5 atingido - ${symbol} LONG: $${currentPrice.toFixed(4)} >= $${takeProfit.toFixed(4)}`);
-        } else if (direction === 'SELL' && currentPrice <= takeProfit) {
-          closePosition = true;
-          result = 'WIN';
-          exitReason = 'TAKE_PROFIT';
-          console.log(`✅ Take Profit H1/M5 atingido - ${symbol} SHORT: $${currentPrice.toFixed(4)} <= $${takeProfit.toFixed(4)}`);
-        }
-      }
-
-      // ============================================
-      // REGRA 4: PROTEÇÃO DE TEMPO (MAX 60 MINUTOS)
-      // ============================================
-      if (!closePosition) {
-        const now = new Date();
-        const openedAt = new Date(position.opened_at);
-        const minutesInPosition = (now.getTime() - openedAt.getTime()) / 60000;
-        
-        if (minutesInPosition >= 60) {
-          closePosition = true;
-          result = currentPnL > 0 ? 'WIN' : 'LOSS';
-          exitReason = 'TIME_LIMIT';
-          console.log(`⏰ Tempo máximo (60min) - Fechando ${symbol} com P&L: $${currentPnL.toFixed(2)}`);
-        }
-      }
-
-      if (closePosition) {
-        // 🔥 BINANCE INTEGRATION: Close real order if not in paper mode
-        if (!settings.paper_mode && settings.api_key && settings.api_secret) {
-          console.log(`📡 Calling binance-close-order for REAL close: ${symbol}`);
-          
-          try {
-            const { data: closeData, error: closeError } = await supabase.functions.invoke('binance-close-order', {
-              body: {
-                user_id: userId,
-                asset: symbol,
-                side: direction === 'BUY' ? 'SELL' : 'BUY', // Opposite side to close
-                quantity: quantity.toFixed(4),
-              },
-            });
-
-            if (closeError) {
-              console.error(`❌ Binance close order failed for ${symbol}:`, closeError);
-              // Continue anyway to update database
-            } else {
-              console.log(`✅ Real Binance position closed:`, closeData);
-            }
-          } catch (error) {
-            console.error(`❌ Exception calling binance-close-order:`, error);
-            // Continue anyway to update database
-          }
-        }
-
-        // Close position in database
-        await supabase.from('active_positions').delete().eq('id', position.id);
-
-        // Update operation
-        await supabase
-          .from('operations')
-          .update({
-            exit_price: currentPrice,
-            exit_time: new Date().toISOString(),
-            pnl: currentPnL,
-            result,
-            notes: exitReason ? `Saída: ${exitReason}` : undefined,
-          })
-          .eq('asset', symbol)
-          .eq('entry_price', entryPrice)
-          .is('exit_time', null);
-
-        // Update daily goals
-        const today = new Date().toISOString().split('T')[0];
-        const { data: dailyGoal } = await supabase
-          .from('daily_goals')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('date', today)
-          .single();
-
-        if (dailyGoal) {
-          // Calcular projeção de tempo
-          const now = new Date();
-          const startOfDayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
-          const newTotalOperations = (dailyGoal.total_operations || 0) + 1;
-          const projectedTime = await calculateProjectedCompletionTime(
-            newTotalOperations,
-            dailyGoal.target_operations || 45,
-            startOfDayUTC
-          );
-
-          await supabase
-            .from('daily_goals')
-            .update({
-              total_operations: newTotalOperations,
-              wins: result === 'WIN' ? (dailyGoal.wins || 0) + 1 : dailyGoal.wins,
-              losses: result === 'LOSS' ? (dailyGoal.losses || 0) + 1 : dailyGoal.losses,
-              total_pnl: (dailyGoal.total_pnl || 0) + currentPnL,
-              completed: metaAtingida, // ✅ MARCA META ATINGIDA APENAS SE BATEU 100%
-              projected_completion_time: projectedTime, // ✅ ADICIONAR PROJEÇÃO
-            })
-            .eq('id', dailyGoal.id);
-          
-          if (metaAtingida) {
-            console.log(`✅ Daily goal marcado como completed = true (Meta de ${profitTargetPercent}% atingida!)`);
-          } else {
-            console.log(`⚠️ Posição fechada mas meta NÃO atingida (completed = false) - Sistema aguardará próximo dia para nova entrada`);
-          }
-        }
-
-        // Update balance
-        await supabase
-          .from('user_settings')
-          .update({
-            balance: settings.balance + currentPnL,
-          })
-          .eq('user_id', userId);
-
-        // Notify agents
-        await supabase.from('agent_logs').insert({
-          user_id: userId,
-          agent_name: 'Risk Management',
-          asset: symbol,
-          status: result === 'WIN' ? 'success' : 'warning',
-          data: {
-            action: 'POSITION_CLOSED',
-            result,
-            entry: entryPrice,
-            exit: currentPrice,
-            pnl: currentPnL,
-          },
-        });
-      }
-    } catch (error) {
-      console.error(`Error monitoring position for ${symbol}:`, error);
-    }
-  }
-}
