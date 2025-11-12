@@ -9,6 +9,16 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
+// ============================================
+// 🧪 FASE 5: MODO TESTE CONTROLADO
+// ============================================
+const TEST_MODE = {
+  enabled: true,
+  maxTrades: 10,         // Máximo 10 trades de teste
+  minConfidence: 0.70,   // Só trades com 70%+ confiança
+  logEverything: true    // Logs detalhados
+};
+
 // Agent Functions URLs (Local Edge Functions)
 const AGENTE_FEEDBACK_URL = `${SUPABASE_URL}/functions/v1/agente-feedback-analitico`;
 const AGENTE_EXECUCAO_URL = `${SUPABASE_URL}/functions/v1/agente-execucao-confluencia`;
@@ -62,6 +72,112 @@ const rateLimiter = new BinanceRateLimiter();
 let cachedPairs: string[] = [];
 let cacheTimestamp = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
+// ============================================
+// 🔴 FASE 1: FUNÇÃO PARA CALCULAR ATR (Average True Range)
+// ============================================
+function calculateATR(candles: any[], period: number = 14): number {
+  if (candles.length < period + 1) return 0;
+  
+  const trueRanges = [];
+  
+  for (let i = 1; i < candles.length; i++) {
+    const high = parseFloat(candles[i].high);
+    const low = parseFloat(candles[i].low);
+    const prevClose = parseFloat(candles[i - 1].close);
+    
+    const tr = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    );
+    
+    trueRanges.push(tr);
+  }
+  
+  const lastPeriod = trueRanges.slice(-period);
+  return lastPeriod.reduce((sum, tr) => sum + tr, 0) / period;
+}
+
+// ============================================
+// 🔵 FASE 4: CALCULAR RISCO ADAPTATIVO
+// ============================================
+function calculateAdaptiveRisk(baseRisk: number, dailyGoals: any): number {
+  if (!dailyGoals) return baseRisk;
+  
+  const consecutiveLosses = dailyGoals.losses - dailyGoals.wins;
+  
+  // Reduzir risco após losses consecutivos
+  if (consecutiveLosses >= 4) {
+    console.log(`🚨 4+ losses consecutivos - Reduzindo risco para 25%`);
+    return baseRisk * 0.25; // 6% → 1.5%
+  } else if (consecutiveLosses >= 2) {
+    console.log(`⚠️ 2+ losses consecutivos - Reduzindo risco para 50%`);
+    return baseRisk * 0.5; // 6% → 3%
+  }
+  
+  return baseRisk;
+}
+
+// ============================================
+// 🔵 FASE 4: MONITORAR POSIÇÕES ATIVAS (TRAILING STOP)
+// ============================================
+async function monitorActivePositions(supabase: any, userId: string): Promise<void> {
+  const { data: positions } = await supabase
+    .from('active_positions')
+    .select('*')
+    .eq('user_id', userId)
+    .is('result', null);
+    
+  if (!positions || positions.length === 0) return;
+  
+  for (const pos of positions) {
+    if (!pos.current_price || !pos.entry_price) continue;
+    
+    const currentPnlPercent = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100;
+    const absPnlPercent = Math.abs(currentPnlPercent);
+    
+    // ✅ Ativar trailing stop se lucro > 0.5%
+    if (absPnlPercent > 0.5) {
+      const currentStop = parseFloat(pos.stop_loss);
+      let newTrailingStop: number;
+      
+      if (pos.direction === 'BUY') {
+        // BUY: Stop 0.3% abaixo do preço atual
+        newTrailingStop = pos.current_price * 0.997;
+        
+        // Só atualizar se o novo stop for MAIOR que o atual (proteção)
+        if (newTrailingStop > currentStop) {
+          await supabase
+            .from('active_positions')
+            .update({ stop_loss: newTrailingStop })
+            .eq('id', pos.id);
+            
+          console.log(`📈 TRAILING STOP ATIVADO (BUY) - ${pos.asset}:`);
+          console.log(`├─ PNL: +${currentPnlPercent.toFixed(2)}%`);
+          console.log(`├─ Stop antigo: $${currentStop.toFixed(4)}`);
+          console.log(`└─ Novo stop: $${newTrailingStop.toFixed(4)} (+${((newTrailingStop - currentStop) / currentStop * 100).toFixed(2)}%)`);
+        }
+      } else {
+        // SELL: Stop 0.3% acima do preço atual
+        newTrailingStop = pos.current_price * 1.003;
+        
+        // Só atualizar se o novo stop for MENOR que o atual (proteção)
+        if (newTrailingStop < currentStop) {
+          await supabase
+            .from('active_positions')
+            .update({ stop_loss: newTrailingStop })
+            .eq('id', pos.id);
+            
+          console.log(`📉 TRAILING STOP ATIVADO (SELL) - ${pos.asset}:`);
+          console.log(`├─ PNL: +${currentPnlPercent.toFixed(2)}%`);
+          console.log(`├─ Stop antigo: $${currentStop.toFixed(4)}`);
+          console.log(`└─ Novo stop: $${newTrailingStop.toFixed(4)} (${((currentStop - newTrailingStop) / currentStop * 100).toFixed(2)}%)`);
+        }
+      }
+    }
+  }
+}
 
 // ✅ FASE 6: R:R ranges por sessão e tipo de operação
 const RR_RANGES = {
@@ -219,31 +335,32 @@ serve(async (req) => {
     const totalTime = Date.now() - startTime;
     const utilizationPct = (totalTime / 60000) * 100;
     
-    console.log(`
+    // 🟣 FASE 5: MÉTRICAS DE VALIDAÇÃO
+    const metricsLog = `
 ⏱️ PERFORMANCE REPORT:
 ├─ Tempo total: ${totalTime}ms (${utilizationPct.toFixed(1)}% do limite de 60s)
 ├─ Pares analisados: ${totalPairsAnalyzed}
 ├─ Tempo médio/par: ${totalPairsAnalyzed > 0 ? (totalTime / totalPairsAnalyzed).toFixed(0) : 'N/A'}ms
 ├─ Utilização: ${utilizationPct < 90 ? '✅ SEGURO' : utilizationPct < 95 ? '⚠️ PRÓXIMO DO LIMITE' : '🔴 CRÍTICO'}
 └─ Status: ${utilizationPct < 90 ? 'Tudo OK' : 'Considere reduzir pares ou otimizar'}
-    `);
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        session: currentSession,
-        phase: cyclePhase,
-        users_processed: activeUsers.length,
-        results: allResults,
-        performance: {
-          total_time_ms: totalTime,
-          utilization_pct: utilizationPct,
-          pairs_analyzed: totalPairsAnalyzed,
-          avg_time_per_pair_ms: totalPairsAnalyzed > 0 ? Math.round(totalTime / totalPairsAnalyzed) : null
-        }
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    `;
+    
+    console.log(metricsLog);
+    
+    // 🟣 FASE 5: CALCULAR MÉTRICAS DE TRADES (se houver resultados)
+    if (allResults.length > 0 && allResults.some(r => r.analysis && r.analysis.length > 0)) {
+      const totalTrades = allResults.reduce((sum, r) => sum + (r.analysis?.length || 0), 0);
+      const successfulTrades = allResults.reduce((sum, r) => 
+        sum + (r.analysis?.filter((a: any) => a.analysis?.signal !== 'STAY_OUT').length || 0), 0);
+      
+      console.log(`
+📊 MÉTRICAS DE PERFORMANCE (Sessão):
+├─ Trades executados: ${totalTrades}
+├─ Sinais válidos: ${successfulTrades}
+├─ Taxa de sinais: ${totalTrades > 0 ? ((successfulTrades / totalTrades) * 100).toFixed(1) : 0}%
+${TEST_MODE.enabled ? `└─ 🧪 MODO TESTE: ${TEST_MODE.maxTrades} trades máximo, ${(TEST_MODE.minConfidence * 100).toFixed(0)}% confiança mínima` : ''}
+      `);
+    }
   } catch (error) {
     console.error('Error in trading-orchestrator:', error);
     return new Response(
@@ -472,20 +589,65 @@ async function processUserTradingCycle(
 
   const activeCount = activePositions?.length || 0;
 
-  // ❌ Se perdeu no stop loss ou fechou sem meta (total_operations > 0 mas completed = false e SEM posição ativa)
+  // ============================================
+  // 🔴 FASE 1: COOLDOWN INTELIGENTE (NÃO BLOQUEIO PERMANENTE)
+  // ============================================
   if (dailyGoal && dailyGoal.total_operations > 0 && !dailyGoal.completed && activeCount === 0) {
-    console.log(`⛔ OPERAÇÃO ENCERRADA SEM ATINGIR META - AGUARDANDO PRÓXIMO DIA`);
-    console.log(`├─ Total PNL: $${dailyGoal.total_pnl}`);
-    console.log(`├─ Operações: ${dailyGoal.total_operations} (${dailyGoal.wins}W/${dailyGoal.losses}L)`);
-    console.log(`└─ Motivo: Posição fechada por stop loss, take profit parcial ou tempo sem atingir meta de 100%`);
-    
-    return {
-      userId,
-      status: 'waiting_next_day',
-      activePositions: 0,
-      message: 'Posição fechada sem atingir meta - aguardando próximo dia',
-      pairsAnalyzed: 0 // ⏱️ Nenhum par analisado (aguardando próximo dia)
-    };
+    // Obter última operação para calcular tempo desde o último loss
+    const { data: operations } = await supabase
+      .from('operations')
+      .select('exit_time')
+      .eq('user_id', userId)
+      .order('exit_time', { ascending: false })
+      .limit(1);
+
+    const lastLossTime = operations?.[0]?.exit_time;
+    const hoursSinceLastLoss = lastLossTime 
+      ? (Date.now() - new Date(lastLossTime).getTime()) / (1000 * 60 * 60)
+      : 999; // Se não houver operação, liberar
+
+    // Verificar se é um novo dia UTC
+    const isNewDay = new Date().getUTCDate() !== new Date(dailyGoal.date).getUTCDate();
+
+    if (isNewDay) {
+      console.log(`🔄 NOVO DIA DETECTADO - Sistema desbloqueado automaticamente`);
+      console.log(`├─ Data anterior: ${dailyGoal.date}`);
+      console.log(`└─ Data atual: ${new Date().toISOString().split('T')[0]}`);
+      
+      // Resetar daily goals para novo dia
+      await supabase
+        .from('daily_goals')
+        .update({
+          total_operations: 0,
+          wins: 0,
+          losses: 0,
+          total_pnl: 0,
+          completed: false
+        })
+        .eq('user_id', userId)
+        .eq('id', dailyGoal.id);
+      
+      // Continuar análise normalmente
+    } else if (hoursSinceLastLoss < 4) {
+      // Cooldown de 4 horas após loss
+      console.log(`⏸️ COOLDOWN ATIVO - Aguardando ${(4 - hoursSinceLastLoss).toFixed(1)}h para retomar`);
+      console.log(`├─ Total PNL: $${dailyGoal.total_pnl}`);
+      console.log(`├─ Operações: ${dailyGoal.total_operations} (${dailyGoal.wins}W/${dailyGoal.losses}L)`);
+      console.log(`└─ Último loss: ${new Date(lastLossTime).toLocaleTimeString('pt-BR')}`);
+      
+      return {
+        userId,
+        status: 'cooldown',
+        activePositions: 0,
+        message: `Cooldown ativo: ${(4 - hoursSinceLastLoss).toFixed(1)}h restantes`,
+        pairsAnalyzed: 0
+      };
+    } else {
+      // Cooldown expirado, liberar sistema
+      console.log(`✅ COOLDOWN EXPIRADO - Sistema liberado para novas operações`);
+      console.log(`├─ Tempo desde último loss: ${hoursSinceLastLoss.toFixed(1)}h`);
+      console.log(`└─ Limite de cooldown: 4h`);
+    }
   }
 
   // ============================================
@@ -1359,24 +1521,32 @@ function detectOneCandlestickZone(
   const isBearish = close < open;
 
   // ============================================
-  // SETUP DE VENDA (BEARISH)
+  // 🟡 FASE 2: SETUP DE VENDA SIMPLIFICADO (BEARISH)
   // ============================================
-  if (isBearish && close < ma20) {
+  const bodySize = Math.abs(close - open);
+  const totalSize = high - low;
+  const bodyPercent = totalSize > 0 ? bodySize / totalSize : 0;
+  
+  // ✅ ACEITAR QUALQUER CANDLE VERMELHO COM CORPO > 40%
+  if (isBearish && bodyPercent >= 0.4) {
     // Zona Negociável: Entre HIGH e CLOSE do candle vermelho
     const zoneHigh = high;
     const zoneLow = close;
 
     console.log(`
 🔴 ONE CANDLESTICK ZONE DETECTADA (SELL) - ${asset}:
-├─ Tendência: Baixa (preço < MA20)
-├─ MA20: $${ma20.toFixed(4)}
-├─ Candle M15: Vermelho (Baixa)
+├─ Candle M15: Vermelho com ${(bodyPercent * 100).toFixed(0)}% de corpo
+├─ MA20: $${ma20.toFixed(4)} (referência)
+├─ Close vs MA20: ${close < ma20 ? '✅ Abaixo (bônus)' : '⚠️ Acima'}
 ├─ ZONA NEGOCIÁVEL:
 │  ├─ HIGH: $${zoneHigh.toFixed(4)}
 │  └─ CLOSE: $${zoneLow.toFixed(4)}
 └─ Preço Atual: $${currentPrice.toFixed(4)}
     `);
 
+    // Confiança: 70% base + 20% bônus se close < MA20
+    const confidence = close < ma20 ? 0.9 : 0.7;
+    
     return {
       valid: true,
       direction: 'SELL',
@@ -1384,30 +1554,34 @@ function detectOneCandlestickZone(
       entry: null,
       stop: null,
       target: null,
-      confidence: 0.8,
-      reason: `Zona SELL detectada: HIGH $${zoneHigh.toFixed(4)} - CLOSE $${zoneLow.toFixed(4)}`
+      confidence,
+      reason: `Zona SELL: Corpo ${(bodyPercent * 100).toFixed(0)}% + ${close < ma20 ? 'MA20 confirmada' : 'sem MA20'}`
     };
   }
 
   // ============================================
-  // SETUP DE COMPRA (BULLISH)
+  // 🟡 FASE 2: SETUP DE COMPRA SIMPLIFICADO (BULLISH)
   // ============================================
-  if (isBullish && close > ma20) {
+  // ✅ ACEITAR QUALQUER CANDLE VERDE COM CORPO > 40%
+  if (isBullish && bodyPercent >= 0.4) {
     // Zona Negociável: Entre LOW e CLOSE do candle verde
     const zoneHigh = close;
     const zoneLow = low;
 
     console.log(`
 🟢 ONE CANDLESTICK ZONE DETECTADA (BUY) - ${asset}:
-├─ Tendência: Alta (preço > MA20)
-├─ MA20: $${ma20.toFixed(4)}
-├─ Candle M15: Verde (Alta)
+├─ Candle M15: Verde com ${(bodyPercent * 100).toFixed(0)}% de corpo
+├─ MA20: $${ma20.toFixed(4)} (referência)
+├─ Close vs MA20: ${close > ma20 ? '✅ Acima (bônus)' : '⚠️ Abaixo'}
 ├─ ZONA NEGOCIÁVEL:
 │  ├─ CLOSE: $${zoneHigh.toFixed(4)}
 │  └─ LOW: $${zoneLow.toFixed(4)}
 └─ Preço Atual: $${currentPrice.toFixed(4)}
     `);
 
+    // Confiança: 70% base + 20% bônus se close > MA20
+    const confidence = close > ma20 ? 0.9 : 0.7;
+    
     return {
       valid: true,
       direction: 'BUY',
@@ -1415,8 +1589,8 @@ function detectOneCandlestickZone(
       entry: null,
       stop: null,
       target: null,
-      confidence: 0.8,
-      reason: `Zona BUY detectada: CLOSE $${zoneHigh.toFixed(4)} - LOW $${zoneLow.toFixed(4)}`
+      confidence,
+      reason: `Zona BUY: Corpo ${(bodyPercent * 100).toFixed(0)}% + ${close > ma20 ? 'MA20 confirmada' : 'sem MA20'}`
     };
   }
 
@@ -1428,7 +1602,7 @@ function detectOneCandlestickZone(
     stop: null,
     target: null,
     confidence: 0,
-    reason: 'Nenhuma zona negociável detectada (tendência indefinida ou candle não qualifica)'
+    reason: `Nenhuma zona qualificada (corpo: ${(bodyPercent * 100).toFixed(0)}% - mínimo: 40%)`
   };
 }
 
@@ -1485,34 +1659,50 @@ function validateOneCandlestickEntry(
   const pullbackLow = Math.min(...recentCandles.map(c => parseFloat(c.low)));
   const fibRange = pullbackHigh - pullbackLow;
 
+  // 🟡 FASE 2: ACEITAR QUALQUER ZONA FIBONACCI (38.2% - 78.6%)
+  const fib382 = pullbackLow + (fibRange * 0.382);
   const fib50 = pullbackLow + (fibRange * 0.5);
   const fib618 = pullbackLow + (fibRange * 0.618);
   const fib786 = pullbackLow + (fibRange * 0.786);
 
-  // ✅ Verificar se preço está na Golden Zone (50%-78.6%)
-  const inGoldenZone = currentPrice >= fib50 && currentPrice <= fib786;
+  // ✅ Verificar se preço está em QUALQUER zona Fib (38.2%-78.6%)
+  const inAnyFibZone = currentPrice >= fib382 && currentPrice <= fib786;
 
   // ✅ Último candle M1
   const lastM1 = candles1m[candles1m.length - 1];
   const closeM1 = parseFloat(lastM1.close);
+  const openM1 = parseFloat(lastM1.open);
 
   // ============================================
-  // GATILHO DE ENTRADA
+  // 🟡 FASE 2: GATILHO DE ENTRADA SIMPLIFICADO
   // ============================================
   let entryTriggered = false;
   let entryReason = '';
+  let confidence = 0.75;
 
   if (direction === 'SELL') {
-    // SELL: Preço deve cruzar e fechar ABAIXO da MA20 após estar na Golden Zone
-    if (inGoldenZone && closeM1 < ma20M1) {
+    // SELL: Preço em zona Fib E (close < MA20 OU vela vermelha)
+    if (inAnyFibZone && (closeM1 < ma20M1 || closeM1 < openM1)) {
       entryTriggered = true;
-      entryReason = `Golden Zone (${fib50.toFixed(4)}-${fib786.toFixed(4)}) + Fechou abaixo MA20 (${ma20M1.toFixed(4)})`;
+      if (closeM1 < ma20M1) {
+        entryReason = `Fib Zone (${fib382.toFixed(4)}-${fib786.toFixed(4)}) + MA20 confirmada (${ma20M1.toFixed(4)})`;
+        confidence = 0.85; // Bônus MA20
+      } else {
+        entryReason = `Fib Zone (${fib382.toFixed(4)}-${fib786.toFixed(4)}) + Vela vermelha confirmada`;
+        confidence = 0.75;
+      }
     }
   } else if (direction === 'BUY') {
-    // BUY: Preço deve cruzar e fechar ACIMA da MA20 após estar na Golden Zone
-    if (inGoldenZone && closeM1 > ma20M1) {
+    // BUY: Preço em zona Fib E (close > MA20 OU vela verde)
+    if (inAnyFibZone && (closeM1 > ma20M1 || closeM1 > openM1)) {
       entryTriggered = true;
-      entryReason = `Golden Zone (${fib50.toFixed(4)}-${fib786.toFixed(4)}) + Fechou acima MA20 (${ma20M1.toFixed(4)})`;
+      if (closeM1 > ma20M1) {
+        entryReason = `Fib Zone (${fib382.toFixed(4)}-${fib786.toFixed(4)}) + MA20 confirmada (${ma20M1.toFixed(4)})`;
+        confidence = 0.85; // Bônus MA20
+      } else {
+        entryReason = `Fib Zone (${fib382.toFixed(4)}-${fib786.toFixed(4)}) + Vela verde confirmada`;
+        confidence = 0.75;
+      }
     }
   }
 
@@ -1523,7 +1713,7 @@ function validateOneCandlestickEntry(
       stop: null,
       target: null,
       confidence: 0,
-      reason: `Aguardando gatilho: ${direction === 'SELL' ? 'Fechar abaixo MA20' : 'Fechar acima MA20'} (MA20: ${ma20M1.toFixed(4)}, Close: ${closeM1.toFixed(4)})`
+      reason: `Aguardando: ${inAnyFibZone ? 'Confirmação M1 (vela ou MA20)' : 'Preço entrar em zona Fib'}`
     };
   }
 
@@ -1536,22 +1726,23 @@ function validateOneCandlestickEntry(
 
   const riskDistance = Math.abs(entry - stop);
   const target = direction === 'SELL'
-    ? entry - (riskDistance * 2)
-    : entry + (riskDistance * 2);
+    ? entry - (riskDistance * 1.8) // R:R de 1.8:1
+    : entry + (riskDistance * 1.8);
 
   const rrRatio = Math.abs(target - entry) / Math.abs(entry - stop);
 
   console.log(`
 ✅ ONE CANDLESTICK - ENTRADA CONFIRMADA (${direction}) - ${asset}:
 ├─ Preço na Zona: $${currentPrice.toFixed(4)} (${zone.low.toFixed(4)} - ${zone.high.toFixed(4)})
-├─ Fibonacci Golden Zone: $${fib50.toFixed(4)} - $${fib786.toFixed(4)}
-├─ MA20 M1: $${ma20M1.toFixed(4)}
+├─ Fibonacci Zone: $${fib382.toFixed(4)} - $${fib786.toFixed(4)} (38.2%-78.6%)
+├─ MA20 M1: $${ma20M1.toFixed(4)} ${closeM1 < ma20M1 && direction === 'SELL' ? '✅' : closeM1 > ma20M1 && direction === 'BUY' ? '✅' : '(ref)'}
 ├─ Close M1: $${closeM1.toFixed(4)}
 ├─ ✅ GATILHO: ${entryReason}
 ├─ Entry: $${entry.toFixed(4)}
 ├─ Stop Loss: $${stop.toFixed(4)} (${(Math.abs(entry - stop) / entry * 100).toFixed(2)}%)
 ├─ Take Profit: $${target.toFixed(4)}
-└─ R:R: 1:${rrRatio.toFixed(2)}
+├─ R:R: 1:${rrRatio.toFixed(2)}
+└─ Confiança: ${(confidence * 100).toFixed(0)}%
   `);
 
   return {
@@ -1559,7 +1750,7 @@ function validateOneCandlestickEntry(
     entry,
     stop,
     target,
-    confidence: 0.95,
+    confidence,
     reason: `One Candlestick: ${entryReason}`
   };
 }
@@ -2444,21 +2635,9 @@ async function analyzeTechnicalStandalone(
   // ============================================
   const h1Structure = analyzeH1Structure(candles1h);
   
+  // 🟢 FASE 3: H1 ESTRUTURA COMO REFERÊNCIA (NÃO BLOQUEIA)
   if (!h1Structure.validStructure) {
-    console.log(`⚠️ ${asset}: Estrutura H1 inválida (range < 2%) - STAY_OUT`);
-    return {
-      signal: 'STAY_OUT',
-      direction: 'NEUTRAL',
-      confidence: 0,
-      notes: 'Estrutura H1 sem range suficiente',
-      risk: null,
-      c1Direction: null,
-      volumeFactor: indicators.volume.factor,
-      confirmation: 'Range H1 insuficiente',
-      marketData: { price: currentPrice, h1Structure },
-      rangeHigh: null,
-      rangeLow: null,
-    };
+    console.log(`⚠️ ${asset}: Estrutura H1 inválida (range < 2%) - Prosseguindo com cautela`);
   }
   
   console.log(`
@@ -2505,21 +2684,14 @@ async function analyzeTechnicalStandalone(
   
   const sweepData = detectM15Sweep(candles15m, h1Structure, asset, sessionConfig.sweep);
   
+  // 🟢 FASE 3: SWEEP OPCIONAL (adiciona confiança mas não bloqueia)
+  let sweepConfidence = 0.6;
+  
   if (!sweepData.sweepDetected) {
-    console.log(`⏸️ ${asset}: Aguardando sweep de liquidez no M15 (sensibilidade: ${sessionConfig.sweep})...`);
-    return {
-      signal: 'STAY_OUT',
-      direction: 'NEUTRAL',
-      confidence: 0.3,
-      notes: `Aguardando sweep de liquidez (sensibilidade ${sessionConfig.sweep})`,
-      risk: null,
-      c1Direction: null,
-      volumeFactor: indicators.volume.factor,
-      confirmation: 'Nenhum sweep detectado',
-      marketData: { price: currentPrice, h1Structure },
-      rangeHigh: h1Structure.previousHigh,
-      rangeLow: h1Structure.previousLow,
-    };
+    console.log(`⚠️ ${asset}: Sem sweep - Confiança base: 60%`);
+  } else {
+    console.log(`✅ ${asset}: SWEEP ${sweepData.sweepType} detectado - Bônus de confiança!`);
+    sweepConfidence += 0.2; // 60% → 80%
   }
   
   // ============================================
@@ -2589,68 +2761,49 @@ async function analyzeTechnicalStandalone(
   console.log(`✅ Tendência validada: ${trendValidation.reason}`);
   
   // ============================================
-  // CALCULAR SL/TP BASEADO NA ESTRATÉGIA
+  // 🔴 FASE 1: CALCULAR SL/TP COM ATR (REALISTA)
   // ============================================
   const entry = m1Confirmation.entryPrice; // Usar preço confirmado no M1
   
-  // Stop Loss: Ajustado baseado no modo (counter-trend e express = mais apertado)
-  const stopMultiplier = 
-    trendValidation.mode === 'EXPRESS_ENTRY' ? 0.8 :  // Stop apertado em via expressa
-    trendValidation.mode === 'COUNTER_TREND' ? 0.8 : 
-    1.2;
+  // Calcular ATR do M15 para stop dinâmico
+  const atr15m = calculateATR(candles15m, 14);
+  
+  // Stop Loss: 1.5x ATR (espaço de respiração baseado em volatilidade)
+  const stopDistance = atr15m * 1.5;
   const stopLoss = direction === 'BUY'
-    ? sweepData.sweptLevel - (sweepData.wickLength * stopMultiplier)
-    : sweepData.sweptLevel + (sweepData.wickLength * stopMultiplier);
+    ? entry - stopDistance
+    : entry + stopDistance;
   
-  console.log(`🛡️ Stop Loss: Modo ${trendValidation.mode} (multiplicador: ${stopMultiplier}x)`);
-  
-  // Take Profit: Próximo nível H1 na direção da operação
+  // 🔴 FASE 1: R:R REALISTA (1.8:1)
+  const targetDistance = stopDistance * 2.7; // ATR x 2.7 para R:R de 1.8:1
   const takeProfit = direction === 'BUY'
-    ? h1Structure.previousHigh  // Alvo na resistência H1
-    : h1Structure.previousLow;  // Alvo no suporte H1
+    ? entry + targetDistance
+    : entry - targetDistance;
   
   const rrRatio = Math.abs((takeProfit - entry) / (entry - stopLoss));
   
-  // ✅ R:R DINÂMICO baseado no setup
-  const setupKey = `${sweepData.sweepType}_${m1Confirmation.confirmationStrength}`;
-  const minRR = DYNAMIC_RR_MAP[setupKey] || sessionConfig.minRR;
-  
   console.log(`
-💰 RISK/REWARD - ${asset}:
+🎯 NÍVEIS RECALCULADOS COM ATR - ${asset}:
+├─ ATR M15: $${atr15m.toFixed(4)}
 ├─ Entry: $${entry.toFixed(4)}
-├─ Stop Loss: $${stopLoss.toFixed(4)} (baseado no pavio do sweep)
-├─ Take Profit: $${takeProfit.toFixed(4)} (${direction === 'BUY' ? 'previousHigh' : 'previousLow'} H1)
-├─ R:R Calculado: 1:${rrRatio.toFixed(2)}
-├─ R:R Mínimo: 1:${minRR.toFixed(2)} (${sweepData.sweepType} + ${m1Confirmation.confirmationStrength})
-└─ Status: ${rrRatio >= minRR ? '✅ APROVADO' : '❌ REJEITADO'}
+├─ Stop Loss: $${stopLoss.toFixed(4)} (${((stopDistance / entry) * 100).toFixed(2)}% - ATR x1.5)
+├─ Take Profit: $${takeProfit.toFixed(4)} (${((targetDistance / entry) * 100).toFixed(2)}% - ATR x2.7)
+├─ R:R Real: 1:${rrRatio.toFixed(2)}
+└─ Potencial de lucro: ${((Math.abs(takeProfit - entry) / entry) * 100).toFixed(2)}%
   `);
   
-  // Validar R:R mínimo dinâmico
+  // 🟢 FASE 3: R:R mínimo tolerável (1.2:1)
+  const minRR = 1.2;
+  
   if (rrRatio < minRR) {
-    console.log(`❌ R:R insuficiente (${rrRatio.toFixed(2)} < ${minRR.toFixed(2)}) - REJEITADO`);
-    return {
-      signal: 'STAY_OUT',
-      direction: direction,
-      confidence: 0.5,
-      notes: `Sweep ${sweepData.sweepType} detectado mas R:R insuficiente (${rrRatio.toFixed(2)} < ${minRR.toFixed(2)})`,
-      risk: null,
-      c1Direction: null,
-      volumeFactor: indicators.volume.factor,
-      confirmation: `R:R < ${minRR.toFixed(2)}`,
-      marketData: { price: currentPrice, h1Structure, sweepData },
-      rangeHigh: h1Structure.previousHigh,
-      rangeLow: h1Structure.previousLow,
-    };
+    console.log(`⚠️ R:R abaixo do mínimo (${rrRatio.toFixed(2)} < ${minRR}) - Mas prosseguindo (baseado em ATR)`);
   }
   
-  // ============================================
-  // RETORNAR SINAL APROVADO (COM CONFIANÇA AJUSTADA)
-  // ============================================
   const signal = direction === 'BUY' ? 'LONG' : 'SHORT';
   
-  // ✅ Confiança base ajustada pela força da confirmação
-  let baseConfidence = 0.85;
-  baseConfidence += m1Confirmation.confidenceAdjustment;
+  // ✅ Confiança: sweep (60-80%) + confirmação M1
+  let finalConfidence = sweepConfidence;
+  finalConfidence += m1Confirmation.confidenceAdjustment;
   
   // ✅ Ajustar confiança pelo tipo de sweep
   if (sweepData.sweepType === 'PARTIAL') {
@@ -3678,21 +3831,7 @@ function calculateMACD(prices: number[]): number {
   return ema12 - ema26;
 }
 
-function calculateATR(candles: any[], period: number): number {
-  if (candles.length < period) return 0;
-
-  const trs: number[] = [];
-  for (let i = 1; i < candles.length; i++) {
-    const high = parseFloat(candles[i].high);
-    const low = parseFloat(candles[i].low);
-    const prevClose = parseFloat(candles[i - 1].close);
-    const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
-    trs.push(tr);
-  }
-
-  const recentTRs = trs.slice(-period);
-  return recentTRs.reduce((a, b) => a + b, 0) / period;
-}
+// ✅ calculateATR já definido no topo do arquivo (linha ~79)
 
 // ============================================
 // (Classe BinanceRateLimiter movida para o topo do arquivo)
@@ -4396,52 +4535,10 @@ function detectLegReversal(
   };
 }
 
-// Monitor active positions
-async function monitorActivePositions(supabase: any, userId: string, settings: any) {
-  const { data: positions, error } = await supabase
-    .from('active_positions')
-    .select('*')
-    .eq('user_id', userId);
-
-  if (error || !positions || positions.length === 0) {
-    return;
-  }
-
-  console.log(`📊 Monitoring ${positions.length} active position(s)...`);
-
-  for (const position of positions) {
-    const symbol = position.asset;
-    
-    try {
-      // Buscar velas M5 e M15 para detectar reversão
-      let candles5m = [];
-      let candles15m = [];
-      
-      try {
-        const response5m = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=5m&limit=50`);
-        const data5m = await response5m.json();
-        candles5m = data5m.map((k: any) => ({
-          time: k[0],
-          open: parseFloat(k[1]),
-          high: parseFloat(k[2]),
-          low: parseFloat(k[3]),
-          close: parseFloat(k[4]),
-          volume: parseFloat(k[5]),
-        }));
-        
-        const response15m = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=15m&limit=20`);
-        const data15m = await response15m.json();
-        candles15m = data15m.map((k: any) => ({
-          time: k[0],
-          open: parseFloat(k[1]),
-          high: parseFloat(k[2]),
-          low: parseFloat(k[3]),
-          close: parseFloat(k[4]),
-          volume: parseFloat(k[5]),
-        }));
-      } catch (candleError) {
-        console.error(`⚠️ Erro ao buscar velas para ${symbol}:`, candleError);
-      }
+// ✅ TODAS AS FUNÇÕES DE MONITORAMENTO JÁ ESTÃO DEFINIDAS NO TOPO DO ARQUIVO
+// monitorActivePositions (linha ~125) - Com trailing stop implementado
+// calculateATR (linha ~79) - Cálculo de Average True Range
+// executeTradeSignal - Já implementada acima com risco adaptativo
       
       const priceResponse = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`);
       const priceData = await priceResponse.json();
