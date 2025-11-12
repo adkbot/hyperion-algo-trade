@@ -22,41 +22,42 @@ serve(async (req) => {
       throw new Error('user_id é obrigatório');
     }
 
-    console.log(`🧹 Limpando histórico dos últimos 7 dias para user ${user_id}`);
+    console.log(`🧹 Limpando histórico de ontem para user ${user_id}`);
 
-    // Limpar session_history dos últimos 7 dias (exceto hoje)
+    // Limpar apenas o DIA ANTERIOR (mais rápido e seguro)
     const today = new Date();
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(today.getDate() - 7);
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
     
     const todayStr = today.toISOString().split('T')[0];
-    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
     
+    // Limpar session_history de ontem
     const { error: historyError } = await supabase
       .from('session_history')
       .delete()
       .eq('user_id', user_id)
-      .gte('timestamp', `${sevenDaysAgoStr}T00:00:00Z`)
+      .gte('timestamp', `${yesterdayStr}T00:00:00Z`)
       .lt('timestamp', `${todayStr}T00:00:00Z`);
 
     if (historyError) throw historyError;
 
-    // Limpar agent_logs dos últimos 7 dias (exceto hoje)
+    // Limpar agent_logs de ontem
     const { error: logsError } = await supabase
       .from('agent_logs')
       .delete()
       .eq('user_id', user_id)
-      .gte('created_at', `${sevenDaysAgoStr}T00:00:00Z`)
+      .gte('created_at', `${yesterdayStr}T00:00:00Z`)
       .lt('created_at', `${todayStr}T00:00:00Z`);
 
     if (logsError) throw logsError;
 
-    console.log(`✅ Histórico dos últimos 7 dias foi limpo com sucesso`);
+    console.log(`✅ Histórico de ontem foi limpo com sucesso`);
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: '✅ Histórico dos últimos 7 dias foi limpo! Apenas dados de hoje permanecem.',
+        message: '✅ Histórico de ontem foi limpo! Apenas dados de hoje permanecem.',
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
