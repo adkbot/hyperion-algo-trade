@@ -94,6 +94,38 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   console.log(`✅ Fundação válida: HIGH ${foundation.high} | LOW ${foundation.low}`);
   
   // ==========================================
+  // REGRA 1: FILTRO DE QUALIDADE POR SESSÃO
+  // ==========================================
+  console.log(`\n📍 VERIFICANDO FILTRO DE SESSÃO...`);
+  
+  const isStrictSession = session === 'OCEANIA' || session === 'ASIA';
+  
+  if (isStrictSession) {
+    console.log(`⚠️ Sessão ${session} - MODO RIGOROSO ativado`);
+    console.log(`└─ Setup deve ser PERFEITO para operar`);
+    
+    // Verificações extras de qualidade
+    const foundationRange = (foundation.high - foundation.low) / foundation.low;
+    const minRangeRequired = 0.003; // 0.3% mínimo
+    
+    if (foundationRange < minRangeRequired) {
+      return {
+        signal: 'STAY_OUT',
+        direction: null,
+        entryPrice: 0,
+        stopLoss: 0,
+        takeProfit: 0,
+        riskReward: 0,
+        confidence: 0,
+        notes: `⏸️ Sessão ${session}: Foundation range muito baixo (${(foundationRange * 100).toFixed(2)}%) - Requer >= 0.3%`,
+        phase: 'SESSION_FILTER_REJECTED'
+      };
+    }
+    
+    console.log(`✅ Foundation range OK: ${(foundationRange * 100).toFixed(2)}%`);
+  }
+  
+  // ==========================================
   // PASSO 2: DETECTAR FVG COM BREAKOUT
   // ==========================================
   console.log(`\n📍 PASSO 2: Detectando Fair Value Gap (FVG)...`);
@@ -117,6 +149,30 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   }
   
   console.log(`✅ FVG ${fvg.direction} detectado com breakout confirmado`);
+  
+  // Validação extra para sessões rigorosas (OCEANIA/ASIA)
+  if (isStrictSession) {
+    const fvgSize = (fvg.fvgTop - fvg.fvgBottom) / fvg.fvgBottom;
+    const minFvgSize = 0.002; // 0.2%
+    
+    if (fvgSize < minFvgSize) {
+      return {
+        signal: 'STAY_OUT',
+        direction: null,
+        entryPrice: 0,
+        stopLoss: 0,
+        takeProfit: 0,
+        riskReward: 0,
+        confidence: 0,
+        notes: `⏸️ Sessão ${session}: FVG muito pequeno (${(fvgSize * 100).toFixed(2)}%) - Requer >= 0.2%`,
+        foundation,
+        fvg,
+        phase: 'SESSION_FILTER_FVG_TOO_SMALL'
+      };
+    }
+    
+    console.log(`✅ FVG size OK para sessão rigorosa: ${(fvgSize * 100).toFixed(2)}%`);
+  }
   
   // ==========================================
   // PASSO 3: DETECTAR PULLBACK PARA FVG

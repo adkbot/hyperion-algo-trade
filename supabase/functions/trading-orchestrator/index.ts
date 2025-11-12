@@ -120,61 +120,73 @@ function calculateAdaptiveRisk(baseRisk: number, dailyGoals: any): number {
 }
 
 // ============================================
-// 🔵 FASE 4: MONITORAR POSIÇÕES ATIVAS (TRAILING STOP)
+// 🔵 FASE 4: MONITORAR POSIÇÕES ATIVAS (MOMENTUM AVANÇADO)
 // ============================================
-async function monitorActivePositions(supabase: any, userId: string): Promise<void> {
+async function monitorActivePositionsAdvanced(supabase: any, userId: string): Promise<void> {
   const { data: positions } = await supabase
     .from('active_positions')
     .select('*')
-    .eq('user_id', userId)
-    .is('result', null);
+    .eq('user_id', userId);
     
   if (!positions || positions.length === 0) return;
+  
+  // Importar módulo de momentum
+  const { 
+    calculateCurrentRR, 
+    fetchRecentCandles, 
+    shouldClosePosition 
+  } = await import('./scalping-1min-momentum-analyzer.ts');
   
   for (const pos of positions) {
     if (!pos.current_price || !pos.entry_price) continue;
     
-    const currentPnlPercent = ((pos.current_price - pos.entry_price) / pos.entry_price) * 100;
-    const absPnlPercent = Math.abs(currentPnlPercent);
+    // CALCULAR RR ATUAL
+    const rr = calculateCurrentRR(pos);
     
-    // ✅ Ativar trailing stop se lucro > 0.5%
-    if (absPnlPercent > 0.5) {
-      const currentStop = parseFloat(pos.stop_loss);
-      let newTrailingStop: number;
+    console.log(`📊 Monitorando ${pos.asset}: RR atual = ${rr.toFixed(2)}`);
+    
+    // ZONA DE PROTEÇÃO: 1.0 - 1.5 RR
+    if (rr >= 1.0 && rr <= 1.5) {
+      console.log(`🔍 ZONA DE PROTEÇÃO ATIVADA - Analisando momentum...`);
       
-      if (pos.direction === 'BUY') {
-        // BUY: Stop 0.3% abaixo do preço atual
-        newTrailingStop = pos.current_price * 0.997;
+      // Buscar candles recentes (últimas 5 velas de 1min)
+      const candles = await fetchRecentCandles(pos.asset, 5);
+      
+      if (candles.length < 3) {
+        console.log(`⚠️ Candles insuficientes para ${pos.asset} - mantendo posição`);
+        continue;
+      }
+      
+      // Analisar se deve fechar
+      const decision = shouldClosePosition(pos, candles);
+      
+      if (decision.shouldClose) {
+        console.log(`🚨 FECHAMENTO ANTECIPADO: ${decision.reason}`);
         
-        // Só atualizar se o novo stop for MAIOR que o atual (proteção)
-        if (newTrailingStop > currentStop) {
-          await supabase
-            .from('active_positions')
-            .update({ stop_loss: newTrailingStop })
-            .eq('id', pos.id);
-            
-          console.log(`📈 TRAILING STOP ATIVADO (BUY) - ${pos.asset}:`);
-          console.log(`├─ PNL: +${currentPnlPercent.toFixed(2)}%`);
-          console.log(`├─ Stop antigo: $${currentStop.toFixed(4)}`);
-          console.log(`└─ Novo stop: $${newTrailingStop.toFixed(4)} (+${((newTrailingStop - currentStop) / currentStop * 100).toFixed(2)}%)`);
+        // Chamar edge function para fechar posição
+        const { data: closeData, error: closeError } = await supabase.functions.invoke('binance-close-order', {
+          body: { user_id: userId, position_id: pos.id }
+        });
+        
+        if (closeError) {
+          console.error(`❌ Erro ao fechar posição ${pos.asset}:`, closeError);
+        } else {
+          console.log(`✅ Posição ${pos.asset} fechada com lucro em RR ${rr.toFixed(2)}`);
+          console.log(`💰 P&L: $${pos.current_pnl?.toFixed(2) || 'N/A'}`);
         }
       } else {
-        // SELL: Stop 0.3% acima do preço atual
-        newTrailingStop = pos.current_price * 1.003;
-        
-        // Só atualizar se o novo stop for MENOR que o atual (proteção)
-        if (newTrailingStop < currentStop) {
-          await supabase
-            .from('active_positions')
-            .update({ stop_loss: newTrailingStop })
-            .eq('id', pos.id);
-            
-          console.log(`📉 TRAILING STOP ATIVADO (SELL) - ${pos.asset}:`);
-          console.log(`├─ PNL: +${currentPnlPercent.toFixed(2)}%`);
-          console.log(`├─ Stop antigo: $${currentStop.toFixed(4)}`);
-          console.log(`└─ Novo stop: $${newTrailingStop.toFixed(4)} (${((currentStop - newTrailingStop) / currentStop * 100).toFixed(2)}%)`);
-        }
+        console.log(`✅ Mantendo posição: ${decision.reason}`);
       }
+    }
+    
+    // Se RR > 1.5, continuar até target 3:1 (sem intervenção)
+    if (rr > 1.5) {
+      console.log(`🎯 RR ${rr.toFixed(2)} - Mantendo até target 3:1`);
+    }
+    
+    // Se RR < 1.0, ainda não atingiu zona de proteção
+    if (rr < 1.0) {
+      console.log(`⏳ RR ${rr.toFixed(2)} - Aguardando zona de proteção (1.0+)`);
     }
   }
 }
@@ -773,7 +785,7 @@ async function processUserTradingCycle(
 
   // Monitor existing positions regardless of limit
   if (syncedPositions && syncedPositions.length > 0) {
-    await monitorActivePositions(supabase, userId);
+    await monitorActivePositionsAdvanced(supabase, userId);
     
     // ✅ SINCRONIZAR AUTOMATICAMENTE com Binance a cada ciclo (modo real)
     if (!settings.paper_mode) {
