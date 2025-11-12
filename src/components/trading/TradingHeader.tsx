@@ -1,9 +1,10 @@
 import { Button } from "@/components/ui/button";
-import { Play, Pause, Square, Settings, LogOut } from "lucide-react";
+import { Play, Pause, Square, Settings, LogOut, Zap } from "lucide-react";
 import { useState } from "react";
 import { SettingsModal } from "./SettingsModal";
 import { ClearHistoryButton } from "./ClearHistoryButton";
 import { useUserSettings, useUpdateBotStatus } from "@/hooks/useTradingData";
+import { useSetupScalping1Min } from "@/hooks/useSetupScalping1Min";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface TradingHeaderProps {
@@ -15,12 +16,15 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
   const [showSettings, setShowSettings] = useState(false);
   const { data: settings } = useUserSettings();
   const updateBotStatus = useUpdateBotStatus();
+  const setupScalping = useSetupScalping1Min();
   const { signOut, user } = useAuth();
 
   const handleStatusChange = (status: "stopped" | "running" | "paused") => {
     setBotStatus(status);
     updateBotStatus.mutate(status);
   };
+
+  const isScalping1Min = settings?.trading_strategy === 'SCALPING_1MIN';
 
   return (
     <>
@@ -44,6 +48,18 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
             </div>
             
             <div className="flex items-center gap-2">
+              {!isScalping1Min && (
+                <Button
+                  onClick={() => setupScalping.mutate()}
+                  disabled={setupScalping.isPending}
+                  variant="default"
+                  className="bg-gradient-to-r from-primary to-success hover:opacity-90"
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  {setupScalping.isPending ? "Ativando..." : "🎯 Ativar Scalping 1 Min"}
+                </Button>
+              )}
+              
               {botStatus === "stopped" && (
                 <Button
                   onClick={() => handleStatusChange("running")}

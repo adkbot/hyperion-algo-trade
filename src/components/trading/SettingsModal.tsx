@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useState, useEffect } from "react";
 import { useUserSettings, useUpdateSettings } from "@/hooks/useTradingData";
+import { useSetupScalping1Min } from "@/hooks/useSetupScalping1Min";
 import { useToast } from "@/hooks/use-toast";
 
 interface SettingsModalProps {
@@ -15,6 +16,7 @@ interface SettingsModalProps {
 export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
   const { data: settings } = useUserSettings();
   const updateSettings = useUpdateSettings();
+  const setupScalping = useSetupScalping1Min();
   const { toast } = useToast();
   
   const [balance, setBalance] = useState(10000);
@@ -215,9 +217,25 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               onCheckedChange={setPaperMode}
             />
           </div>
-          <Button onClick={handleSave} className="w-full" disabled={updateSettings.isPending}>
-            {updateSettings.isPending ? "Salvando..." : "Salvar Configurações"}
-          </Button>
+          <div className="space-y-2">
+            <Button onClick={handleSave} className="w-full" disabled={updateSettings.isPending}>
+              {updateSettings.isPending ? "Salvando..." : "Salvar Configurações"}
+            </Button>
+            
+            {tradingStrategy === 'SCALPING_1MIN' && (
+              <Button 
+                onClick={() => {
+                  setupScalping.mutate();
+                  onOpenChange(false);
+                }}
+                className="w-full" 
+                variant="outline"
+                disabled={setupScalping.isPending}
+              >
+                {setupScalping.isPending ? "Ativando..." : "🎯 Ativar Scalping 1 Min Agora"}
+              </Button>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

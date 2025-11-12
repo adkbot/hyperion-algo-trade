@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.sync-binance-balance]
 verify_jwt = false
+
+[functions.setup-scalping-1min]
+verify_jwt = false
