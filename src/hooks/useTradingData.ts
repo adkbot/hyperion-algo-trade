@@ -214,6 +214,22 @@ export const useUpdateSettings = () => {
         .single();
       
       if (error) throw error;
+      
+      // Se mudou a estratégia, atualizar o daily_goals de hoje
+      if (settings.trading_strategy) {
+        const today = new Date().toISOString().split('T')[0];
+        const isScalping1Min = settings.trading_strategy === 'SCALPING_1MIN';
+        
+        await supabase
+          .from("daily_goals")
+          .update({
+            target_operations: isScalping1Min ? 4 : 45,
+            max_losses: isScalping1Min ? 2 : 15,
+          })
+          .eq("user_id", user.id)
+          .eq("date", today);
+      }
+      
       return data;
     },
     onSuccess: () => {
