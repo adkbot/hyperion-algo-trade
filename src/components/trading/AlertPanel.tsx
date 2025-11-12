@@ -15,12 +15,16 @@ export const AlertPanel = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
       
+      // Buscar apenas sinais de HOJE
+      const today = new Date().toISOString().split('T')[0];
+      
       const { data, error } = await supabase
         .from('session_history')
         .select('*')
         .eq('user_id', user.id)
+        .gte('timestamp', `${today}T00:00:00Z`) // Filtro para hoje
         .neq('signal', 'STAY_OUT')
-        .gte('confidence_score', 0.5) // ETAPA 2: Reduzido de 0.7 para 0.5 (50%)
+        .gte('confidence_score', 0.5)
         .order('timestamp', { ascending: false })
         .limit(5);
       

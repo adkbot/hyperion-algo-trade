@@ -5,11 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 const SESSIONS = {
-  Oceania: { color: "bg-blue-500", icon: "🌅", time: "00:00-02:30 UTC" },
-  Asia: { color: "bg-purple-500", icon: "🌏", time: "03:00-07:30 UTC" },
-  London: { color: "bg-orange-500", icon: "🇬🇧", time: "08:00-12:30 UTC" },
-  NewYork: { color: "bg-green-500", icon: "🗽", time: "13:00-23:30 UTC" },
-  Transition: { color: "bg-gray-500", icon: "⏸️", time: "Buffer 30min" },
+  OCEANIA: { color: "bg-blue-500", icon: "🌅", time: "00:00-02:30 UTC" },
+  ASIA: { color: "bg-purple-500", icon: "🌏", time: "03:00-07:30 UTC" },
+  LONDON: { color: "bg-orange-500", icon: "🇬🇧", time: "08:00-12:30 UTC" },
+  NY: { color: "bg-green-500", icon: "🗽", time: "13:00-23:30 UTC" },
+  TRANSITION: { color: "bg-gray-500", icon: "⏸️", time: "Buffer 30min" },
 };
 
 const PHASES = {
@@ -44,30 +44,30 @@ export const SessionCyclePanel = () => {
     const now = new Date();
     const utcHour = now.getUTCHours();
     const utcMinutes = now.getUTCMinutes();
-    const utcDecimal = utcHour + (utcMinutes / 60); // Hora decimal (ex: 12:30 = 12.5)
+    const utcDecimal = utcHour + (utcMinutes / 60);
     
     // Buffers de transição (30min antes de cada sessão)
     if ((utcDecimal >= 2.5 && utcDecimal < 3) ||
         (utcDecimal >= 7.5 && utcDecimal < 8) ||
         (utcDecimal >= 12.5 && utcDecimal < 13) ||
         (utcDecimal >= 23.5)) {
-      return 'Transition';
+      return 'TRANSITION';
     }
     
-    // Sessões ativas (alinhado com backend)
-    if (utcDecimal >= 0 && utcDecimal < 2.5) return 'Oceania';
-    if (utcDecimal >= 3 && utcDecimal < 7.5) return 'Asia';
-    if (utcDecimal >= 8 && utcDecimal < 12.5) return 'London';
-    if (utcDecimal >= 13 && utcDecimal < 23.5) return 'NewYork';
+    // Sessões ativas (alinhado com backend) - nomes padronizados
+    if (utcDecimal >= 0 && utcDecimal < 2.5) return 'OCEANIA';
+    if (utcDecimal >= 3 && utcDecimal < 7.5) return 'ASIA';
+    if (utcDecimal >= 8 && utcDecimal < 12.5) return 'LONDON';
+    if (utcDecimal >= 13 && utcDecimal < 23.5) return 'NY';
     
-    return 'Oceania'; // Fallback
+    return 'OCEANIA'; // Fallback
   };
 
   const currentSession = getCurrentSession();
   const latestSession = sessionData?.[0];
   const currentPhase = latestSession?.cycle_phase || 'Projection';
   
-  const sessionInfo = SESSIONS[currentSession as keyof typeof SESSIONS] || SESSIONS.Oceania;
+  const sessionInfo = SESSIONS[currentSession as keyof typeof SESSIONS] || SESSIONS.OCEANIA;
   const phaseInfo = PHASES[currentPhase as keyof typeof PHASES] || PHASES.Projection;
 
   const getDirectionIcon = (direction: string) => {

@@ -68,7 +68,7 @@ export const DailyHistory = () => {
                 <div className="grid grid-cols-3 gap-2 text-xs">
                   <div>
                     <span className="text-muted-foreground">Ops:</span>
-                    <span className="ml-1 font-bold">{day.total_operations}/45</span>
+                    <span className="ml-1 font-bold">{day.total_operations}/{day.target_operations}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Wins:</span>
@@ -76,7 +76,7 @@ export const DailyHistory = () => {
                   </div>
                   <div>
                     <span className="text-muted-foreground">Losses:</span>
-                    <span className="ml-1 font-bold text-loss">{day.losses}/15</span>
+                    <span className="ml-1 font-bold text-loss">{day.losses}/{day.max_losses}</span>
                   </div>
                 </div>
               </div>

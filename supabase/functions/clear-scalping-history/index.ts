@@ -22,34 +22,34 @@ serve(async (req) => {
       throw new Error('user_id é obrigatório');
     }
 
-    console.log(`🧹 Limpando histórico antigo para user ${user_id}`);
+    console.log(`🧹 Limpando todo histórico antigo para user ${user_id}`);
 
-    // Limpar session_history de hoje (logs antigos da estratégia antiga)
+    // Limpar TODO session_history (todos os dias anteriores)
     const today = new Date().toISOString().split('T')[0];
     
     const { error: historyError } = await supabase
       .from('session_history')
       .delete()
       .eq('user_id', user_id)
-      .gte('timestamp', `${today}T00:00:00Z`);
+      .lt('timestamp', `${today}T00:00:00Z`); // Tudo ANTES de hoje
 
     if (historyError) throw historyError;
 
-    // Limpar agent_logs também
+    // Limpar TODO agent_logs também
     const { error: logsError } = await supabase
       .from('agent_logs')
       .delete()
       .eq('user_id', user_id)
-      .gte('created_at', `${today}T00:00:00Z`);
+      .lt('created_at', `${today}T00:00:00Z`); // Tudo ANTES de hoje
 
     if (logsError) throw logsError;
 
-    console.log(`✅ Histórico e logs limpos com sucesso`);
+    console.log(`✅ Todo histórico anterior a hoje foi limpo com sucesso`);
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: '🧹 Histórico de análises limpado! Aguardando novos sinais da estratégia Scalping 1 Min.',
+        message: '✅ Todo histórico antigo foi limpo com sucesso! Apenas dados de hoje permanecem.',
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
