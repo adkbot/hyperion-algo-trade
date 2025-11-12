@@ -22,34 +22,41 @@ serve(async (req) => {
       throw new Error('user_id é obrigatório');
     }
 
-    console.log(`🧹 Limpando todo histórico antigo para user ${user_id}`);
+    console.log(`🧹 Limpando histórico dos últimos 7 dias para user ${user_id}`);
 
-    // Limpar TODO session_history (todos os dias anteriores)
-    const today = new Date().toISOString().split('T')[0];
+    // Limpar session_history dos últimos 7 dias (exceto hoje)
+    const today = new Date();
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 7);
+    
+    const todayStr = today.toISOString().split('T')[0];
+    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
     
     const { error: historyError } = await supabase
       .from('session_history')
       .delete()
       .eq('user_id', user_id)
-      .lt('timestamp', `${today}T00:00:00Z`); // Tudo ANTES de hoje
+      .gte('timestamp', `${sevenDaysAgoStr}T00:00:00Z`)
+      .lt('timestamp', `${todayStr}T00:00:00Z`);
 
     if (historyError) throw historyError;
 
-    // Limpar TODO agent_logs também
+    // Limpar agent_logs dos últimos 7 dias (exceto hoje)
     const { error: logsError } = await supabase
       .from('agent_logs')
       .delete()
       .eq('user_id', user_id)
-      .lt('created_at', `${today}T00:00:00Z`); // Tudo ANTES de hoje
+      .gte('created_at', `${sevenDaysAgoStr}T00:00:00Z`)
+      .lt('created_at', `${todayStr}T00:00:00Z`);
 
     if (logsError) throw logsError;
 
-    console.log(`✅ Todo histórico anterior a hoje foi limpo com sucesso`);
+    console.log(`✅ Histórico dos últimos 7 dias foi limpo com sucesso`);
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: '✅ Todo histórico antigo foi limpo com sucesso! Apenas dados de hoje permanecem.',
+        message: '✅ Histórico dos últimos 7 dias foi limpo! Apenas dados de hoje permanecem.',
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
