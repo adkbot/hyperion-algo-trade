@@ -123,6 +123,15 @@ export const useDailyGoals = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
       
+      // Get user settings to check trading strategy
+      const { data: settings } = await supabase
+        .from("user_settings")
+        .select("trading_strategy")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      
+      const isScalping1Min = settings?.trading_strategy === 'SCALPING_1MIN';
+      
       const today = new Date().toISOString().split('T')[0];
       const { data, error } = await supabase
         .from("daily_goals")
@@ -133,15 +142,17 @@ export const useDailyGoals = () => {
       
       if (error) throw error;
       
-      // If no goal exists for today, create one
+      // If no goal exists for today, create one based on strategy
       if (!data) {
         const { data: newGoal, error: insertError } = await supabase
           .from("daily_goals")
           .insert({
             date: today,
             user_id: user.id,
-            target_operations: 45,
-            max_losses: 15,
+            // Scalping 1Min: 4 operações (1 por sessão), 2 max losses
+            // Sweep Liquidity: 45 operações, 15 max losses
+            target_operations: isScalping1Min ? 4 : 45,
+            max_losses: isScalping1Min ? 2 : 15,
           })
           .select()
           .single();
@@ -207,6 +218,7 @@ export const useUpdateSettings = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["user-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["daily-goals"] });
       toast({
         title: "Configurações salvas",
         description: "As configurações foram atualizadas com sucesso",
