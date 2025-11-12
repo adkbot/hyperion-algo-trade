@@ -932,7 +932,7 @@ async function processUserTradingCycle(
         await supabase.from('session_history').insert({
           user_id: userId,
           pair,
-          session: mapSession(currentSession),
+          session: currentSession,
           cycle_phase: cyclePhase,
           direction: analysis.direction,
           signal: analysis.signal,
