@@ -74,32 +74,6 @@ let cacheTimestamp = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
 // ============================================
-// 🔴 FASE 1: FUNÇÃO PARA CALCULAR ATR (Average True Range)
-// ============================================
-function calculateATR(candles: any[], period: number = 14): number {
-  if (candles.length < period + 1) return 0;
-  
-  const trueRanges = [];
-  
-  for (let i = 1; i < candles.length; i++) {
-    const high = parseFloat(candles[i].high);
-    const low = parseFloat(candles[i].low);
-    const prevClose = parseFloat(candles[i - 1].close);
-    
-    const tr = Math.max(
-      high - low,
-      Math.abs(high - prevClose),
-      Math.abs(low - prevClose)
-    );
-    
-    trueRanges.push(tr);
-  }
-  
-  const lastPeriod = trueRanges.slice(-period);
-  return lastPeriod.reduce((sum, tr) => sum + tr, 0) / period;
-}
-
-// ============================================
 // 🔵 FASE 4: CALCULAR RISCO ADAPTATIVO
 // ============================================
 function calculateAdaptiveRisk(baseRisk: number, dailyGoals: any): number {
@@ -3810,26 +3784,6 @@ function calculateIndicators(candles5m: any[], candles15m: any[], candles1h: any
   };
 }
 
-function calculateRSI(prices: number[], period: number): number {
-  if (prices.length < period + 1) return 50;
-
-  let gains = 0;
-  let losses = 0;
-
-  for (let i = prices.length - period; i < prices.length; i++) {
-    const change = prices[i] - prices[i - 1];
-    if (change > 0) gains += change;
-    else losses -= change;
-  }
-
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
-}
-
 function calculateVWMA(prices: number[], volumes: number[], period: number): number {
   if (prices.length < period) return prices[prices.length - 1];
 
@@ -3875,37 +3829,202 @@ function calculateMACD(prices: number[]): number {
 // ============================================
 // FASE 5: PRIORIZAR PARES POR VOLATILIDADE
 // ============================================
+// Helper: Calcular RSI
+function calculateRSI(prices: number[], period: number = 14): number {
+  if (prices.length < period + 1) return 50;
+  
+  let gains = 0;
+  let losses = 0;
+  
+  for (let i = prices.length - period; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
+    if (change > 0) gains += change;
+    else losses += Math.abs(change);
+  }
+  
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+// Helper: Calcular ATR
+function calculateATR(candles: any[], period: number = 14): number {
+  if (candles.length < period + 1) return 0;
+  
+  const trs: number[] = [];
+  for (let i = 1; i < candles.length; i++) {
+    const high = candles[i].high;
+    const low = candles[i].low;
+    const prevClose = candles[i - 1].close;
+    
+    const tr = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    );
+    trs.push(tr);
+  }
+  
+  const recentTRs = trs.slice(-period);
+  return recentTRs.reduce((sum, tr) => sum + tr, 0) / period;
+}
+
+// Sistema de Score Avançado (Multi-fator)
+async function calculateAdvancedScore(pair: string): Promise<number> {
+  let score = 0;
+  
+  try {
+    // 1. VOLATILIDADE ÚTIL (ATR / Preço) - Peso 25%
+    const candles1h = await fetchCandlesFromBinance(pair, ['1h']);
+    if (!candles1h['1h'] || candles1h['1h'].length < 15) return 0;
+    
+    const atr = calculateATR(candles1h['1h'], 14);
+    const currentPrice = candles1h['1h'][candles1h['1h'].length - 1].close;
+    const atrPercent = (atr / currentPrice) * 100;
+    score += Math.min(atrPercent * 25, 25); // Cap at 25
+    
+    // 2. LIQUIDEZ (Spread Bid/Ask) - Peso 20%
+    const bookResponse = await fetch(`https://fapi.binance.com/fapi/v1/ticker/bookTicker?symbol=${pair}`);
+    const bookData = await bookResponse.json();
+    const spread = ((parseFloat(bookData.askPrice) - parseFloat(bookData.bidPrice)) / parseFloat(bookData.bidPrice)) * 100;
+    const liquidityScore = Math.max(0, 1 - spread * 10); // Spread menor = melhor
+    score += liquidityScore * 20;
+    
+    // 3. MOMENTUM DIRECIONAL (RSI) - Peso 20%
+    const closes = candles1h['1h'].map((c: any) => c.close);
+    const rsi = calculateRSI(closes, 14);
+    const momentumScore = Math.abs(rsi - 50) / 50; // Quanto mais extremo, melhor
+    score += momentumScore * 20;
+    
+    // 4. VOLUME CONSISTENTE (últimas 4h vs 24h) - Peso 15%
+    const ticker24h = await fetch(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${pair}`);
+    const data24h = await ticker24h.json();
+    const volume24h = parseFloat(data24h.quoteVolume);
+    const recentVolume = candles1h['1h'].slice(-4).reduce((sum: number, c: any) => sum + (c.volume * c.close), 0);
+    const volumeConsistency = Math.min((recentVolume / volume24h) * 4, 1); // Normalizado
+    score += volumeConsistency * 15;
+    
+    // 5. QUALIDADE DA FOUNDATION - Peso 20%
+    const candles5m = await fetchCandlesFromBinance(pair, ['5m']);
+    if (candles5m['5m'] && candles5m['5m'].length > 0) {
+      const lastCandle5m = candles5m['5m'][candles5m['5m'].length - 1];
+      const foundationRange = ((lastCandle5m.high - lastCandle5m.low) / lastCandle5m.low) * 100;
+      
+      if (foundationRange >= 0.3 && foundationRange <= 2.0) {
+        score += 20; // Foundation ideal
+      } else if (foundationRange > 2.0) {
+        score += 10; // Muito volátil
+      } else {
+        score += 5; // Pouco range
+      }
+    }
+    
+    return score;
+    
+  } catch (error) {
+    console.error(`❌ Erro ao calcular score para ${pair}:`, error);
+    return 0;
+  }
+}
+
+// Análise de Setup Readiness
+async function analyzeSetupReadiness(pairs: string[]): Promise<string[]> {
+  console.log(`\n🎯 Analisando setup readiness dos top 50 pares...`);
+  
+  const readyPairs: Array<{ pair: string; priority: number }> = [];
+  
+  for (const pair of pairs.slice(0, 50)) {
+    await rateLimiter.checkAndWait();
+    
+    try {
+      const candles1m = await fetchCandlesFromBinance(pair, ['1m']);
+      const candles5m = await fetchCandlesFromBinance(pair, ['5m']);
+      
+      if (!candles1m['1m'] || candles1m['1m'].length < 10) continue;
+      
+      // Detectar FVG
+      const recentCandles = candles1m['1m'].slice(-10);
+      let hasFVG = false;
+      
+      for (let i = 2; i < recentCandles.length; i++) {
+        const c1 = recentCandles[i - 2];
+        const c2 = recentCandles[i - 1];
+        const c3 = recentCandles[i];
+        
+        // FVG de baixa
+        if (c1.low > c3.high) {
+          hasFVG = true;
+          break;
+        }
+        // FVG de alta
+        if (c1.high < c3.low) {
+          hasFVG = true;
+          break;
+        }
+      }
+      
+      let priority = 0;
+      if (hasFVG) priority += 50;
+      
+      // Foundation válida
+      if (candles5m['5m'] && candles5m['5m'].length > 0) {
+        const lastCandle5m = candles5m['5m'][candles5m['5m'].length - 1];
+        const range = ((lastCandle5m.high - lastCandle5m.low) / lastCandle5m.low) * 100;
+        if (range >= 0.3 && range <= 2.0) {
+          priority += 30;
+        }
+      }
+      
+      if (priority > 0) {
+        readyPairs.push({ pair, priority });
+      }
+      
+    } catch (error) {
+      // Ignorar erros individuais
+    }
+  }
+  
+  const sortedReady = readyPairs
+    .sort((a, b) => b.priority - a.priority)
+    .map(p => p.pair);
+  
+  console.log(`✅ ${sortedReady.length} pares com setups PRÓXIMOS detectados`);
+  if (sortedReady.length > 0) {
+    console.log(`  Top 5 ready: ${sortedReady.slice(0, 5).join(', ')}`);
+  }
+  
+  return sortedReady;
+}
+
+// Priorização com Score Avançado
 async function prioritizePairs(pairs: string[]): Promise<string[]> {
-  console.log(`\n📊 Priorizando ${pairs.length} pares por volatilidade e volume...`);
+  console.log(`\n🧠 SMART SCANNER: Analisando ${pairs.length} pares com score multi-fator...`);
   
   const pairData: Array<{ pair: string; score: number }> = [];
   
   for (const pair of pairs) {
     await rateLimiter.checkAndWait();
     
-    try {
-      const response = await fetch(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${pair}`);
-      const data = await response.json();
-      
-      const volatility = Math.abs(parseFloat(data.priceChangePercent));
-      const volumeRatio = parseFloat(data.volume) / parseFloat(data.quoteVolume);
-      
-      // Score: Volatilidade (peso 2x) + Volume ratio (peso 1x)
-      const score = (volatility * 2) + (volumeRatio * 100);
-      
-      pairData.push({ pair, score });
-    } catch (error) {
-      console.error(`Erro ao priorizar ${pair}:`, error);
-      pairData.push({ pair, score: 0 });
+    const score = await calculateAdvancedScore(pair);
+    pairData.push({ pair, score });
+    
+    if (score > 0) {
+      console.log(`  ├─ ${pair}: Score ${score.toFixed(2)}`);
     }
   }
   
-  // Ordenar por score (maior primeiro)
   const sortedPairs = pairData
     .sort((a, b) => b.score - a.score)
     .map(p => p.pair);
   
-  console.log(`✅ Top 5 pares priorizados: ${sortedPairs.slice(0, 5).join(', ')}`);
+  console.log(`\n✅ TOP 10 ATIVOS MAIS PROMISSORES:`);
+  sortedPairs.slice(0, 10).forEach((pair, i) => {
+    const scoreData = pairData.find(p => p.pair === pair);
+    console.log(`  ${i + 1}. ${pair} - Score: ${scoreData?.score.toFixed(2)}`);
+  });
   
   return sortedPairs;
 }
@@ -3956,31 +4075,42 @@ async function scanMarketForValidPairs(getRemainingTime?: () => number): Promise
         return volume24h >= 30_000_000 && priceChange >= 0.5;
       })
       .map((pair: any) => pair.symbol)
-      .slice(0, 50); // Buscar 50 candidatos iniciais
+      .slice(0, 150); // 🚀 Buscar 150 candidatos para análise inteligente
 
     console.log(`🎯 Filtrados ${validPairs.length} pares (volume >= $30M, volatilidade >= 0.5%)`);
     
     // ✅ FASE 5: Priorizar pares por volatilidade e volume
     const prioritizedPairs = await prioritizePairs(validPairs);
     
-    // ⏱️ AJUSTE DINÂMICO: Se tempo limitado, reduzir para 8 pares. Senão, usar 15.
-    let maxPairs = 15; // ⬆️ Aumentado de 10 para 15
+    // ⏱️ AJUSTE DINÂMICO: Score avançado permite mais pares com confiança
+    let maxPairs = 30; // 🚀 Aumentado para 30 (análise inteligente)
     if (getRemainingTime && getRemainingTime() < 40000) {
-      console.log('⚠️ Tempo limitado detectado - reduzindo para 8 pares prioritários');
-      maxPairs = 8; // ⬆️ Aumentado de 5 para 8 mesmo em tempo limitado
+      console.log('⚠️ Tempo limitado detectado - usando 20 pares top');
+      maxPairs = 20; // Mesmo em tempo limitado, 20 pares (são os MELHORES)
     }
     
     // 🔒 FORÇAR INCLUSÃO DE BTCUSDT E ETHUSDT SEMPRE
     const mandatoryPairs = ['BTCUSDT', 'ETHUSDT'];
     
-    // Filtrar pares obrigatórios da lista priorizada para evitar duplicação
+    // 🎯 NOVA LÓGICA: Priorizar pares com setups prontos
+    const readyPairs = await analyzeSetupReadiness(prioritizedPairs);
+    
+    // Combinar: Mandatory → Ready → Score
     const otherPairs = prioritizedPairs.filter(pair => !mandatoryPairs.includes(pair));
+    const orderedPairs = [
+      ...readyPairs.filter(p => !mandatoryPairs.includes(p)), // Setup ready primeiro
+      ...otherPairs.filter(p => !readyPairs.includes(p))      // Resto por score
+    ];
     
-    // Combinar: pares obrigatórios primeiro, depois os outros até atingir maxPairs
-    const finalPairs = [...mandatoryPairs, ...otherPairs.slice(0, maxPairs - mandatoryPairs.length)];
+    const finalPairs = [...mandatoryPairs, ...orderedPairs.slice(0, maxPairs - mandatoryPairs.length)];
     
-    console.log(`✅ Selecionados ${finalPairs.length} pares (${mandatoryPairs.length} obrigatórios: ${mandatoryPairs.join(', ')})`);
-    
+    console.log(`\n📊 SMART SCANNER - RESULTADO FINAL:`);
+    console.log(`├─ Total candidatos analisados: ${validPairs.length}`);
+    console.log(`├─ Pares com setups ready: ${readyPairs.length}`);
+    console.log(`├─ Pares selecionados: ${finalPairs.length}`);
+    console.log(`├─ Mandatory: ${mandatoryPairs.join(', ')}`);
+    console.log(`├─ Top Score: ${finalPairs.slice(2, 7).join(', ')}`);
+    console.log(`└─ Ready setups: ${readyPairs.slice(0, 5).join(', ')}\n`);
     const rateLimitStatus = rateLimiter.getStats();
     console.log(`📊 Rate Limit: ${rateLimitStatus.current}/${rateLimitStatus.max} (${rateLimitStatus.percentage.toFixed(1)}%)`);
     
