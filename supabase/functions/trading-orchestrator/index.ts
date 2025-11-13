@@ -587,11 +587,12 @@ async function processUserTradingCycle(
   // 🔴 FASE 1: COOLDOWN INTELIGENTE (NÃO BLOQUEIO PERMANENTE)
   // ============================================
   if (dailyGoal && dailyGoal.total_operations > 0 && !dailyGoal.completed && activeCount === 0) {
-    // Obter última operação para calcular tempo desde o último loss
+    // Obter última operação com LOSS para calcular tempo desde o último loss
     const { data: operations } = await supabase
       .from('operations')
       .select('exit_time')
       .eq('user_id', userId)
+      .eq('result', 'LOSS')  // ✅ CORRIGIDO: Filtrar apenas LOSS
       .order('exit_time', { ascending: false })
       .limit(1);
 
@@ -622,8 +623,8 @@ async function processUserTradingCycle(
         .eq('id', dailyGoal.id);
       
       // Continuar análise normalmente
-    } else if (hoursSinceLastLoss < 4) {
-      // Cooldown de 4 horas após loss
+    } else if (hoursSinceLastLoss < 0) {
+      // 🔴 COOLDOWN DESABILITADO TEMPORARIAMENTE (era < 4)
       console.log(`⏸️ COOLDOWN ATIVO - Aguardando ${(4 - hoursSinceLastLoss).toFixed(1)}h para retomar`);
       console.log(`├─ Total PNL: $${dailyGoal.total_pnl}`);
       console.log(`├─ Operações: ${dailyGoal.total_operations} (${dailyGoal.wins}W/${dailyGoal.losses}L)`);
