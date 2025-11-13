@@ -35,6 +35,39 @@ const SESSION_START_TIMES = {
 };
 
 /**
+ * Mapeia sessões TRANSITION para a próxima sessão real
+ */
+function mapTransitionToRealSession(session: string): string {
+  if (session !== 'TRANSITION') return session;
+  
+  const now = new Date();
+  const utcHour = now.getUTCHours();
+  const utcMinute = now.getUTCMinutes();
+  const timeInMinutes = utcHour * 60 + utcMinute;
+  
+  // TRANSITION antes de OCEANIA (23:30-00:00)
+  if (timeInMinutes >= 23 * 60 + 30 || timeInMinutes < 0) {
+    return 'OCEANIA';
+  }
+  // TRANSITION antes de ASIA (02:30-03:00)
+  if (timeInMinutes >= 2 * 60 + 30 && timeInMinutes < 3 * 60) {
+    return 'ASIA';
+  }
+  // TRANSITION antes de LONDON (07:30-08:00)
+  if (timeInMinutes >= 7 * 60 + 30 && timeInMinutes < 8 * 60) {
+    return 'LONDON';
+  }
+  // TRANSITION antes de NY (12:30-13:00)
+  if (timeInMinutes >= 12 * 60 + 30 && timeInMinutes < 13 * 60) {
+    return 'NY';
+  }
+  
+  // Fallback: retorna a sessão mais próxima
+  console.log(`⚠️ TRANSITION em horário não esperado (${utcHour}:${utcMinute}), usando NY como fallback`);
+  return 'NY';
+}
+
+/**
  * Obtém ou cria a fundação da sessão atual
  */
 export async function getOrCreateFoundation(
@@ -43,14 +76,21 @@ export async function getOrCreateFoundation(
   userId: string,
   supabase: any
 ): Promise<SessionFoundation> {
+  // Mapear TRANSITION para a próxima sessão real
+  const realSession = mapTransitionToRealSession(session);
+  
+  if (session === 'TRANSITION') {
+    console.log(`🔄 TRANSITION detectado - usando foundation da sessão ${realSession}`);
+  }
+  
   const today = new Date().toISOString().split('T')[0];
   
-  // Tentar buscar fundação existente no banco
+  // Tentar buscar fundação existente no banco (usando a sessão real)
   const { data: existing, error: fetchError } = await supabase
     .from('session_foundation')
     .select('*')
     .eq('user_id', userId)
-    .eq('session', session)
+    .eq('session', realSession)
     .eq('date', today)
     .maybeSingle();
   
@@ -59,27 +99,27 @@ export async function getOrCreateFoundation(
   }
   
   if (existing) {
-    console.log(`✅ Fundação existente para ${session}: HIGH ${existing.high} | LOW ${existing.low}`);
+    console.log(`✅ Fundação existente para ${realSession}: HIGH ${existing.high} | LOW ${existing.low}`);
     return {
       high: Number(existing.high),
       low: Number(existing.low),
       timestamp: existing.timestamp,
       valid: true,
-      session,
+      session: realSession,
       date: today
     };
   }
   
-  // Criar nova fundação baseada na primeira vela de 5min
-  const foundation = detectSessionFoundation(candles5m, session);
+  // Criar nova fundação baseada na primeira vela de 5min (usando sessão real)
+  const foundation = detectSessionFoundation(candles5m, realSession);
   
   if (foundation.valid) {
-    // Armazenar no banco
+    // Armazenar no banco (usando sessão real)
     const { error: insertError } = await supabase
       .from('session_foundation')
       .insert({
         user_id: userId,
-        session,
+        session: realSession,
         date: today,
         high: foundation.high,
         low: foundation.low,
@@ -89,7 +129,7 @@ export async function getOrCreateFoundation(
     if (insertError) {
       console.error('❌ Erro ao salvar fundação:', insertError);
     } else {
-      console.log(`\n🏗️ NOVA FUNDAÇÃO CRIADA - ${session}:`);
+      console.log(`\n🏗️ NOVA FUNDAÇÃO CRIADA - ${realSession}:`);
       console.log(`├─ HIGH: ${foundation.high}`);
       console.log(`├─ LOW: ${foundation.low}`);
       console.log(`├─ Timestamp: ${foundation.timestamp}`);
