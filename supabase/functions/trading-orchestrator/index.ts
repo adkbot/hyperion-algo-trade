@@ -584,6 +584,15 @@ async function processUserTradingCycle(
   const activeCount = activePositions?.length || 0;
 
   // ============================================
+  // ⏰ BUSCAR CONFIGURAÇÃO DE TIMER DE COOLDOWN
+  // ============================================
+  const { data: currentSettings } = await supabase
+    .from('user_settings')
+    .select('cooldown_disabled_until')
+    .eq('user_id', userId)
+    .single();
+
+  // ============================================
   // 🔴 FASE 1: COOLDOWN INTELIGENTE (NÃO BLOQUEIO PERMANENTE)
   // ============================================
   if (dailyGoal && dailyGoal.total_operations > 0 && !dailyGoal.completed && activeCount === 0) {
@@ -623,8 +632,8 @@ async function processUserTradingCycle(
         .eq('id', dailyGoal.id);
       
       // Continuar análise normalmente
-    } else if (hoursSinceLastLoss < 0) {
-      // 🔴 COOLDOWN DESABILITADO TEMPORARIAMENTE (era < 4)
+    } else if (hoursSinceLastLoss < 4 && (!currentSettings?.cooldown_disabled_until || new Date() >= new Date(currentSettings.cooldown_disabled_until))) {
+      // ✅ Cooldown de 4h após loss (respeitando timer de desabilitação)
       console.log(`⏸️ COOLDOWN ATIVO - Aguardando ${(4 - hoursSinceLastLoss).toFixed(1)}h para retomar`);
       console.log(`├─ Total PNL: $${dailyGoal.total_pnl}`);
       console.log(`├─ Operações: ${dailyGoal.total_operations} (${dailyGoal.wins}W/${dailyGoal.losses}L)`);
@@ -642,6 +651,48 @@ async function processUserTradingCycle(
       console.log(`✅ COOLDOWN EXPIRADO - Sistema liberado para novas operações`);
       console.log(`├─ Tempo desde último loss: ${hoursSinceLastLoss.toFixed(1)}h`);
       console.log(`└─ Limite de cooldown: 4h`);
+    }
+  }
+
+  // ============================================
+  // ⏰ PROCESSAR TIMER AUTOMÁTICO DE COOLDOWN
+  // ============================================
+
+  if (currentSettings?.cooldown_disabled_until) {
+    const disabledUntil = new Date(currentSettings.cooldown_disabled_until);
+    const now = new Date();
+    
+    if (now >= disabledUntil) {
+      // Timer expirou, reabilitar cooldown automaticamente
+      console.log(`⏰ TIMER AUTOMÁTICO: Reabilitando cooldown`);
+      console.log(`├─ Desabilitado até: ${disabledUntil.toLocaleString('pt-BR')}`);
+      console.log(`├─ Hora atual: ${now.toLocaleString('pt-BR')}`);
+      console.log(`└─ Cooldown reabilitado automaticamente ✅`);
+      
+      // Limpar flag de desabilitação
+      await supabase
+        .from('user_settings')
+        .update({ cooldown_disabled_until: null })
+        .eq('user_id', userId);
+      
+      // Registrar no log de agentes
+      await supabase.from('agent_logs').insert({
+        user_id: userId,
+        agent_name: 'SYSTEM_COOLDOWN',
+        status: 'SUCCESS',
+        asset: 'SYSTEM',
+        data: {
+          action: 'cooldown_reativado',
+          disabled_duration_hours: 24,
+          reactivated_at: now.toISOString(),
+          message: 'Cooldown reabilitado automaticamente após 24h'
+        }
+      });
+    } else {
+      // Timer ainda ativo
+      const hoursRemaining = (disabledUntil.getTime() - now.getTime()) / (1000 * 60 * 60);
+      console.log(`⏰ TIMER ATIVO: Cooldown desabilitado por mais ${hoursRemaining.toFixed(1)}h`);
+      console.log(`└─ Reabilitação automática em: ${disabledUntil.toLocaleString('pt-BR')}`);
     }
   }
 

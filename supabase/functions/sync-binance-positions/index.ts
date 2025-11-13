@@ -164,14 +164,21 @@ serve(async (req) => {
             risk_reward: riskReward,
             projected_profit: projectedProfit,
             opened_at: new Date().toISOString(),
-            session: 'Manual', // Marcado como aberto manualmente
+            session: null, // ✅ CORRIGIDO: era 'Manual', agora permite posições externas
             agents: {
               note: 'Posição sincronizada da Binance (SL/TP estimados)',
               synced_at: new Date().toISOString(),
             }
           });
         
-        if (!insertError) {
+        // ✅ ADICIONAR: Log detalhado de erro para evitar falhas silenciosas
+        if (insertError) {
+          console.error(`❌ ERRO ao adicionar ${symbol}:`);
+          console.error(`├─ Code: ${insertError.code}`);
+          console.error(`├─ Message: ${insertError.message}`);
+          console.error(`├─ Details: ${JSON.stringify(insertError.details)}`);
+          console.error(`└─ Hint: ${insertError.hint || 'N/A'}`);
+        } else {
           added++;
           console.log(`📥 Adicionado: ${symbol} ${direction} - Entry: $${entryPrice}`);
         }
