@@ -4010,12 +4010,12 @@ async function fetchCandlesFromBinance(symbol: string, intervals: string[]) {
       const data = await response.json();
 
       candles[interval] = data.map((k: any) => ({
-        time: k[0],
-        open: k[1],
-        high: k[2],
-        low: k[3],
-        close: k[4],
-        volume: k[5],
+        timestamp: k[0],
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4]),
+        volume: parseFloat(k[5]),
       }));
     } catch (error) {
       console.error(`Error fetching ${interval} candles for ${symbol}:`, error);
