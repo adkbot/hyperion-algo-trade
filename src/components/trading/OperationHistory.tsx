@@ -8,7 +8,7 @@ import { useOperations } from "@/hooks/useTradingData";
 export const OperationHistory = () => {
   const { data: operationsData } = useOperations();
 
-  const operations = operationsData?.map((op) => ({
+  const operations = operationsData?.map((op: any) => ({
     id: op.id,
     time: new Date(op.entry_time).toLocaleTimeString('pt-BR'),
     asset: op.asset,
