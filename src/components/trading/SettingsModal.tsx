@@ -159,10 +159,15 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               id="risk"
               type="number"
               step="0.01"
+              min="0.01"
+              max="100"
               value={riskPerTrade * 100}
               onChange={(e) => setRiskPerTrade(Number(e.target.value) / 100)}
-              placeholder="6"
+              placeholder="Digite o percentual de risco (ex: 6)"
             />
+            <p className="text-xs text-muted-foreground">
+              Valor livre - Defina o percentual de risco que deseja assumir por trade
+            </p>
           </div>
           <div className="space-y-1">
             <Label htmlFor="leverage">Alavancagem</Label>
