@@ -1075,7 +1075,9 @@ async function processUserTradingCycle(
                 console.log(`✅ executeTradeSignal completado com sucesso para ${pair}`);
               } catch (execError) {
                 console.error(`❌ ERRO em executeTradeSignal para ${pair}:`, execError);
-                console.error(`   Stack:`, execError?.stack);
+                if (execError instanceof Error) {
+                  console.error(`   Stack:`, execError.stack);
+                }
               }
             } else {
               console.log(`⏸️ Sinal ${analysis?.signal || 'undefined'} não é BUY nem SELL - pulando`);
