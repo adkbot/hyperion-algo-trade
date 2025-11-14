@@ -32,6 +32,39 @@ serve(async (req) => {
     console.log(`📊 Direction recebida: ${direction}`);
     console.log(`💰 Quantity: ${quantity}`);
     console.log(`💵 Price: ${price}`);
+    console.log(`🛑 Stop Loss: ${stopLoss}`);
+    console.log(`🎯 Take Profit: ${takeProfit}`);
+    console.log(`⚖️ Risk/Reward: ${riskReward}`);
+    
+    // ✅ VALIDAÇÃO CRÍTICA: Verificar se stop/TP estão corretos para a direção
+    let correctedStopLoss = stopLoss;
+    let correctedTakeProfit = takeProfit;
+    
+    if (direction === 'BUY') {
+      // Para BUY: Stop DEVE estar ABAIXO da entrada, TP ACIMA
+      if (stopLoss > price) {
+        console.log('⚠️ INVERSÃO DETECTADA: Stop Loss está ACIMA da entrada para BUY!');
+        console.log(`   Invertendo: Stop ${stopLoss} ↔ TP ${takeProfit}`);
+        [correctedStopLoss, correctedTakeProfit] = [takeProfit, stopLoss];
+      }
+    } else if (direction === 'SELL') {
+      // Para SELL: Stop DEVE estar ACIMA da entrada, TP ABAIXO
+      if (stopLoss < price) {
+        console.log('⚠️ INVERSÃO DETECTADA: Stop Loss está ABAIXO da entrada para SELL!');
+        console.log(`   Invertendo: Stop ${stopLoss} ↔ TP ${takeProfit}`);
+        [correctedStopLoss, correctedTakeProfit] = [takeProfit, stopLoss];
+      }
+    }
+    
+    // Atualizar valores corrigidos
+    const finalStopLoss = correctedStopLoss;
+    const finalTakeProfit = correctedTakeProfit;
+    
+    console.log(`\n✅ VALORES FINAIS:`);
+    console.log(`├─ Entry: ${price}`);
+    console.log(`├─ Stop: ${finalStopLoss} ${direction === 'BUY' ? '(ABAIXO)' : '(ACIMA)'}`);
+    console.log(`└─ TP: ${finalTakeProfit} ${direction === 'BUY' ? '(ACIMA)' : '(ABAIXO)'}`);
+    console.log('================================================================================\n');
     
     // Decodificar informações dos agentes se disponível
     if (agents) {
@@ -101,11 +134,11 @@ serve(async (req) => {
           direction,
           entry_price: price,
           current_price: price,
-          stop_loss: stopLoss,
-          take_profit: takeProfit,
+          stop_loss: finalStopLoss,          // ✅ Usar valor corrigido
+          take_profit: finalTakeProfit,       // ✅ Usar valor corrigido
           risk_reward: riskReward,
           current_pnl: 0,
-          projected_profit: (takeProfit - price) * quantity,
+          projected_profit: (finalTakeProfit - price) * quantity,
           agents,
           session,
         });
@@ -123,8 +156,8 @@ serve(async (req) => {
           asset,
           direction,
           entry_price: price,
-          stop_loss: stopLoss,
-          take_profit: takeProfit,
+          stop_loss: finalStopLoss,          // ✅ Usar valor corrigido
+          take_profit: finalTakeProfit,       // ✅ Usar valor corrigido
           risk_reward: riskReward,
           result: 'OPEN',
           agents,
@@ -247,8 +280,8 @@ serve(async (req) => {
     console.log(`📊 Side: ${side} (${direction})`);
     console.log(`💰 Quantity: ${quantity} → ${formattedQuantity} (adjusted)`);
     console.log(`💵 Type: MARKET`);
-    console.log(`📍 Stop Loss: $${stopLoss}`);
-    console.log(`🎯 Take Profit: $${takeProfit}`);
+    console.log(`📍 Stop Loss: $${finalStopLoss}`);
+    console.log(`🎯 Take Profit: $${finalTakeProfit}`);
     console.log(`⚖️ Risk/Reward: ${riskReward}`);
     console.log('================================================================================\n');
 
@@ -391,11 +424,11 @@ serve(async (req) => {
         direction,
         entry_price: entryPriceReal,      // ✅ Preço REAL da Binance
         current_price: currentPriceReal,   // ✅ Preço REAL atual
-        stop_loss: stopLoss,
-        take_profit: takeProfit,
+        stop_loss: finalStopLoss,          // ✅ Usar valor corrigido
+        take_profit: finalTakeProfit,       // ✅ Usar valor corrigido
         risk_reward: riskReward,
         current_pnl: pnlReal,              // ✅ P&L REAL da Binance
-        projected_profit: (takeProfit - entryPriceReal) * quantity,
+        projected_profit: (finalTakeProfit - entryPriceReal) * quantity,
         agents,
         session,
       });
@@ -424,9 +457,9 @@ serve(async (req) => {
         user_id,
         asset,
         direction,
-        entry_price: price,
-        stop_loss: stopLoss,
-        take_profit: takeProfit,
+        entry_price: entryPriceReal,  // ✅ CORRIGIDO: Usar preço REAL da Binance (igual active_positions)
+        stop_loss: finalStopLoss,          // ✅ Usar valor corrigido
+        take_profit: finalTakeProfit,       // ✅ Usar valor corrigido
         risk_reward: riskReward,
         result: 'OPEN',
         strategy: agents?.strategy || 'UNKNOWN',

@@ -149,26 +149,30 @@ function calculateTradeParams(
   let takeProfit: number;
   
   if (direction === 'BUY') {
-    // Entrada: Close do engulfing
+    // ✅ COMPRA (LONG):
+    // - Entrada: Close do engulfing
+    // - Stop: ABAIXO da mínima do reteste
+    // - TP: ACIMA da entrada (RR 3:1)
     entryPrice = engulfingCandle.close;
+    stopLoss = retestCandle.low - (tickSize * 2);  // Stop ABAIXO
     
-    // Stop: Abaixo da mínima do reteste
-    stopLoss = retestCandle.low - (tickSize * 2);
+    const stopDistance = Math.abs(entryPrice - stopLoss);
+    takeProfit = entryPrice + (stopDistance * 3);  // TP ACIMA
     
-    // TP: RR 3:1
-    const stopDistance = entryPrice - stopLoss;
-    takeProfit = entryPrice + (stopDistance * 3);
+    console.log(`🟢 BUY: Entry ${entryPrice} | Stop ${stopLoss} (ABAIXO) | TP ${takeProfit} (ACIMA)`);
     
   } else { // SELL
-    // Entrada: Close do engulfing
+    // ✅ VENDA (SHORT):
+    // - Entrada: Close do engulfing
+    // - Stop: ACIMA da máxima do reteste
+    // - TP: ABAIXO da entrada (RR 3:1)
     entryPrice = engulfingCandle.close;
+    stopLoss = retestCandle.high + (tickSize * 2);  // Stop ACIMA
     
-    // Stop: Acima da máxima do reteste
-    stopLoss = retestCandle.high + (tickSize * 2);
+    const stopDistance = Math.abs(stopLoss - entryPrice);
+    takeProfit = entryPrice - (stopDistance * 3);  // TP ABAIXO
     
-    // TP: RR 3:1
-    const stopDistance = stopLoss - entryPrice;
-    takeProfit = entryPrice - (stopDistance * 3);
+    console.log(`🔴 SELL: Entry ${entryPrice} | Stop ${stopLoss} (ACIMA) | TP ${takeProfit} (ABAIXO)`);
   }
   
   // Arredondar para tickSize
