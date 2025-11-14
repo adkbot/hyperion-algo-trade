@@ -26,22 +26,21 @@ export function SessionStatePanel() {
     refetchInterval: 5000,
   });
 
-  const { data: dailyGoals } = useQuery({
-    queryKey: ['daily-goals-progress'],
+  // Buscar operações por sessão
+  const { data: sessionTrades } = useQuery({
+    queryKey: ['session-operations'],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-
-      const today = new Date().toISOString().split('T')[0];
+      if (!user) return [];
       
+      const today = new Date().toISOString().split('T')[0];
       const { data } = await supabase
-        .from('daily_goals')
+        .from('session_trade_count')
         .select('*')
         .eq('user_id', user.id)
-        .eq('date', today)
-        .maybeSingle();
-
-      return data;
+        .eq('date', today);
+      
+      return data || [];
     },
     refetchInterval: 3000,
   });
@@ -87,9 +86,9 @@ export function SessionStatePanel() {
     );
   };
 
-  const targetOps = dailyGoals?.target_operations || 45;
-  const currentOps = dailyGoals?.total_operations || 0;
-  const progressPercent = (currentOps / targetOps) * 100;
+  // Total de operações executadas hoje (soma de todas as sessões)
+  const totalOpsToday = sessionTrades?.reduce((sum: number, s: any) => sum + (s.trade_count || 0), 0) || 0;
+  const maxSessionsPerDay = 4; // OCEANIA, ASIA, LONDON, NY
 
   return (
     <Card className="p-6">
@@ -188,27 +187,7 @@ export function SessionStatePanel() {
           )}
         </div>
 
-        {/* Operations Progress */}
-        <div className="space-y-2 pt-4 border-t">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Target className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">Daily Operations</span>
-            </div>
-            <span className="text-sm font-mono">
-              {currentOps} / {targetOps}
-            </span>
-          </div>
-          <Progress value={progressPercent} className="h-3" />
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              {dailyGoals?.wins || 0} Wins • {dailyGoals?.losses || 0} Losses
-            </span>
-            <span className={dailyGoals?.total_pnl && dailyGoals.total_pnl >= 0 ? 'text-success' : 'text-destructive'}>
-              {dailyGoals?.total_pnl ? `$${dailyGoals.total_pnl.toFixed(2)}` : '$0.00'}
-            </span>
-          </div>
-        </div>
+        {/* Operations Progress - Não usado mais (substituído por DailyGoals) */}
       </div>
     </Card>
   );
