@@ -2,11 +2,10 @@
 // FIRST CANDLE RULE - MAIN ANALYZER
 // ============================================
 // Orquestrador da estratégia First Candle Rule
-// Sequência: Foundation → Breakout → Reteste → Engulfing → Execução
+// Sequência: Foundation → Breakout → Engulfing → Execução
 
 import { getOrCreateFirstCandleFoundation } from './first-candle-foundation.ts';
 import { detectBreakout } from './first-candle-breakout.ts';
-import { detectRetest, isValidRetest } from './first-candle-retest.ts';
 import { detectEngulfingAfterRetest } from './first-candle-engulfing.ts';
 
 interface Candle {
@@ -135,76 +134,27 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
     direction: breakoutResult.direction,
     signal: 'STAY_OUT',
     confidence_score: 0,
-    notes: `⚡ Breakout ${breakoutResult.direction} @ ${breakoutResult.breakoutPrice}. Aguardando reteste...`,
+    notes: `⚡ Breakout ${breakoutResult.direction} @ ${breakoutResult.breakoutPrice}. Aguardando engulfing...`,
     event_type: 'BREAKOUT',
     event_data: { price: breakoutResult.breakoutPrice, direction: breakoutResult.direction },
     timestamp: new Date().toISOString(),
   });
   
-  // PASSO 3: Detectar Reteste OBRIGATÓRIO
-  const retestResult = await detectRetest(
-    candles['1m'],
-    breakoutResult.breakoutPrice,
-    breakoutResult.direction!,
-    breakoutResult.breakoutCandle!.timestamp
-  );
-  
-  if (!retestResult.hasRetest) {
-    console.log(`⏳ Breakout confirmado. Aguardando RETESTE obrigatório...`);
-    
-    // Salvar evento de Retest em andamento
-    await supabase.from('session_history').insert({
-      user_id: userId,
-      session: foundation.session,
-      pair: asset,
-      cycle_phase: 'Consolidation',
-      direction: breakoutResult.direction,
-      signal: 'STAY_OUT',
-      confidence_score: 0,
-      notes: `👀 Aguardando reteste do nível ${breakoutResult.breakoutPrice}`,
-      event_type: 'RETEST',
-      event_data: { breakoutPrice: breakoutResult.breakoutPrice },
-      timestamp: new Date().toISOString(),
-    });
-    
-    return {
-      signal: 'STAY_OUT',
-      direction: breakoutResult.direction,
-      confidence: 0,
-      notes: `Breakout ${breakoutResult.direction} confirmado @ ${breakoutResult.breakoutPrice}. Aguardando reteste OBRIGATÓRIO.`,
-      risk: null,
-    };
-  }
-  
-  // Validar qualidade do reteste
-  if (!isValidRetest(retestResult.retestCandle!, breakoutResult.breakoutPrice, breakoutResult.direction!)) {
-    console.log(`❌ Reteste inválido (muito distante do nível). CANCELAR operação.`);
-    return {
-      signal: 'STAY_OUT',
-      direction: null,
-      confidence: 0,
-      notes: `Reteste detectado mas INVÁLIDO (muito distante do nível rompido). Cancelando operação.`,
-      risk: null,
-    };
-  }
-  
-  console.log(`✅ Reteste válido confirmado @ ${retestResult.retestPrice}`);
-  
-  // PASSO 4: Detectar Engulfing IMEDIATO após reteste
+  // PASSO 3: Detectar Engulfing IMEDIATO após breakout
   const engulfingResult = await detectEngulfingAfterRetest(
     candles['1m'],
-    retestResult.retestCandle!,
+    breakoutResult.breakoutCandle!,
     breakoutResult.direction!,
     asset
   );
   
   if (!engulfingResult.hasEngulfing) {
-    console.log(`❌ Vela seguinte ao reteste NÃO é engulfing. CANCELAR operação conforme regra.`);
+    console.log(`⏳ Aguardando vela de engulfing após breakout...`);
     return {
       signal: 'STAY_OUT',
-      direction: null,
+      direction: breakoutResult.direction,
       confidence: 0,
-      notes: `Reteste confirmado mas vela seguinte NÃO é engulfing ${breakoutResult.direction}. Operação CANCELADA.`,
+      notes: `Breakout ${breakoutResult.direction} confirmado. Aguardando engulfing.`,
       risk: null,
     };
   }
@@ -212,8 +162,7 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
   console.log(`🎯 ✅ SEQUÊNCIA COMPLETA CONFIRMADA!`);
   console.log(`   1. ✅ Foundation detectada: ${foundation.session}`);
   console.log(`   2. ✅ Breakout: ${breakoutResult.direction} @ ${breakoutResult.breakoutPrice}`);
-  console.log(`   3. ✅ Reteste válido @ ${retestResult.retestPrice}`);
-  console.log(`   4. ✅ Engulfing IMEDIATO confirmado`);
+  console.log(`   3. ✅ Engulfing confirmado`);
   console.log(`   📊 Entry: ${engulfingResult.entryPrice} | Stop: ${engulfingResult.stopLoss} | TP: ${engulfingResult.takeProfit}`);
   console.log(`   💰 RR: ${engulfingResult.riskReward.toFixed(2)}:1`);
   
@@ -229,7 +178,7 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
     notes: `🚀 ENGULFING confirmado! Entrada ${breakoutResult.direction} ativada.`,
     event_type: 'ENGULFING',
     event_data: { 
-      retestPrice: retestResult.retestPrice,
+      breakoutPrice: breakoutResult.breakoutPrice,
       engulfingPrice: engulfingResult.engulfingCandle?.close,
       entryPrice: engulfingResult.entryPrice,
       stopLoss: engulfingResult.stopLoss,
@@ -250,7 +199,7 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
     signal: breakoutResult.direction!,
     direction: breakoutResult.direction!,
     confidence: 0.95, // Alta confiança (sequência completa validada)
-    notes: `First Candle Rule: Breakout → Reteste → Engulfing confirmado. Ciclo: ${foundation.session}. RR ${engulfingResult.riskReward.toFixed(2)}:1`,
+    notes: `First Candle Rule: Breakout → Engulfing confirmado. Ciclo: ${foundation.session}. RR ${engulfingResult.riskReward.toFixed(2)}:1`,
     risk: {
       entry: engulfingResult.entryPrice,      // ✅ CORRIGIDO: entry (não entryPrice)
       stop: engulfingResult.stopLoss,          // ✅ CORRIGIDO: stop (não stopLoss)
@@ -258,7 +207,7 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
       rr_ratio: engulfingResult.riskReward,    // ✅ CORRIGIDO: rr_ratio (não riskReward)
     },
     volumeFactor: 1.0,
-    confirmation: 'ENGULFING_AFTER_RETEST',
+    confirmation: 'ENGULFING_AFTER_BREAKOUT',
     c1Direction: breakoutResult.direction || undefined,
     rangeHigh: foundation.high,
     rangeLow: foundation.low,
@@ -266,7 +215,6 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
       foundationHigh: foundation.high,
       foundationLow: foundation.low,
       breakoutPrice: breakoutResult.breakoutPrice,
-      retestPrice: retestResult.retestPrice,
       session: foundation.session,
     },
   };
