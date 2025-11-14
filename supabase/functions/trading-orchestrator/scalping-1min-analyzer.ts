@@ -1,22 +1,21 @@
 /**
- * ANALISADOR PRINCIPAL - ESTRATÉGIA SCALPING 1 MINUTO
+ * ANALISADOR PRINCIPAL - ESTRATÉGIA SCALPING 1 MINUTO (MECÂNICO)
  * 
- * Integra todos os módulos de detecção para executar a estratégia completa:
+ * Metodologia simplificada baseada em FVG:
  * 1. Foundation (primeira vela 5min)
- * 2. FVG Detection (Fair Value Gap)
- * 3. Pullback/Retest
- * 4. Engulfing Candle
+ * 2. FVG Detection (Fair Value Gap) + Breakout
+ * 3. ENTRADA IMEDIATA após 3ª vela do FVG fechar
  * 
  * REGRAS CRÍTICAS:
  * - Máximo 1 trade por sessão
  * - Risk/Reward SEMPRE 3:1
+ * - Entry: fechamento da 3ª vela do FVG
+ * - Stop: base/topo do FVG
  * - Estratégia 100% mecânica (sem interpretação)
  */
 
 import { getOrCreateFoundation } from './scalping-1min-foundation.ts';
 import { detectFVG } from './scalping-1min-fvg.ts';
-import { detectPullbackToFVG } from './scalping-1min-retest.ts';
-import { detectEngulfingCandle } from './scalping-1min-engulfing.ts';
 
 interface Candle {
   timestamp: number;
@@ -149,6 +148,10 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   }
   
   console.log(`✅ FVG ${fvg.direction} detectado com breakout confirmado`);
+  console.log(`   ├─ Vela 1: O=${fvg.candles![0].open} H=${fvg.candles![0].high} L=${fvg.candles![0].low} C=${fvg.candles![0].close}`);
+  console.log(`   ├─ Vela 2 (breakout): O=${fvg.candles![1].open} H=${fvg.candles![1].high} L=${fvg.candles![1].low} C=${fvg.candles![1].close}`);
+  console.log(`   ├─ Vela 3 (entry): O=${fvg.candles![2].open} H=${fvg.candles![2].high} L=${fvg.candles![2].low} C=${fvg.candles![2].close}`);
+  console.log(`   └─ FVG Zone: ${fvg.fvgBottom} - ${fvg.fvgTop}`);
   
   // Validação extra para sessões rigorosas (OCEANIA/ASIA)
   if (isStrictSession) {
@@ -175,12 +178,12 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   }
   
   // ==========================================
-  // PASSO 3: DETECTAR PULLBACK PARA FVG
+  // PASSO 3: VALIDAR FECHAMENTO DA 3ª VELA
   // ==========================================
-  console.log(`\n📍 PASSO 3: Detectando Pullback para zona FVG...`);
+  console.log(`\n📍 PASSO 3: Validando fechamento da 3ª vela do FVG...`);
   
   // TypeScript safety check
-  if (!fvg.direction) {
+  if (!fvg.direction || !fvg.candles || fvg.candles.length < 3) {
     return {
       signal: 'STAY_OUT',
       direction: null,
@@ -189,21 +192,19 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
       takeProfit: 0,
       riskReward: 0,
       confidence: 0,
-      notes: '⏳ Erro: FVG sem direção definida',
+      notes: '⏳ Erro: FVG incompleto ou sem direção definida',
       foundation,
       fvg,
-      phase: 'ERROR_FVG_DIRECTION'
+      phase: 'ERROR_FVG_INCOMPLETE'
     };
   }
   
-  const pullback = detectPullbackToFVG(
-    candles['1m'],
-    { top: fvg.fvgTop, bottom: fvg.fvgBottom },
-    fvg.direction,
-    fvg.candles!
-  );
+  const thirdCandle = fvg.candles[2];
+  const isBullishClose = thirdCandle.close > thirdCandle.open;
+  const isBearishClose = thirdCandle.close < thirdCandle.open;
   
-  if (!pullback.retestDetected) {
+  // Validar que a 3ª vela fechou na direção correta
+  if (fvg.direction === 'BUY' && !isBullishClose) {
     return {
       signal: 'STAY_OUT',
       direction: null,
@@ -212,44 +213,65 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
       takeProfit: 0,
       riskReward: 0,
       confidence: 0,
-      notes: `⏳ FVG ${fvg.direction} ativo - Aguardando pullback para zona FVG`,
+      notes: `⏸️ 3ª vela não fechou bullish (Open: ${thirdCandle.open}, Close: ${thirdCandle.close})`,
       foundation,
       fvg,
-      phase: 'WAITING_PULLBACK'
+      phase: 'INVALID_THIRD_CANDLE_CLOSE'
     };
   }
   
-  console.log(`✅ Pullback detectado - Preço retestou zona FVG`);
+  if (fvg.direction === 'SELL' && !isBearishClose) {
+    return {
+      signal: 'STAY_OUT',
+      direction: null,
+      entryPrice: 0,
+      stopLoss: 0,
+      takeProfit: 0,
+      riskReward: 0,
+      confidence: 0,
+      notes: `⏸️ 3ª vela não fechou bearish (Open: ${thirdCandle.open}, Close: ${thirdCandle.close})`,
+      foundation,
+      fvg,
+      phase: 'INVALID_THIRD_CANDLE_CLOSE'
+    };
+  }
+  
+  console.log(`✅ 3ª vela fechou ${fvg.direction === 'BUY' ? 'bullish' : 'bearish'} - Pronto para entrada!`);
   
   // ==========================================
-  // PASSO 4: DETECTAR VELA DE ENGOLFO
+  // PASSO 4: CALCULAR PREÇOS DE ENTRADA
   // ==========================================
-  console.log(`\n📍 PASSO 4: Detectando Vela de Engolfo...`);
-  const engulfing = await detectEngulfingCandle(
-    candles['1m'],
-    pullback.retestCandle!,
-    fvg.direction,
-    asset
-  );
+  console.log(`\n📍 PASSO 4: Calculando Entry, Stop Loss e Take Profit...`);
   
-  if (!engulfing.engulfingDetected) {
-    return {
-      signal: 'STAY_OUT',
-      direction: null,
-      entryPrice: 0,
-      stopLoss: 0,
-      takeProfit: 0,
-      riskReward: 0,
-      confidence: 0,
-      notes: `⏳ Pullback completo - Aguardando vela de engolfo ${fvg.direction}`,
-      foundation,
-      fvg,
-      retestCandle: pullback.retestCandle,
-      phase: 'WAITING_ENGULFING'
-    };
+  const tickSize = await getTickSize(asset);
+  let entryPrice: number;
+  let stopLoss: number;
+  let takeProfit: number;
+  let riskDistance: number;
+  
+  if (fvg.direction === 'BUY') {
+    entryPrice = thirdCandle.close;
+    stopLoss = fvg.fvgBottom;  // Stop na base do FVG
+    riskDistance = entryPrice - stopLoss;
+    takeProfit = entryPrice + (riskDistance * 3);  // R:R 3:1
+  } else {
+    entryPrice = thirdCandle.close;
+    stopLoss = fvg.fvgTop;  // Stop no topo do FVG
+    riskDistance = stopLoss - entryPrice;
+    takeProfit = entryPrice - (riskDistance * 3);  // R:R 3:1
   }
   
-  console.log(`✅ Vela de engolfo detectada - Todos os critérios atendidos!`);
+  // Arredondar para tick size
+  entryPrice = Math.round(entryPrice / tickSize) * tickSize;
+  stopLoss = Math.round(stopLoss / tickSize) * tickSize;
+  takeProfit = Math.round(takeProfit / tickSize) * tickSize;
+  
+  console.log(`✅ Preços calculados:`);
+  console.log(`   ├─ Entry: ${entryPrice}`);
+  console.log(`   ├─ Stop Loss: ${stopLoss}`);
+  console.log(`   ├─ Take Profit: ${takeProfit}`);
+  console.log(`   ├─ Risco: ${riskDistance.toFixed(5)}`);
+  console.log(`   └─ R:R: 3:1`);
   
   // ==========================================
   // PASSO 5: VERIFICAR LIMITE DE 1 TRADE POR SESSÃO
@@ -270,8 +292,6 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
       notes: `⏸️ Setup válido mas limite de 1 trade por sessão ${session} já atingido (${tradeCount}/1)`,
       foundation,
       fvg,
-      retestCandle: pullback.retestCandle,
-      engulfingCandle: engulfing.engulfingCandle,
       phase: 'SESSION_LIMIT_REACHED'
     };
   }
@@ -295,20 +315,18 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
       notes: '⏳ Erro: Direção FVG inválida',
       foundation,
       fvg,
-      retestCandle: pullback.retestCandle,
-      engulfingCandle: engulfing.engulfingCandle,
       phase: 'ERROR_INVALID_DIRECTION'
     };
   }
   
   console.log(`\n${'='.repeat(80)}`);
-  console.log(`🎯 SINAL VÁLIDO - PRONTO PARA EXECUTAR!`);
+  console.log(`🎯 SINAL VÁLIDO - EXECUTAR TRADE IMEDIATAMENTE!`);
   console.log(`${'='.repeat(80)}`);
   console.log(`📊 Direção: ${fvg.direction}`);
-  console.log(`💰 Entry: ${engulfing.entryPrice}`);
-  console.log(`🛑 Stop Loss: ${engulfing.stopLoss}`);
-  console.log(`🎯 Take Profit: ${engulfing.takeProfit}`);
-  console.log(`📈 Risk/Reward: ${engulfing.riskReward}:1`);
+  console.log(`💰 Entry: ${entryPrice}`);
+  console.log(`🛑 Stop Loss: ${stopLoss}`);
+  console.log(`🎯 Take Profit: ${takeProfit}`);
+  console.log(`📈 Risk/Reward: 3:1`);
   console.log(`${'='.repeat(80)}\n`);
   
   // Incrementar contador de trades da sessão
@@ -317,13 +335,13 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   return {
     signal: fvg.direction,
     direction: fvg.direction === 'BUY' ? 'LONG' : 'SHORT',
-    entryPrice: engulfing.entryPrice,
-    stopLoss: engulfing.stopLoss,
-    takeProfit: engulfing.takeProfit,
+    entryPrice,
+    stopLoss,
+    takeProfit,
     riskReward: 3,  // SEMPRE 3:1
     confidence: 0.95,  // Alta confiança (estratégia mecânica)
-    notes: `✅ Scalping 1Min: Foundation ${foundation.high.toFixed(5)}/${foundation.low.toFixed(5)} | FVG ${fvg.direction} confirmado | Engulfing ✅ | R:R 3:1`,
-    confirmation: `FVG ${fvg.direction} + Pullback + Engulfing`,
+    notes: `✅ Scalping 1Min (Mecânico): FVG ${fvg.direction} + Breakout confirmado | Entry após 3ª vela | R:R 3:1`,
+    confirmation: `FVG ${fvg.direction} + Breakout + 3rd Candle Close`,
     volumeFactor: 1.0,
     c1Direction: null,
     rangeHigh: foundation.high,
@@ -331,19 +349,23 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
     marketData: {
       foundation: { high: foundation.high, low: foundation.low },
       fvg: { top: fvg.fvgTop, bottom: fvg.fvgBottom, direction: fvg.direction },
-      retestCandle: pullback.retestCandle,
-      engulfingCandle: engulfing.engulfingCandle,
+      thirdCandle: {
+        timestamp: thirdCandle.timestamp,
+        open: thirdCandle.open,
+        high: thirdCandle.high,
+        low: thirdCandle.low,
+        close: thirdCandle.close,
+        volume: thirdCandle.volume,
+      },
     },
     risk: {
-      entry: engulfing.entryPrice,
-      stop: engulfing.stopLoss,
-      target: engulfing.takeProfit,
+      entry: entryPrice,
+      stop: stopLoss,
+      target: takeProfit,
       rr_ratio: 3,
     },
     foundation,
     fvg,
-    retestCandle: pullback.retestCandle,
-    engulfingCandle: engulfing.engulfingCandle,
     phase: 'SIGNAL_CONFIRMED'
   };
 }
@@ -416,4 +438,78 @@ async function incrementSessionTradeCount(
   }
   
   console.log(`✅ Contador de trades incrementado para sessão ${session}`);
+}
+
+/**
+ * Obtém o tick size para um asset específico
+ */
+async function getTickSize(asset: string): Promise<number> {
+  const tickSizes: { [key: string]: number } = {
+    'BTCUSDT': 0.1,
+    'ETHUSDT': 0.01,
+    'BNBUSDT': 0.01,
+    'SOLUSDT': 0.001,
+    'XRPUSDT': 0.0001,
+    'ADAUSDT': 0.0001,
+    'DOGEUSDT': 0.00001,
+    'DOTUSDT': 0.001,
+    'MATICUSDT': 0.0001,
+    'SHIBUSDT': 0.00000001,
+    'AVAXUSDT': 0.001,
+    'LINKUSDT': 0.001,
+    'UNIUSDT': 0.001,
+    'ATOMUSDT': 0.001,
+    'LTCUSDT': 0.01,
+    'NEARUSDT': 0.001,
+    'ALGOUSDT': 0.0001,
+    'VETUSDT': 0.00001,
+    'ICPUSDT': 0.001,
+    'FILUSDT': 0.001,
+    'TRXUSDT': 0.00001,
+    'ETCUSDT': 0.001,
+    'XLMUSDT': 0.00001,
+    'MANAUSDT': 0.0001,
+    'SANDUSDT': 0.0001,
+    'THETAUSDT': 0.0001,
+    'AXSUSDT': 0.001,
+    'AAVEUSDT': 0.01,
+    'EOSUSDT': 0.0001,
+    'XTZUSDT': 0.0001,
+    'FTMUSDT': 0.0001,
+    'HBARUSDT': 0.00001,
+    'EGLDUSDT': 0.001,
+    'KSMUSDT': 0.001,
+    'RUNEUSDT': 0.001,
+    '1000PEPEUSDT': 0.0000001,
+    'ORDIUSDT': 0.001,
+    'INJUSDT': 0.001,
+    'STXUSDT': 0.0001,
+    'TIAUSDT': 0.0001,
+    'SEIUSDT': 0.0001,
+    'ZENUSDT': 0.001,
+    'DASHUSDT': 0.01,
+    'ZECUSDT': 0.01,
+    'BCHUSDT': 0.01,
+    'ASTERUSDT': 0.00001,
+    'ALCHUSDT': 0.0001,
+    'FFUSDT': 0.0001,
+    'AIAUSDT': 0.0001,
+    'HIPPOUSDT': 0.00001,
+    'ZKUSDT': 0.0001,
+    'METUSDT': 0.0001,
+    'STRKUSDT': 0.0001,
+    'BANKUSDT': 0.00001,
+    'BEATUSDT': 0.00001,
+    'WLFIUSDT': 0.0001,
+    'PENGUUSDT': 0.00001,
+    'PUMPUSDT': 0.00001,
+    'BDXNUSDT': 0.0001,
+    'ENAUSDT': 0.0001,
+    'FARTCOINUSDT': 0.0001,
+    'FOLKSUSDT': 0.0001,
+    'TRUTHUSDT': 0.00001,
+    '0GUSDT': 0.0001,
+  };
+  
+  return tickSizes[asset] || 0.001;  // Default: 0.001 se não encontrado
 }

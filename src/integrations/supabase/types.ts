@@ -162,6 +162,7 @@ export type Database = {
           risk_reward: number
           session: string | null
           stop_loss: number
+          strategy: string | null
           take_profit: number
           user_id: string | null
         }
@@ -180,6 +181,7 @@ export type Database = {
           risk_reward: number
           session?: string | null
           stop_loss: number
+          strategy?: string | null
           take_profit: number
           user_id?: string | null
         }
@@ -198,6 +200,7 @@ export type Database = {
           risk_reward?: number
           session?: string | null
           stop_loss?: number
+          strategy?: string | null
           take_profit?: number
           user_id?: string | null
         }
@@ -265,6 +268,8 @@ export type Database = {
           created_at: string | null
           cycle_phase: string
           direction: string | null
+          event_data: Json | null
+          event_type: string | null
           id: string
           market_data: Json | null
           notes: string | null
@@ -285,6 +290,8 @@ export type Database = {
           created_at?: string | null
           cycle_phase: string
           direction?: string | null
+          event_data?: Json | null
+          event_type?: string | null
           id?: string
           market_data?: Json | null
           notes?: string | null
@@ -305,6 +312,8 @@ export type Database = {
           created_at?: string | null
           cycle_phase?: string
           direction?: string | null
+          event_data?: Json | null
+          event_type?: string | null
           id?: string
           market_data?: Json | null
           notes?: string | null
@@ -404,6 +413,7 @@ export type Database = {
           api_secret: string | null
           balance: number
           bot_status: string | null
+          cooldown_disabled_until: string | null
           created_at: string | null
           id: string
           leverage: number | null
@@ -421,6 +431,7 @@ export type Database = {
           api_secret?: string | null
           balance?: number
           bot_status?: string | null
+          cooldown_disabled_until?: string | null
           created_at?: string | null
           id?: string
           leverage?: number | null
@@ -438,6 +449,7 @@ export type Database = {
           api_secret?: string | null
           balance?: number
           bot_status?: string | null
+          cooldown_disabled_until?: string | null
           created_at?: string | null
           id?: string
           leverage?: number | null
