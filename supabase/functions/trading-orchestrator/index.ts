@@ -1039,7 +1039,15 @@ async function processUserTradingCycle(
             }
 
             // Execute trade if signal is valid
+            console.log(`🔍 Verificando sinal de ${pair}: ${analysis?.signal} (type: ${typeof analysis?.signal})`);
+            console.log(`   Risk object presente:`, analysis?.risk ? 'SIM' : 'NÃO');
+            if (analysis?.risk) {
+              console.log(`   Risk keys:`, Object.keys(analysis.risk));
+            }
+            
             if (analysis.signal === 'BUY' || analysis.signal === 'SELL') {
+              console.log(`✅ SINAL VÁLIDO DETECTADO: ${analysis.signal} para ${pair}`);
+              
               // Verificar se já existe posição para este ativo
               const { data: existingPosition } = await supabase
                 .from('active_positions')
@@ -1053,14 +1061,24 @@ async function processUserTradingCycle(
                 continue;
               }
 
-              await executeTradeSignal(
-                supabase,
-                userId,
-                pair,
-                analysis,
-                settings,
-                currentSession
-              );
+              console.log(`📞 CHAMANDO executeTradeSignal para ${pair}...`);
+              
+              try {
+                await executeTradeSignal(
+                  supabase,
+                  userId,
+                  pair,
+                  analysis,
+                  settings,
+                  currentSession
+                );
+                console.log(`✅ executeTradeSignal completado com sucesso para ${pair}`);
+              } catch (execError) {
+                console.error(`❌ ERRO em executeTradeSignal para ${pair}:`, execError);
+                console.error(`   Stack:`, execError?.stack);
+              }
+            } else {
+              console.log(`⏸️ Sinal ${analysis?.signal || 'undefined'} não é BUY nem SELL - pulando`);
             }
           }
 

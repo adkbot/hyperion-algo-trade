@@ -34,10 +34,10 @@ interface AnalysisResult {
   confidence: number;
   notes: string;
   risk: {
-    entryPrice: number;
-    stopLoss: number;
-    takeProfit: number;
-    riskReward: number;
+    entry: number;      // ✅ CORRIGIDO: usar 'entry' em vez de 'entryPrice'
+    stop: number;       // ✅ CORRIGIDO: usar 'stop' em vez de 'stopLoss'
+    target: number;     // ✅ CORRIGIDO: usar 'target' em vez de 'takeProfit'
+    rr_ratio: number;   // ✅ CORRIGIDO: usar 'rr_ratio' em vez de 'riskReward'
   } | null;
   volumeFactor?: number;
   confirmation?: string;
@@ -240,16 +240,22 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
   });
   
   // EXECUTAR ENTRADA!
-  return {
+  console.log(`🔍 DEBUG: Preparando para retornar sinal de trade...`);
+  console.log(`   Signal: ${breakoutResult.direction}`);
+  console.log(`   Entry: ${engulfingResult.entryPrice}`);
+  console.log(`   Stop: ${engulfingResult.stopLoss}`);
+  console.log(`   TP: ${engulfingResult.takeProfit}`);
+  
+  const result = {
     signal: breakoutResult.direction!,
     direction: breakoutResult.direction!,
     confidence: 0.95, // Alta confiança (sequência completa validada)
     notes: `First Candle Rule: Breakout → Reteste → Engulfing confirmado. Ciclo: ${foundation.session}. RR ${engulfingResult.riskReward.toFixed(2)}:1`,
     risk: {
-      entryPrice: engulfingResult.entryPrice,
-      stopLoss: engulfingResult.stopLoss,
-      takeProfit: engulfingResult.takeProfit,
-      riskReward: engulfingResult.riskReward,
+      entry: engulfingResult.entryPrice,      // ✅ CORRIGIDO: entry (não entryPrice)
+      stop: engulfingResult.stopLoss,          // ✅ CORRIGIDO: stop (não stopLoss)
+      target: engulfingResult.takeProfit,      // ✅ CORRIGIDO: target (não takeProfit)
+      rr_ratio: engulfingResult.riskReward,    // ✅ CORRIGIDO: rr_ratio (não riskReward)
     },
     volumeFactor: 1.0,
     confirmation: 'ENGULFING_AFTER_RETEST',
@@ -264,4 +270,9 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
       session: foundation.session,
     },
   };
+  
+  console.log(`✅ RETORNANDO SINAL DE TRADE: ${breakoutResult.direction}`);
+  console.log(`   Risk object:`, JSON.stringify(result.risk, null, 2));
+  
+  return result;
 }
