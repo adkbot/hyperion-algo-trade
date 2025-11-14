@@ -913,13 +913,22 @@ async function processUserTradingCycle(
         continue;
       }
 
-      // ✅ ESCOLHER ESTRATÉGIA: Scalping 1Min ou Sweep de Liquidez
+      // ✅ ESCOLHER ESTRATÉGIA: First Candle Rule, Scalping 1Min ou Sweep de Liquidez
       const strategy = settings.trading_strategy || 'SWEEP_LIQUIDITY';
       
       let analysis;
       
-      if (strategy === 'SCALPING_1MIN') {
-        // NOVA ESTRATÉGIA: Scalping 1 Minuto
+      if (strategy === 'FIRST_CANDLE_RULE') {
+        // NOVA ESTRATÉGIA: First Candle Rule (Breakout → Reteste → Engulfing)
+        const { analyzeFirstCandleRule } = await import('./first-candle-analyzer.ts');
+        analysis = await analyzeFirstCandleRule({
+          candles: { '1m': candles['1m'], '5m': candles['5m'] },
+          asset: pair,
+          userId,
+          supabase
+        });
+      } else if (strategy === 'SCALPING_1MIN') {
+        // ESTRATÉGIA: Scalping 1 Minuto (FVG)
         const { analyzeScalping1Min } = await import('./scalping-1min-analyzer.ts');
         analysis = await analyzeScalping1Min({
           candles: { '1m': candles['1m'], '5m': candles['5m'] },
