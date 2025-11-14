@@ -67,11 +67,11 @@ class BinanceRateLimiter {
 const rateLimiter = new BinanceRateLimiter();
 
 // ============================================
-// FASE 3: CACHE DE PARES (TTL: 10 minutos) - OTIMIZADO
+// FASE 3: CACHE DE PARES (TTL: 15 minutos) - OTIMIZADO
 // ============================================
 let cachedPairs: string[] = [];
 let cacheTimestamp = 0;
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutos (otimizado)
+const CACHE_TTL = 15 * 60 * 1000; // 15 minutos (otimizado)
 
 // ============================================
 // 🔵 FASE 4: CALCULAR RISCO ADAPTATIVO
@@ -863,24 +863,26 @@ async function processUserTradingCycle(
   
   console.log(`Found ${validPairs.length} valid trading pairs: ${validPairs.join(', ')}`);
 
-  // ✅ Análise de mercado para múltiplos pares COM BATCH PROCESSING E TIMEOUT PREVENTIVO
+  // ✅ Análise de mercado para múltiplos pares COM BATCH PROCESSING E TIMEOUT PREVENTIVO (OTIMIZADO)
   const analysisResults: any[] = [];
   let pairsAnalyzed = 0;
-  const BATCH_SIZE = 10; // Analisar 10 pares por batch
-  const MAX_EXECUTION_TIME = 100000; // 100 segundos (66% do limite)
+  const BATCH_SIZE = 5; // Reduzido de 10 → 5 para evitar timeouts
+  const MAX_EXECUTION_TIME = 90000; // 90s (reduzido de 100s)
+  const BATCH_TIMEOUT = 15000; // 15s por batch
   const orchestratorStartTime = Date.now();
 
-  console.log(`\n🚀 INICIANDO ANÁLISE EM LOTE:`);
+  console.log(`\n🚀 INICIANDO ANÁLISE EM LOTE (OTIMIZADO):`);
   console.log(`├─ Total de pares: ${validPairs.length}`);
-  console.log(`├─ Batch size: ${BATCH_SIZE}`);
-  console.log(`├─ Timeout preventivo: ${MAX_EXECUTION_TIME / 1000}s`);
+  console.log(`├─ Batch size: ${BATCH_SIZE} (reduzido)`);
+  console.log(`├─ Timeout global: ${MAX_EXECUTION_TIME / 1000}s`);
+  console.log(`├─ Timeout por batch: ${BATCH_TIMEOUT / 1000}s`);
   console.log(`└─ Max positions: ${settings.max_positions}\n`);
 
   for (let batchIndex = 0; batchIndex < validPairs.length; batchIndex += BATCH_SIZE) {
-    // ⏱️ TIMEOUT PREVENTIVO: Verificar se excedeu 100s
+    // ⏱️ TIMEOUT PREVENTIVO GLOBAL: Verificar se excedeu 90s
     const elapsedTime = Date.now() - orchestratorStartTime;
     if (elapsedTime > MAX_EXECUTION_TIME) {
-      console.log(`\n⏱️ TIMEOUT PREVENTIVO ATIVADO:`);
+      console.log(`\n⏱️ TIMEOUT GLOBAL ATIVADO:`);
       console.log(`├─ Tempo decorrido: ${(elapsedTime / 1000).toFixed(1)}s`);
       console.log(`├─ Pares analisados: ${pairsAnalyzed}/${validPairs.length}`);
       console.log(`└─ Parando análise para evitar WORKER_LIMIT\n`);
@@ -894,10 +896,18 @@ async function processUserTradingCycle(
     }
 
     const batch = validPairs.slice(batchIndex, batchIndex + BATCH_SIZE);
-    console.log(`\n📦 BATCH ${Math.floor(batchIndex / BATCH_SIZE) + 1}: Analisando ${batch.join(', ')}`);
+    const batchNum = Math.floor(batchIndex / BATCH_SIZE) + 1;
+    const batchStartTime = Date.now();
+    
+    console.log(`\n📦 BATCH ${batchNum}/${Math.ceil(validPairs.length / BATCH_SIZE)}: ${batch.join(', ')}`);
 
     // Processar cada par do batch
     for (const pair of batch) {
+      // ⏱️ TIMEOUT POR BATCH
+      if (Date.now() - batchStartTime > BATCH_TIMEOUT) {
+        console.log(`⏱️ BATCH TIMEOUT (15s): Pulando pares restantes do batch ${batchNum}`);
+        break;
+      }
         try {
           // ✅ VERIFICAR SE ATIVO JÁ TEM POSIÇÃO ABERTA
           const { data: existingPositionForAsset } = await supabase
@@ -4030,68 +4040,86 @@ async function calculateAdvancedScore(pair: string): Promise<number> {
   }
 }
 
-// Análise de Setup Readiness
+// Análise de Setup Readiness (OTIMIZADO COM PARALELIZAÇÃO)
 async function analyzeSetupReadiness(pairs: string[]): Promise<string[]> {
-  console.log(`\n🎯 Analisando setup readiness dos top 50 pares...`);
+  console.log(`\n🎯 Analisando setup readiness dos top 40 pares (timeout 25s)...`);
   
+  const startTime = Date.now();
+  const MAX_TIME = 25000; // 25s max
   const readyPairs: Array<{ pair: string; priority: number }> = [];
   
-  for (const pair of pairs.slice(0, 50)) {
-    await rateLimiter.checkAndWait();
-    
-    try {
-      const candles1m = await fetchCandlesFromBinance(pair, ['1m']);
-      const candles5m = await fetchCandlesFromBinance(pair, ['5m']);
-      
-      if (!candles1m['1m'] || candles1m['1m'].length < 10) continue;
-      
-      // Detectar FVG
-      const recentCandles = candles1m['1m'].slice(-10);
-      let hasFVG = false;
-      
-      for (let i = 2; i < recentCandles.length; i++) {
-        const c1 = recentCandles[i - 2];
-        const c2 = recentCandles[i - 1];
-        const c3 = recentCandles[i];
-        
-        // FVG de baixa
-        if (c1.low > c3.high) {
-          hasFVG = true;
-          break;
-        }
-        // FVG de alta
-        if (c1.high < c3.low) {
-          hasFVG = true;
-          break;
-        }
-      }
-      
-      let priority = 0;
-      if (hasFVG) priority += 50;
-      
-      // Foundation válida
-      if (candles5m['5m'] && candles5m['5m'].length > 0) {
-        const lastCandle5m = candles5m['5m'][candles5m['5m'].length - 1];
-        const range = ((lastCandle5m.high - lastCandle5m.low) / lastCandle5m.low) * 100;
-        if (range >= 0.3 && range <= 2.0) {
-          priority += 30;
-        }
-      }
-      
-      if (priority > 0) {
-        readyPairs.push({ pair, priority });
-      }
-      
-    } catch (error) {
-      // Ignorar erros individuais
+  // Paralelizar em batches de 10 para melhor performance
+  const batchSize = 10;
+  const pairsToAnalyze = pairs.slice(0, 40); // Reduzido de 50 para 40
+  
+  for (let i = 0; i < pairsToAnalyze.length; i += batchSize) {
+    // Verificar timeout
+    if (Date.now() - startTime > MAX_TIME) {
+      console.log(`⏱️ Setup readiness timeout - analisados ${i}/${pairsToAnalyze.length} pares`);
+      break;
     }
+    
+    const batch = pairsToAnalyze.slice(i, i + batchSize);
+    
+    // Paralelizar análise do batch
+    const batchResults = await Promise.allSettled(
+      batch.map(async (pair) => {
+        await rateLimiter.checkAndWait();
+        
+        try {
+          const candles1m = await fetchCandlesFromBinance(pair, ['1m']);
+          const candles5m = await fetchCandlesFromBinance(pair, ['5m']);
+          
+          if (!candles1m['1m'] || candles1m['1m'].length < 10) return null;
+          
+          // Detectar FVG
+          const recentCandles = candles1m['1m'].slice(-10);
+          let hasFVG = false;
+          
+          for (let j = 2; j < recentCandles.length; j++) {
+            const c1 = recentCandles[j - 2];
+            const c2 = recentCandles[j - 1];
+            const c3 = recentCandles[j];
+            
+            // FVG de baixa ou alta
+            if (c1.low > c3.high || c1.high < c3.low) {
+              hasFVG = true;
+              break;
+            }
+          }
+          
+          let priority = 0;
+          if (hasFVG) priority += 50;
+          
+          // Foundation válida
+          if (candles5m['5m'] && candles5m['5m'].length > 0) {
+            const lastCandle5m = candles5m['5m'][candles5m['5m'].length - 1];
+            const range = ((lastCandle5m.high - lastCandle5m.low) / lastCandle5m.low) * 100;
+            if (range >= 0.3 && range <= 2.0) {
+              priority += 30;
+            }
+          }
+          
+          return priority > 0 ? { pair, priority } : null;
+        } catch (error) {
+          return null;
+        }
+      })
+    );
+    
+    // Coletar resultados bem-sucedidos
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled' && result.value) {
+        readyPairs.push(result.value);
+      }
+    });
   }
   
   const sortedReady = readyPairs
     .sort((a, b) => b.priority - a.priority)
     .map(p => p.pair);
   
-  console.log(`✅ ${sortedReady.length} pares com setups PRÓXIMOS detectados`);
+  console.log(`✅ ${sortedReady.length} pares com setups PRÓXIMOS detectados em ${((Date.now() - startTime)/1000).toFixed(1)}s`);
   if (sortedReady.length > 0) {
     console.log(`  Top 5 ready: ${sortedReady.slice(0, 5).join(', ')}`);
   }
@@ -4099,20 +4127,45 @@ async function analyzeSetupReadiness(pairs: string[]): Promise<string[]> {
   return sortedReady;
 }
 
-// Priorização com Score Avançado
+// Priorização com Score Avançado (OTIMIZADO COM PARALELIZAÇÃO)
 async function prioritizePairs(pairs: string[]): Promise<string[]> {
-  console.log(`\n🧠 SMART SCANNER: Analisando ${pairs.length} pares com score multi-fator...`);
+  console.log(`\n🧠 SMART SCANNER: Analisando ${pairs.length} pares com score multi-fator (timeout 30s)...`);
   
+  const startTime = Date.now();
+  const MAX_TIME = 30000; // 30s max
   const pairData: Array<{ pair: string; score: number }> = [];
   
-  for (const pair of pairs) {
-    await rateLimiter.checkAndWait();
+  // Paralelizar em batches de 15 para otimização
+  const batchSize = 15;
+  
+  for (let i = 0; i < pairs.length; i += batchSize) {
+    // Verificar timeout preventivo
+    if (Date.now() - startTime > MAX_TIME) {
+      console.log(`⏱️ Smart Scanner timeout - analisados ${i}/${pairs.length} pares`);
+      break;
+    }
     
-    const score = await calculateAdvancedScore(pair);
-    pairData.push({ pair, score });
+    const batch = pairs.slice(i, i + batchSize);
     
-    if (score > 0) {
-      console.log(`  ├─ ${pair}: Score ${score.toFixed(2)}`);
+    // Paralelizar cálculo de scores
+    const batchResults = await Promise.allSettled(
+      batch.map(async (pair) => {
+        await rateLimiter.checkAndWait();
+        const score = await calculateAdvancedScore(pair);
+        return { pair, score };
+      })
+    );
+    
+    // Coletar resultados bem-sucedidos
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        pairData.push(result.value);
+      }
+    });
+    
+    // Log progressivo
+    if (pairData.length % 30 === 0 || i + batchSize >= pairs.length) {
+      console.log(`  Progresso: ${pairData.length}/${pairs.length} pares (${((Date.now() - startTime)/1000).toFixed(1)}s)`);
     }
   }
   
@@ -4120,20 +4173,21 @@ async function prioritizePairs(pairs: string[]): Promise<string[]> {
     .sort((a, b) => b.score - a.score)
     .map(p => p.pair);
   
-  console.log(`\n✅ TOP 10 ATIVOS MAIS PROMISSORES:`);
-  sortedPairs.slice(0, 10).forEach((pair, i) => {
-    const scoreData = pairData.find(p => p.pair === pair);
-    console.log(`  ${i + 1}. ${pair} - Score: ${scoreData?.score.toFixed(2)}`);
+  console.log(`\n🏆 TOP 10 PARES POR SCORE (${pairData.length} analisados):`);
+  pairData.slice(0, 10).forEach((p, idx) => {
+    console.log(`  ├─ ${p.pair}: Score ${p.score.toFixed(2)}`);
   });
   
   return sortedPairs;
 }
 
 // ============================================
-// FASE 1: EXPANDIR ANÁLISE COM CONTROLE DINÂMICO DE TEMPO
+// FASE 1: EXPANDIR ANÁLISE COM CONTROLE DINÂMICO DE TEMPO (OTIMIZADO)
 // ============================================
 async function scanMarketForValidPairs(getRemainingTime?: () => number): Promise<string[]> {
   const now = Date.now();
+  const scannerStartTime = now;
+  const SCANNER_MAX_TIME = 45000; // 45s max para todo o scanner
   
   // ✅ FASE 3: Usar cache se ainda válido
   if (cachedPairs.length > 0 && (now - cacheTimestamp) < CACHE_TTL) {
@@ -4180,28 +4234,40 @@ async function scanMarketForValidPairs(getRemainingTime?: () => number): Promise
 
     console.log(`🎯 Filtrados ${validPairs.length} pares (volume >= $50M, volatilidade >= 1.0%)`);
     
-    // ✅ FASE 5: Priorizar pares por volatilidade e volume
-    const prioritizedPairs = await prioritizePairs(validPairs);
-    
-    // ⏱️ OTIMIZAÇÃO: Reduzir para 30 pares MAX para evitar timeout
-    const maxPairs = 30; // 🚀 30 pares top (score 70+)
+    console.log(`\n🚀 INICIANDO SMART SCANNER OTIMIZADO:`);
+    console.log(`├─ Timeout máximo: 45s`);
+    console.log(`├─ Pares candidatos: ${validPairs.length}`);
+    console.log(`└─ Modo: Análise incremental com early exit\n`);
     
     // 🔒 FORÇAR INCLUSÃO DE BTCUSDT E ETHUSDT SEMPRE
     const mandatoryPairs = ['BTCUSDT', 'ETHUSDT'];
+    const maxPairs = 30; // 🚀 30 pares top
     
-    // 🎯 NOVA LÓGICA: Priorizar pares com setups prontos
-    const readyPairs = await analyzeSetupReadiness(prioritizedPairs);
+    // ✅ FASE 5: Priorizar pares por volatilidade e volume (COM TIMEOUT)
+    const remainingTime1 = SCANNER_MAX_TIME - (Date.now() - scannerStartTime);
+    const prioritizedPairs = remainingTime1 > 5000 
+      ? await prioritizePairs(validPairs)
+      : validPairs;
     
-    // Combinar: Mandatory → Ready → Score
-    const otherPairs = prioritizedPairs.filter(pair => !mandatoryPairs.includes(pair));
+    // 🎯 NOVA LÓGICA: Priorizar pares com setups prontos (COM TIMEOUT)
+    const remainingTime2 = SCANNER_MAX_TIME - (Date.now() - scannerStartTime);
+    const readyPairs = remainingTime2 > 5000
+      ? await analyzeSetupReadiness(prioritizedPairs)
+      : [];
+    
+    // Combinar: Mandatory → Ready → Score (prioridade inteligente)
+    const otherPairs = prioritizedPairs.filter((pair: string) => !mandatoryPairs.includes(pair));
     const orderedPairs = [
-      ...readyPairs.filter(p => !mandatoryPairs.includes(p)), // Setup ready primeiro
-      ...otherPairs.filter(p => !readyPairs.includes(p))      // Resto por score
+      ...readyPairs.filter((p: string) => !mandatoryPairs.includes(p)), // Setup ready primeiro
+      ...otherPairs.filter((p: string) => !readyPairs.includes(p))      // Resto por score
     ];
     
     const finalPairs = [...mandatoryPairs, ...orderedPairs.slice(0, maxPairs - mandatoryPairs.length)];
     
+    const scannerTotalTime = ((Date.now() - scannerStartTime) / 1000).toFixed(1);
+    
     console.log(`\n📊 SMART SCANNER - RESULTADO FINAL:`);
+    console.log(`├─ Tempo total: ${scannerTotalTime}s / 45s`);
     console.log(`├─ Total candidatos analisados: ${validPairs.length}`);
     console.log(`├─ Pares com setups ready: ${readyPairs.length}`);
     console.log(`├─ Pares selecionados: ${finalPairs.length}`);
