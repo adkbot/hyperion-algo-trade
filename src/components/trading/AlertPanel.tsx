@@ -4,9 +4,11 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useRef } from "react";
 
 export const AlertPanel = () => {
   const { toast } = useToast();
+  const processedEngulfingIds = useRef<Set<string>>(new Set());
 
   // Fetch real-time signals from session_history (incluindo First Candle events)
   const { data: signals } = useQuery({
@@ -63,14 +65,6 @@ export const AlertPanel = () => {
       const config = eventConfig[signal.event_type as keyof typeof eventConfig];
       
       if (config) {
-        // Trigger toast for ENGULFING events
-        if (signal.event_type === 'ENGULFING') {
-          toast({
-            title: `🚀 First Candle Rule - ${signal.pair}`,
-            description: `Sequência completa! Entrada ${signal.direction} confirmada.`,
-          });
-        }
-        
         return {
           type: signal.event_type === 'ENGULFING' ? 'entry' : 'prepare',
           asset: signal.pair,
@@ -82,6 +76,8 @@ export const AlertPanel = () => {
           color: config.color,
           confidence: signal.confidence_score || 0,
           timestamp: signal.timestamp,
+          signalId: signal.id,
+          eventType: signal.event_type,
         };
       }
     }
@@ -130,6 +126,21 @@ export const AlertPanel = () => {
         .slice(0, 2) // Máximo 2 por ativo
     )
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  // Disparar toast para eventos ENGULFING novos (usando useEffect para evitar loop infinito)
+  useEffect(() => {
+    if (!alerts || alerts.length === 0) return;
+    
+    alerts.forEach((alert: any) => {
+      if (alert.eventType === 'ENGULFING' && alert.signalId && !processedEngulfingIds.current.has(alert.signalId)) {
+        processedEngulfingIds.current.add(alert.signalId);
+        toast({
+          title: `🚀 First Candle Rule - ${alert.asset}`,
+          description: `Sequência completa! Entrada ${alert.direction} confirmada.`,
+        });
+      }
+    });
+  }, [alerts, toast]);
 
   const handleEntryClick = (alert: any) => {
     if (!settings || settings.balance <= 0) {
