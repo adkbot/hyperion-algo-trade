@@ -67,11 +67,11 @@ class BinanceRateLimiter {
 const rateLimiter = new BinanceRateLimiter();
 
 // ============================================
-// FASE 3: CACHE DE PARES (TTL: 5 minutos)
+// FASE 3: CACHE DE PARES (TTL: 10 minutos) - OTIMIZADO
 // ============================================
 let cachedPairs: string[] = [];
 let cacheTimestamp = 0;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutos (otimizado)
 
 // ============================================
 // 🔵 FASE 4: CALCULAR RISCO ADAPTATIVO
@@ -863,16 +863,40 @@ async function processUserTradingCycle(
   
   console.log(`Found ${validPairs.length} valid trading pairs: ${validPairs.join(', ')}`);
 
-  // ✅ Análise de mercado para múltiplos pares COM CONTROLE DE TEMPO
+  // ✅ Análise de mercado para múltiplos pares COM BATCH PROCESSING E TIMEOUT PREVENTIVO
   const analysisResults: any[] = [];
   let pairsAnalyzed = 0;
+  const BATCH_SIZE = 10; // Analisar 10 pares por batch
+  const MAX_EXECUTION_TIME = 100000; // 100 segundos (66% do limite)
+  const orchestratorStartTime = Date.now();
 
-  for (const pair of validPairs) {
-    // ⏱️ CHECKPOINT: Verificar se ainda temos tempo antes de analisar
-    if (shouldContinueAnalysis && !shouldContinueAnalysis()) {
-      console.log(`⏱️ TIMEOUT PREVENTION: Analisados ${pairsAnalyzed}/${validPairs.length} pares. Parando para não estourar limite.`);
+  console.log(`\n🚀 INICIANDO ANÁLISE EM LOTE:`);
+  console.log(`├─ Total de pares: ${validPairs.length}`);
+  console.log(`├─ Batch size: ${BATCH_SIZE}`);
+  console.log(`├─ Timeout preventivo: ${MAX_EXECUTION_TIME / 1000}s`);
+  console.log(`└─ Max positions: ${settings.max_positions}\n`);
+
+  for (let batchIndex = 0; batchIndex < validPairs.length; batchIndex += BATCH_SIZE) {
+    // ⏱️ TIMEOUT PREVENTIVO: Verificar se excedeu 100s
+    const elapsedTime = Date.now() - orchestratorStartTime;
+    if (elapsedTime > MAX_EXECUTION_TIME) {
+      console.log(`\n⏱️ TIMEOUT PREVENTIVO ATIVADO:`);
+      console.log(`├─ Tempo decorrido: ${(elapsedTime / 1000).toFixed(1)}s`);
+      console.log(`├─ Pares analisados: ${pairsAnalyzed}/${validPairs.length}`);
+      console.log(`└─ Parando análise para evitar WORKER_LIMIT\n`);
       break;
     }
+
+    // ⏱️ CHECKPOINT: Verificar shouldContinueAnalysis
+    if (shouldContinueAnalysis && !shouldContinueAnalysis()) {
+      console.log(`⏱️ EXTERNAL TIMEOUT: Analisados ${pairsAnalyzed}/${validPairs.length} pares. Parando.`);
+      break;
+    }
+
+    const batch = validPairs.slice(batchIndex, batchIndex + BATCH_SIZE);
+    console.log(`\n📦 BATCH ${Math.floor(batchIndex / BATCH_SIZE) + 1}: Analisando ${batch.join(', ')}`);
+
+  for (const pair of batch) {
 
     try {
       // ✅ VERIFICAR SE ATIVO JÁ TEM POSIÇÃO ABERTA
@@ -914,11 +938,12 @@ async function processUserTradingCycle(
       }
 
       // ✅ ESCOLHER ESTRATÉGIA: First Candle Rule, Scalping 1Min ou Sweep de Liquidez
-      const strategy = settings.trading_strategy || 'SWEEP_LIQUIDITY';
+      const selectedStrategy = settings.trading_strategy || 'SWEEP_LIQUIDITY';
+      console.log(`📊 Strategy selecionada: ${selectedStrategy} para ${pair}`);
       
       let analysis;
       
-      if (strategy === 'FIRST_CANDLE_RULE') {
+      if (selectedStrategy === 'FIRST_CANDLE_RULE') {
         // NOVA ESTRATÉGIA: First Candle Rule (Breakout → Reteste → Engulfing)
         const { analyzeFirstCandleRule } = await import('./first-candle-analyzer.ts');
         analysis = await analyzeFirstCandleRule({
@@ -927,7 +952,7 @@ async function processUserTradingCycle(
           userId,
           supabase
         });
-      } else if (strategy === 'SCALPING_1MIN') {
+      } else if (selectedStrategy === 'SCALPING_1MIN') {
         // ESTRATÉGIA: Scalping 1 Minuto (FVG)
         const { analyzeScalping1Min } = await import('./scalping-1min-analyzer.ts');
         analysis = await analyzeScalping1Min({
@@ -994,6 +1019,7 @@ async function processUserTradingCycle(
           range_low: analysis.rangeLow,
           market_data: analysis.marketData,
           risk: analysis.risk,
+          strategy: selectedStrategy, // ✅ GARANTIR que strategy NUNCA seja NULL
           timestamp: new Date().toISOString(),
         });
 
@@ -1028,13 +1054,15 @@ async function processUserTradingCycle(
           break;
         }
       }
+      
+      pairsAnalyzed++;
+      console.log(`✅ ${pair} analisado (${pairsAnalyzed}/${validPairs.length})`);
+      
     } catch (error) {
       console.error(`Error analyzing ${pair}:`, error);
     }
-    
-    // ⏱️ Incrementar contador de pares analisados
-    pairsAnalyzed++;
-  }
+  } // fim do batch
+  } // fim do for batch
 
   return {
     session: currentSession,
@@ -4124,7 +4152,7 @@ async function scanMarketForValidPairs(getRemainingTime?: () => number): Promise
     const stats = await statsResponse.json();
     const statsMap = new Map(stats.map((s: any) => [s.symbol, s]));
 
-    // ✅ FASE 1: Reduzir volume mínimo de $50M para $30M e limitar a 10 pares (otimização de performance)
+    // ✅ OTIMIZAÇÃO: Filtro mais rigoroso para reduzir pares analisados
     const validPairs = perpetualPairs
       .filter((pair: any) => {
         const stat: any = statsMap.get(pair.symbol);
@@ -4133,22 +4161,19 @@ async function scanMarketForValidPairs(getRemainingTime?: () => number): Promise
         const volume24h = parseFloat(stat.quoteVolume);
         const priceChange = Math.abs(parseFloat(stat.priceChangePercent));
 
-        return volume24h >= 30_000_000 && priceChange >= 0.5;
+        // Critério mais rigoroso: $50M+ volume e 1%+ volatilidade
+        return volume24h >= 50_000_000 && priceChange >= 1.0;
       })
       .map((pair: any) => pair.symbol)
-      .slice(0, 150); // 🚀 Buscar 150 candidatos para análise inteligente
+      .slice(0, 80); // 🚀 Reduzido de 150 para 80 candidatos
 
-    console.log(`🎯 Filtrados ${validPairs.length} pares (volume >= $30M, volatilidade >= 0.5%)`);
+    console.log(`🎯 Filtrados ${validPairs.length} pares (volume >= $50M, volatilidade >= 1.0%)`);
     
     // ✅ FASE 5: Priorizar pares por volatilidade e volume
     const prioritizedPairs = await prioritizePairs(validPairs);
     
-    // ⏱️ AJUSTE DINÂMICO: Score avançado permite mais pares com confiança
-    let maxPairs = 30; // 🚀 Aumentado para 30 (análise inteligente)
-    if (getRemainingTime && getRemainingTime() < 40000) {
-      console.log('⚠️ Tempo limitado detectado - usando 20 pares top');
-      maxPairs = 20; // Mesmo em tempo limitado, 20 pares (são os MELHORES)
-    }
+    // ⏱️ OTIMIZAÇÃO: Reduzir para 30 pares MAX para evitar timeout
+    const maxPairs = 30; // 🚀 30 pares top (score 70+)
     
     // 🔒 FORÇAR INCLUSÃO DE BTCUSDT E ETHUSDT SEMPRE
     const mandatoryPairs = ['BTCUSDT', 'ETHUSDT'];
