@@ -1,7 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, DollarSign, Activity, RefreshCw } from "lucide-react";
 import { useUserSettings, useDailyGoals, useSyncBinanceBalance } from "@/hooks/useTradingData";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 export const StatsPanel = () => {
   const { data: settings } = useUserSettings();
@@ -13,6 +16,46 @@ export const StatsPanel = () => {
   const totalOps = dailyGoals?.total_operations || 0;
   const wins = dailyGoals?.wins || 0;
   const winRate = totalOps > 0 ? ((wins / totalOps) * 100).toFixed(0) : 0;
+
+  // Fetch strategy comparison data
+  const { data: strategyStats } = useQuery({
+    queryKey: ['strategy-comparison'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
+      const today = new Date().toISOString().split('T')[0];
+      const { data } = await supabase
+        .from('operations')
+        .select('strategy, pnl, result, exit_time')
+        .eq('user_id', user.id)
+        .gte('entry_time', `${today}T00:00:00Z`)
+        .not('exit_time', 'is', null);
+      
+      if (!data) return [];
+      
+      // Group by strategy
+      const grouped = data.reduce((acc: any, op: any) => {
+        const strategy = op.strategy || 'UNKNOWN';
+        if (!acc[strategy]) {
+          acc[strategy] = { wins: 0, losses: 0, totalPnl: 0, trades: 0 };
+        }
+        acc[strategy].trades += 1;
+        if (op.result === 'WIN') acc[strategy].wins += 1;
+        if (op.result === 'LOSS') acc[strategy].losses += 1;
+        acc[strategy].totalPnl += op.pnl || 0;
+        return acc;
+      }, {});
+      
+      return Object.entries(grouped).map(([strategy, stats]: [string, any]) => ({
+        strategy,
+        winRate: stats.trades > 0 ? ((stats.wins / stats.trades) * 100).toFixed(0) : '0',
+        pnl: stats.totalPnl,
+        trades: stats.trades,
+      }));
+    },
+    refetchInterval: 5000,
+  });
 
   const stats = [
     { label: "Saldo", value: `$${balance.toFixed(2)}`, icon: DollarSign, color: "text-foreground" },
@@ -51,6 +94,39 @@ export const StatsPanel = () => {
             </div>
           );
         })}
+        
+        {/* Strategy Comparison */}
+        {strategyStats && strategyStats.length > 0 && (
+          <div className="pt-3 border-t border-border">
+            <div className="text-xs font-medium text-muted-foreground mb-2">📊 Comparação de Estratégias</div>
+            <div className="space-y-2">
+              {strategyStats.map((stat: any) => {
+                const strategyConfig = {
+                  FIRST_CANDLE_RULE: { icon: '🎯', color: 'text-green-500', name: 'First Candle' },
+                  SCALPING_1MIN: { icon: '⚡', color: 'text-orange-500', name: 'Scalping 1min' },
+                  SWEEP_LIQUIDITY: { icon: '🌊', color: 'text-blue-500', name: 'Sweep Liq.' },
+                  UNKNOWN: { icon: '❓', color: 'text-gray-500', name: 'Desconhecida' },
+                };
+                const config = strategyConfig[stat.strategy as keyof typeof strategyConfig] || strategyConfig.UNKNOWN;
+                
+                return (
+                  <div key={stat.strategy} className="flex items-center justify-between p-2 rounded bg-secondary/30 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className={config.color}>{config.icon}</span>
+                      <span className="font-medium">{config.name}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Badge variant="outline" className="text-xs">{stat.winRate}%</Badge>
+                      <span className={`font-bold ${stat.pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
+                        ${stat.pnl.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -417,7 +417,7 @@ serve(async (req) => {
       console.log(`✅ Posição inserida em active_positions: ${asset} ${direction}`);
     }
 
-    // ✅ Insert operation COM user_id
+    // ✅ Insert operation COM user_id e strategy
     const { error: opError } = await supabase
       .from('operations')
       .insert({
@@ -429,6 +429,7 @@ serve(async (req) => {
         take_profit: takeProfit,
         risk_reward: riskReward,
         result: 'OPEN',
+        strategy: agents?.strategy || 'UNKNOWN',
         agents,
         session,
       });
