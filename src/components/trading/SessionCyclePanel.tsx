@@ -58,20 +58,32 @@ export const SessionCyclePanel = () => {
         .limit(1)
         .maybeSingle();
       
-      // Buscar eventos recentes
+      // Buscar eventos recentes (First Candle Rule)
       const { data: events } = await supabase
         .from('session_history')
         .select('*')
         .eq('user_id', user.id)
-        .in('event_type', ['FOUNDATION_DETECTED', 'BREAKOUT', 'RETEST', 'ENGULFING'])
         .gte('timestamp', `${today}T00:00:00Z`)
         .order('timestamp', { ascending: false })
-        .limit(5);
+        .limit(20);
       
-      return { foundation, events: events || [] };
+      // Filter for First Candle events
+      const filteredEvents = (events || []).filter((e: any) => 
+        ['FOUNDATION_DETECTED', 'BREAKOUT', 'RETEST', 'ENGULFING'].includes(e.event_type)
+      );
+      
+      return { foundation, events: filteredEvents };
     },
     refetchInterval: 3000,
   });
+
+  // Process First Candle events
+  const firstCandleEvents = {
+    foundation: firstCandleStatus?.events?.find((e: any) => e.event_type === 'FOUNDATION_DETECTED'),
+    breakout: firstCandleStatus?.events?.find((e: any) => e.event_type === 'BREAKOUT'),
+    retest: firstCandleStatus?.events?.find((e: any) => e.event_type === 'RETEST'),
+    engulfing: firstCandleStatus?.events?.find((e: any) => e.event_type === 'ENGULFING'),
+  };
 
   // Detect current session based on UTC time
   const getCurrentSession = () => {
@@ -116,11 +128,11 @@ export const SessionCyclePanel = () => {
     return <Badge variant="outline">STAY OUT</Badge>;
   };
 
-  // Get latest First Candle events
-  const latestFoundation = firstCandleStatus?.events?.find(e => e.event_type === 'FOUNDATION_DETECTED');
-  const latestBreakout = firstCandleStatus?.events?.find(e => e.event_type === 'BREAKOUT');
-  const latestRetest = firstCandleStatus?.events?.find(e => e.event_type === 'RETEST');
-  const latestEngulfing = firstCandleStatus?.events?.find(e => e.event_type === 'ENGULFING');
+  // Get latest First Candle events (with type assertions)
+  const latestFoundation = firstCandleStatus?.events?.find((e: any) => e.event_type === 'FOUNDATION_DETECTED');
+  const latestBreakout = firstCandleStatus?.events?.find((e: any) => e.event_type === 'BREAKOUT');
+  const latestRetest = firstCandleStatus?.events?.find((e: any) => e.event_type === 'RETEST');
+  const latestEngulfing = firstCandleStatus?.events?.find((e: any) => e.event_type === 'ENGULFING');
 
   return (
     <Card>
@@ -140,7 +152,7 @@ export const SessionCyclePanel = () => {
                 <div className="flex items-center gap-2">
                   <span className="text-green-500">🏗️</span>
                   <span className="text-muted-foreground">
-                    Foundation: H {(latestFoundation.event_data as any)?.high?.toFixed(2) || 'N/A'} | L {(latestFoundation.event_data as any)?.low?.toFixed(2) || 'N/A'}
+                    Foundation: H {((latestFoundation as any).event_data as any)?.high?.toFixed(2) || 'N/A'} | L {((latestFoundation as any).event_data as any)?.low?.toFixed(2) || 'N/A'}
                   </span>
                 </div>
               )}
@@ -148,7 +160,7 @@ export const SessionCyclePanel = () => {
                 <div className="flex items-center gap-2">
                   <span className="text-orange-500">⚡</span>
                   <span className="text-muted-foreground">
-                    Breakout {latestBreakout.direction} @ {(latestBreakout.event_data as any)?.price?.toFixed(2) || 'N/A'}
+                    Breakout {(latestBreakout as any).direction} @ {((latestBreakout as any).event_data as any)?.price?.toFixed(2) || 'N/A'}
                   </span>
                 </div>
               )}

@@ -51,7 +51,7 @@ export const AlertPanel = () => {
   });
 
   // Processar alertas - incluir First Candle events
-  const allAlerts = signals?.map(signal => {
+  const allAlerts = signals?.map((signal: any) => {
     // First Candle Rule events
     if (signal.event_type) {
       const eventConfig = {
