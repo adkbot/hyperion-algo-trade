@@ -71,6 +71,20 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
   
   console.log(`✅ Foundation ativa (${foundation.session}): High ${foundation.high}, Low ${foundation.low}`);
   
+  // Salvar evento de Foundation detectada
+  await supabase.from('session_history').insert({
+    user_id: userId,
+    session: foundation.session,
+    pair: asset,
+    cycle_phase: 'Projection',
+    signal: 'STAY_OUT',
+    confidence_score: 0,
+    notes: `✅ Foundation detectada: H ${foundation.high} | L ${foundation.low}`,
+    event_type: 'FOUNDATION_DETECTED',
+    event_data: { high: foundation.high, low: foundation.low },
+    timestamp: new Date().toISOString(),
+  });
+  
   // Verificar se já executamos 1 trade neste ciclo hoje
   const today = new Date().toISOString().split('T')[0];
   const { data: todayTrades } = await supabase
@@ -112,6 +126,21 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
   
   console.log(`✅ Breakout confirmado: ${breakoutResult.direction} @ ${breakoutResult.breakoutPrice}`);
   
+  // Salvar evento de Breakout
+  await supabase.from('session_history').insert({
+    user_id: userId,
+    session: foundation.session,
+    pair: asset,
+    cycle_phase: 'Consolidation',
+    direction: breakoutResult.direction,
+    signal: 'STAY_OUT',
+    confidence_score: 0,
+    notes: `⚡ Breakout ${breakoutResult.direction} @ ${breakoutResult.breakoutPrice}. Aguardando reteste...`,
+    event_type: 'BREAKOUT',
+    event_data: { price: breakoutResult.breakoutPrice, direction: breakoutResult.direction },
+    timestamp: new Date().toISOString(),
+  });
+  
   // PASSO 3: Detectar Reteste OBRIGATÓRIO
   const retestResult = await detectRetest(
     candles['1m'],
@@ -122,6 +151,22 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
   
   if (!retestResult.hasRetest) {
     console.log(`⏳ Breakout confirmado. Aguardando RETESTE obrigatório...`);
+    
+    // Salvar evento de Retest em andamento
+    await supabase.from('session_history').insert({
+      user_id: userId,
+      session: foundation.session,
+      pair: asset,
+      cycle_phase: 'Consolidation',
+      direction: breakoutResult.direction,
+      signal: 'STAY_OUT',
+      confidence_score: 0,
+      notes: `👀 Aguardando reteste do nível ${breakoutResult.breakoutPrice}`,
+      event_type: 'RETEST',
+      event_data: { breakoutPrice: breakoutResult.breakoutPrice },
+      timestamp: new Date().toISOString(),
+    });
+    
     return {
       signal: 'STAY_OUT',
       direction: breakoutResult.direction,
@@ -171,6 +216,28 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
   console.log(`   4. ✅ Engulfing IMEDIATO confirmado`);
   console.log(`   📊 Entry: ${engulfingResult.entryPrice} | Stop: ${engulfingResult.stopLoss} | TP: ${engulfingResult.takeProfit}`);
   console.log(`   💰 RR: ${engulfingResult.riskReward.toFixed(2)}:1`);
+  
+  // Salvar evento de Engulfing confirmado (entrada!)
+  await supabase.from('session_history').insert({
+    user_id: userId,
+    session: foundation.session,
+    pair: asset,
+    cycle_phase: 'Execution',
+    direction: breakoutResult.direction,
+    signal: breakoutResult.direction,
+    confidence_score: 95,
+    notes: `🚀 ENGULFING confirmado! Entrada ${breakoutResult.direction} ativada.`,
+    event_type: 'ENGULFING',
+    event_data: { 
+      retestPrice: retestResult.retestPrice,
+      engulfingPrice: engulfingResult.engulfingCandle?.close,
+      entryPrice: engulfingResult.entryPrice,
+      stopLoss: engulfingResult.stopLoss,
+      takeProfit: engulfingResult.takeProfit,
+      riskReward: engulfingResult.riskReward,
+    },
+    timestamp: new Date().toISOString(),
+  });
   
   // EXECUTAR ENTRADA!
   return {

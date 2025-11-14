@@ -31,12 +31,46 @@ export const SessionCyclePanel = () => {
         .select('*')
         .eq('user_id', user.id)
         .order('timestamp', { ascending: false })
-        .limit(3);
+        .limit(5);
       
       if (error) throw error;
       return data;
     },
-    refetchInterval: 10000, // Refresh every 10 seconds
+    refetchInterval: 3000, // Refresh every 3 seconds
+  });
+
+  // Fetch First Candle Rule status
+  const { data: firstCandleStatus } = useQuery({
+    queryKey: ['first-candle-status'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Buscar foundation do dia
+      const { data: foundation } = await supabase
+        .from('session_foundation')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('date', today)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      // Buscar eventos recentes
+      const { data: events } = await supabase
+        .from('session_history')
+        .select('*')
+        .eq('user_id', user.id)
+        .in('event_type', ['FOUNDATION_DETECTED', 'BREAKOUT', 'RETEST', 'ENGULFING'])
+        .gte('timestamp', `${today}T00:00:00Z`)
+        .order('timestamp', { ascending: false })
+        .limit(5);
+      
+      return { foundation, events: events || [] };
+    },
+    refetchInterval: 3000,
   });
 
   // Detect current session based on UTC time
@@ -82,6 +116,12 @@ export const SessionCyclePanel = () => {
     return <Badge variant="outline">STAY OUT</Badge>;
   };
 
+  // Get latest First Candle events
+  const latestFoundation = firstCandleStatus?.events?.find(e => e.event_type === 'FOUNDATION_DETECTED');
+  const latestBreakout = firstCandleStatus?.events?.find(e => e.event_type === 'BREAKOUT');
+  const latestRetest = firstCandleStatus?.events?.find(e => e.event_type === 'RETEST');
+  const latestEngulfing = firstCandleStatus?.events?.find(e => e.event_type === 'ENGULFING');
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -89,6 +129,45 @@ export const SessionCyclePanel = () => {
       </CardHeader>
 
       <CardContent className="space-y-3">
+        {/* First Candle Rule Status */}
+        {(latestFoundation || latestBreakout || latestRetest || latestEngulfing) && (
+          <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-sm font-semibold text-primary">🎯 First Candle Rule</span>
+            </div>
+            <div className="space-y-1.5 text-xs">
+              {latestFoundation && (
+                <div className="flex items-center gap-2">
+                  <span className="text-green-500">🏗️</span>
+                  <span className="text-muted-foreground">
+                    Foundation: H {(latestFoundation.event_data as any)?.high?.toFixed(2) || 'N/A'} | L {(latestFoundation.event_data as any)?.low?.toFixed(2) || 'N/A'}
+                  </span>
+                </div>
+              )}
+              {latestBreakout && (
+                <div className="flex items-center gap-2">
+                  <span className="text-orange-500">⚡</span>
+                  <span className="text-muted-foreground">
+                    Breakout {latestBreakout.direction} @ {(latestBreakout.event_data as any)?.price?.toFixed(2) || 'N/A'}
+                  </span>
+                </div>
+              )}
+              {latestRetest && (
+                <div className="flex items-center gap-2">
+                  <span className="text-blue-500">👀</span>
+                  <span className="text-muted-foreground">Aguardando reteste confirmado...</span>
+                </div>
+              )}
+              {latestEngulfing && (
+                <div className="flex items-center gap-2">
+                  <span className="text-green-500">🚀</span>
+                  <span className="font-semibold text-green-500">ENTRADA CONFIRMADA!</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Current Session */}
         <div className="p-3 rounded-lg bg-secondary/50 border border-border">
           <div className="flex items-center justify-between mb-2">

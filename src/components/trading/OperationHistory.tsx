@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useOperations } from "@/hooks/useTradingData";
 
@@ -17,8 +18,21 @@ export const OperationHistory = () => {
     pnl: op.pnl || 0,
     rr: `1:${op.risk_reward.toFixed(1)}`,
     status: op.result?.toLowerCase() || 'open',
+    strategy: op.strategy || 'UNKNOWN',
     agents: op.agents ? Object.keys(op.agents as object) : [],
+    agentsData: op.agents as any,
   })).filter(op => op.status !== 'open') || [];
+
+  const getStrategyBadge = (strategy: string) => {
+    const config = {
+      FIRST_CANDLE_RULE: { icon: '🎯', color: 'bg-green-500/10 text-green-500 border-green-500/20', name: 'First Candle' },
+      SCALPING_1MIN: { icon: '⚡', color: 'bg-orange-500/10 text-orange-500 border-orange-500/20', name: 'Scalping' },
+      SWEEP_LIQUIDITY: { icon: '🌊', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', name: 'Sweep' },
+      UNKNOWN: { icon: '❓', color: 'bg-gray-500/10 text-gray-500 border-gray-500/20', name: 'N/A' },
+    };
+    const c = config[strategy as keyof typeof config] || config.UNKNOWN;
+    return <Badge variant="outline" className={`text-xs ${c.color}`}>{c.icon} {c.name}</Badge>;
+  };
 
   const totalWins = operations.filter(op => op.status === "win").length;
   const totalLosses = operations.filter(op => op.status === "loss").length;
@@ -54,11 +68,11 @@ export const OperationHistory = () => {
               <TableHead>Horário</TableHead>
               <TableHead>Ativo</TableHead>
               <TableHead>Tipo</TableHead>
+              <TableHead>Estratégia</TableHead>
               <TableHead>Entrada</TableHead>
               <TableHead>Saída</TableHead>
               <TableHead>R:R</TableHead>
               <TableHead>P&L</TableHead>
-              <TableHead>Agentes</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -72,6 +86,29 @@ export const OperationHistory = () => {
                     {op.type === "buy" ? "Compra" : "Venda"}
                   </div>
                 </TableCell>
+                <TableCell>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        {getStrategyBadge(op.strategy)}
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        <div className="text-xs space-y-1">
+                          <div className="font-semibold">Setup Details:</div>
+                          {op.agentsData && typeof op.agentsData === 'object' && (
+                            <div className="space-y-0.5">
+                              {Object.entries(op.agentsData).slice(0, 5).map(([key, value]) => (
+                                <div key={key} className="text-muted-foreground">
+                                  {key}: {typeof value === 'number' ? value.toFixed(4) : String(value)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </TableCell>
                 <TableCell className="font-mono text-sm">${op.entry.toLocaleString()}</TableCell>
                 <TableCell className="font-mono text-sm">${op.exit.toLocaleString()}</TableCell>
                 <TableCell>
@@ -79,15 +116,6 @@ export const OperationHistory = () => {
                 </TableCell>
                 <TableCell className={`font-bold ${op.pnl >= 0 ? "text-profit" : "text-loss"}`}>
                   ${op.pnl.toFixed(2)}
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-1">
-                    {op.agents.map((agent, idx) => (
-                      <Badge key={idx} variant="secondary" className="text-xs">
-                        {agent}
-                      </Badge>
-                    ))}
-                  </div>
                 </TableCell>
               </TableRow>
             ))}

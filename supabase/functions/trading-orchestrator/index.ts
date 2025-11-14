@@ -4524,6 +4524,9 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
     // ✅ CONVERTER SIGNAL PARA DIRECTION VÁLIDO (BUY/SELL)
     const direction = signal.includes('BUY') || signal === 'LONG' ? 'BUY' : 'SELL';
     
+    // Identificar estratégia usada
+    const selectedStrategy = settings.trading_strategy || 'SWEEP_LIQUIDITY';
+    
     const orderPayload = {
       user_id: userId,
       asset,
@@ -4533,6 +4536,11 @@ async function executeTradeSignal(supabase: any, userId: string, asset: string, 
       stopLoss: risk.stop,
       takeProfit: risk.target,
       riskReward: (Math.abs(risk.target - risk.entry) / Math.abs(risk.entry - risk.stop)).toFixed(2),
+      agents: {
+        strategy: selectedStrategy,
+        ...marketData,
+      },
+      session: currentSession,
     };
 
     console.log(`📤 Enviando ordem para binance-order...`);

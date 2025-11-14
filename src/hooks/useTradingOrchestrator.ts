@@ -9,13 +9,19 @@ export const useTradingOrchestrator = (botStatus: "stopped" | "running" | "pause
   const lastErrorToastRef = useRef<number>(0);
 
   useEffect(() => {
-    const callOrchestrator = async () => {
+    const callOrchestrator = async (retryCount = 0): Promise<void> => {
       try {
-        console.log("Calling trading orchestrator...");
+        console.log(`📡 Calling trading orchestrator... (attempt ${retryCount + 1})`);
         
+        // Timeout de 30 segundos
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+
         const { data, error } = await supabase.functions.invoke("trading-orchestrator", {
           method: "POST",
         });
+
+        clearTimeout(timeoutId);
 
         if (error) {
           console.error("❌ Orchestrator error:", error);
@@ -25,18 +31,27 @@ export const useTradingOrchestrator = (botStatus: "stopped" | "running" | "pause
             name: error.name,
           });
           
+          // Se falhar, tentar novamente (máximo 3 vezes com delay exponencial)
+          if (retryCount < 2) {
+            const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s
+            console.log(`🔄 Tentando novamente em ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return callOrchestrator(retryCount + 1);
+          }
+          
+          // Após 3 falhas, incrementar erro
           consecutiveErrorsRef.current += 1;
           
-          // Só mostrar toast após 3 erros consecutivos E se já passou 30s desde o último toast
+          // Só mostrar toast após 5 erros consecutivos E se já passou 60s desde o último toast
           const now = Date.now();
           const timeSinceLastToast = now - lastErrorToastRef.current;
           
-          if (consecutiveErrorsRef.current >= 3 && timeSinceLastToast > 30000) {
+          if (consecutiveErrorsRef.current >= 5 && timeSinceLastToast > 60000) {
             toast({
-              title: "Erro no Orchestrator",
-              description: "Múltiplas falhas ao chamar orchestrator. Verifique os logs.",
+              title: "⚠️ Erro no Orchestrator",
+              description: "Múltiplas falhas detectadas. Verifique a conexão.",
               variant: "destructive",
-              duration: 5000, // Desaparece após 5 segundos
+              duration: 3000,
             });
             lastErrorToastRef.current = now;
             consecutiveErrorsRef.current = 0; // Reset counter após mostrar toast

@@ -8,25 +8,25 @@ import { supabase } from "@/integrations/supabase/client";
 export const AlertPanel = () => {
   const { toast } = useToast();
 
-  // Fetch real-time signals from session_history
+  // Fetch real-time signals from session_history (incluindo First Candle events)
   const { data: signals } = useQuery({
     queryKey: ['active-signals'],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
       
-      // Buscar apenas sinais de HOJE
+      // Buscar apenas sinais de HOJE (trading signals + First Candle events)
       const today = new Date().toISOString().split('T')[0];
       
       const { data, error } = await supabase
         .from('session_history')
         .select('*')
         .eq('user_id', user.id)
-        .gte('timestamp', `${today}T00:00:00Z`) // Filtro para hoje
-        .neq('signal', 'STAY_OUT')
-        .gte('confidence_score', 0.5)
+        .gte('timestamp', `${today}T00:00:00Z`)
+        .or(`signal.neq.STAY_OUT,event_type.in.(FOUNDATION_DETECTED,BREAKOUT,RETEST,ENGULFING)`)
+        .gte('confidence_score', 0)
         .order('timestamp', { ascending: false })
-        .limit(5);
+        .limit(10);
       
       if (error) throw error;
       return data || [];
@@ -50,29 +50,68 @@ export const AlertPanel = () => {
     },
   });
 
-  // Processar e filtrar alertas - máximo 2 por ativo para evitar poluição
+  // Processar alertas - incluir First Candle events
   const allAlerts = signals?.map(signal => {
-    const isLong = signal.signal === 'LONG';
-    const isEntry = signal.confidence_score && signal.confidence_score >= 0.8;
-    const risk = signal.risk as any;
+    // First Candle Rule events
+    if (signal.event_type) {
+      const eventConfig = {
+        FOUNDATION_DETECTED: { icon: '🏗️', message: 'Foundation detectada', color: 'text-blue-500 border-blue-500 bg-blue-500/10' },
+        BREAKOUT: { icon: '⚡', message: 'Breakout confirmado', color: 'text-orange-500 border-orange-500 bg-orange-500/10' },
+        RETEST: { icon: '👀', message: 'Aguardando reteste', color: 'text-yellow-500 border-yellow-500 bg-yellow-500/10' },
+        ENGULFING: { icon: '🚀', message: 'ENTRADA CONFIRMADA!', color: 'text-green-500 border-green-500 bg-green-500/10' },
+      };
+      const config = eventConfig[signal.event_type as keyof typeof eventConfig];
+      
+      if (config) {
+        // Trigger toast for ENGULFING events
+        if (signal.event_type === 'ENGULFING') {
+          toast({
+            title: `🚀 First Candle Rule - ${signal.pair}`,
+            description: `Sequência completa! Entrada ${signal.direction} confirmada.`,
+          });
+        }
+        
+        return {
+          type: signal.event_type === 'ENGULFING' ? 'entry' : 'prepare',
+          asset: signal.pair,
+          direction: signal.direction?.toLowerCase() || 'n/a',
+          message: `${config.icon} ${config.message} - ${signal.notes}`,
+          rr: 'N/A',
+          session: signal.session,
+          icon: signal.event_type === 'ENGULFING' ? TrendingUp : Clock,
+          color: config.color,
+          confidence: signal.confidence_score || 0,
+          timestamp: signal.timestamp,
+        };
+      }
+    }
     
-    return {
-      type: isEntry ? "entry" : "prepare",
-      asset: signal.pair,
-      direction: isLong ? "buy" : "sell",
-      message: isEntry 
-        ? `Entrada confirmada! ${signal.confirmation}` 
-        : `Prepare-se! ${signal.notes}`,
-      rr: risk?.rr_ratio ? `1:${risk.rr_ratio.toFixed(1)}` : "N/A",
-      session: signal.session,
-      icon: isEntry ? TrendingUp : Clock,
-      color: isEntry 
-        ? "text-success border-success bg-success/10"
-        : "text-warning border-warning bg-warning/10",
-      confidence: signal.confidence_score || 0,
-      timestamp: signal.timestamp,
-    };
-  }) || [];
+    // Regular trading signals
+    if (signal.signal && signal.signal !== 'STAY_OUT') {
+      const isLong = signal.signal === 'LONG' || signal.signal === 'BUY';
+      const isEntry = signal.confidence_score && signal.confidence_score >= 0.8;
+      const risk = signal.risk as any;
+      
+      return {
+        type: isEntry ? "entry" : "prepare",
+        asset: signal.pair,
+        direction: isLong ? "buy" : "sell",
+        message: isEntry 
+          ? `Entrada confirmada! ${signal.confirmation}` 
+          : `Prepare-se! ${signal.notes}`,
+        rr: risk?.rr_ratio ? `1:${risk.rr_ratio.toFixed(1)}` : "N/A",
+        session: signal.session,
+        icon: isEntry ? TrendingUp : Clock,
+        color: isEntry 
+          ? "text-success border-success bg-success/10"
+          : "text-warning border-warning bg-warning/10",
+        confidence: signal.confidence_score || 0,
+        timestamp: signal.timestamp,
+      };
+    }
+    
+    return null;
+  }).filter(Boolean) || [];
 
   // Agrupar por ativo e pegar apenas os 2 mais recentes de cada
   const alertsByAsset = allAlerts.reduce((acc, alert) => {
