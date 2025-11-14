@@ -896,173 +896,172 @@ async function processUserTradingCycle(
     const batch = validPairs.slice(batchIndex, batchIndex + BATCH_SIZE);
     console.log(`\n📦 BATCH ${Math.floor(batchIndex / BATCH_SIZE) + 1}: Analisando ${batch.join(', ')}`);
 
-  for (const pair of batch) {
-
-    try {
-      // ✅ VERIFICAR SE ATIVO JÁ TEM POSIÇÃO ABERTA
-      const { data: existingPositionForAsset } = await supabase
-        .from('active_positions')
-        .select('id, asset')
-        .eq('user_id', userId)
-        .eq('asset', pair)
-        .maybeSingle();
-      
-      if (existingPositionForAsset) {
-        console.log(`⏸️ ${pair} já tem posição aberta - pulando análise (ID: ${existingPositionForAsset.id})`);
-        continue;
-      }
-      
-      // ✅ Verificar total de posições (limite global)
-      const { data: currentPositions } = await supabase
-        .from('active_positions')
-        .select('id')
-        .eq('user_id', userId);
-      
-      const currentCount = currentPositions?.length || 0;
-      
-      if (currentCount >= settings.max_positions) {
-        console.log(`⏸️ Limite de ${settings.max_positions} posições atingido - parando scan`);
-        break;
-      }
-      
-      console.log(`📊 Posições ativas: ${currentCount}/${settings.max_positions} - ${pair} livre para análise ✅`);
-
-      console.log(`Analyzing ${pair} - Session: ${currentSession}`);
-      
-      // Fetch candles
-      const candles = await fetchCandlesFromBinance(pair, ['1m', '5m', '15m', '1h']);
-      
-      if (!candles['1m'] || !candles['5m'] || !candles['15m'] || !candles['1h']) {
-        console.log(`❌ Insufficient candle data for ${pair}`);
-        continue;
-      }
-
-      // ✅ ESCOLHER ESTRATÉGIA: First Candle Rule, Scalping 1Min ou Sweep de Liquidez
-      const selectedStrategy = settings.trading_strategy || 'SWEEP_LIQUIDITY';
-      console.log(`📊 Strategy selecionada: ${selectedStrategy} para ${pair}`);
-      
-      let analysis;
-      
-      if (selectedStrategy === 'FIRST_CANDLE_RULE') {
-        // NOVA ESTRATÉGIA: First Candle Rule (Breakout → Reteste → Engulfing)
-        const { analyzeFirstCandleRule } = await import('./first-candle-analyzer.ts');
-        analysis = await analyzeFirstCandleRule({
-          candles: { '1m': candles['1m'], '5m': candles['5m'] },
-          asset: pair,
-          userId,
-          supabase
-        });
-      } else if (selectedStrategy === 'SCALPING_1MIN') {
-        // ESTRATÉGIA: Scalping 1 Minuto (FVG)
-        const { analyzeScalping1Min } = await import('./scalping-1min-analyzer.ts');
-        analysis = await analyzeScalping1Min({
-          candles: { '1m': candles['1m'], '5m': candles['5m'] },
-          asset: pair,
-          session: currentSession,
-          userId,
-          supabase
-        });
-      } else {
-        // ESTRATÉGIA ORIGINAL: Sweep de Liquidez + IA
-        analysis = await analyzeCyclePhase({
-          candles,
-          asset: pair,
-          session: currentSession,
-          phase: cyclePhase,
-          sessionState,
-          supabase,
-          userId
-        });
-      }
-
-      if (analysis) {
-        analysisResults.push({
-          pair,
-          ...analysis
-        });
-
-        // ✅ COOLDOWN: Verificar se já EXECUTAMOS uma ordem recente para este ativo (últimos 30 segundos)
-        const thirtySecondsAgo = new Date(Date.now() - 30 * 1000).toISOString();
-        const { data: recentOrder } = await supabase
-          .from('operations')
-          .select('*')
+    for (const pair of batch) {
+      try {
+        // ✅ VERIFICAR SE ATIVO JÁ TEM POSIÇÃO ABERTA
+        const { data: existingPositionForAsset } = await supabase
+          .from('active_positions')
+          .select('id, asset')
           .eq('user_id', userId)
           .eq('asset', pair)
-          .eq('direction', mapDirection(analysis.signal))
-          .gte('created_at', thirtySecondsAgo)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        const shouldSkipDueToCooldown = recentOrder && analysis.signal !== 'STAY_OUT';
+          .maybeSingle();
         
-        if (shouldSkipDueToCooldown) {
-          console.log(`⏸️ COOLDOWN ATIVO: Ordem ${analysis.signal} para ${pair} já foi EXECUTADA há menos de 30 segundos. Aguardando...`);
-        }
-
-        // ✅ Gravar análise no histórico (sempre, inclusive em cooldown)
-        await supabase.from('session_history').insert({
-          user_id: userId,
-          pair,
-          session: currentSession,
-          cycle_phase: cyclePhase,
-          direction: analysis.direction,
-          signal: analysis.signal,
-          confidence_score: analysis.confidence,
-          volume_factor: analysis.volumeFactor,
-          notes: shouldSkipDueToCooldown 
-            ? `${analysis.notes} [COOLDOWN ATIVO - Aguardando 30s]`
-            : analysis.notes,
-          confirmation: analysis.confirmation,
-          c1_direction: analysis.c1Direction,
-          range_high: analysis.rangeHigh,
-          range_low: analysis.rangeLow,
-          market_data: analysis.marketData,
-          risk: analysis.risk,
-          strategy: selectedStrategy, // ✅ GARANTIR que strategy NUNCA seja NULL
-          timestamp: new Date().toISOString(),
-        });
-
-        // ✅ Skip execution if cooldown is active
-        if (shouldSkipDueToCooldown) {
-          continue; // Skip this pair to avoid duplicate signals
-        }
-      }
-
-      // ✅ Execute trades if signal is valid
-      if (analysis && analysis.signal !== 'STAY_OUT' && analysis.risk) {
-        console.log(`🎯 SINAL DETECTADO - Tentando executar ${pair} - ${analysis.signal}`);
-        
-        const tradeExecuted = await executeTradeSignal(
-          supabase,
-          userId,
-          pair,
-          analysis,
-          settings,
-          currentSession
-        );
-        
-        if (tradeExecuted) {
-          console.log(`✅ Ordem executada com sucesso para ${pair}`);
-        } else {
-          console.log(`⚠️ Falha ao executar ordem para ${pair} - mas PARANDO scan conforme single_position_mode`);
+        if (existingPositionForAsset) {
+          console.log(`⏸️ ${pair} já tem posição aberta - pulando análise (ID: ${existingPositionForAsset.id})`);
+          continue;
         }
         
-        // ✅ PARAR SEMPRE após primeira tentativa (sucesso OU falha) em modo single position
-        if (settings.single_position_mode) {
-          console.log(`🛑 Single Position Mode: Parando scan após primeira tentativa de entrada`);
+        // ✅ Verificar total de posições (limite global)
+        const { data: currentPositions } = await supabase
+          .from('active_positions')
+          .select('id')
+          .eq('user_id', userId);
+        
+        const currentCount = currentPositions?.length || 0;
+        
+        if (currentCount >= settings.max_positions) {
+          console.log(`⏸️ Limite de ${settings.max_positions} posições atingido - parando scan`);
           break;
         }
+        
+        console.log(`📊 Posições ativas: ${currentCount}/${settings.max_positions} - ${pair} livre para análise ✅`);
+
+        console.log(`Analyzing ${pair} - Session: ${currentSession}`);
+        
+        // Fetch candles
+        const candles = await fetchCandlesFromBinance(pair, ['1m', '5m', '15m', '1h']);
+        
+        if (!candles['1m'] || !candles['5m'] || !candles['15m'] || !candles['1h']) {
+          console.log(`❌ Insufficient candle data for ${pair}`);
+          continue;
+        }
+
+        // ✅ ESCOLHER ESTRATÉGIA: First Candle Rule, Scalping 1Min ou Sweep de Liquidez
+        const selectedStrategy = settings.trading_strategy || 'SWEEP_LIQUIDITY';
+        console.log(`📊 Strategy selecionada: ${selectedStrategy} para ${pair}`);
+        
+        let analysis;
+        
+        if (selectedStrategy === 'FIRST_CANDLE_RULE') {
+          // NOVA ESTRATÉGIA: First Candle Rule (Breakout → Reteste → Engulfing)
+          const { analyzeFirstCandleRule } = await import('./first-candle-analyzer.ts');
+          analysis = await analyzeFirstCandleRule({
+            candles: { '1m': candles['1m'], '5m': candles['5m'] },
+            asset: pair,
+            userId,
+            supabase
+          });
+        } else if (selectedStrategy === 'SCALPING_1MIN') {
+          // ESTRATÉGIA: Scalping 1 Minuto (FVG)
+          const { analyzeScalping1Min } = await import('./scalping-1min-analyzer.ts');
+          analysis = await analyzeScalping1Min({
+            candles: { '1m': candles['1m'], '5m': candles['5m'] },
+            asset: pair,
+            session: currentSession,
+            userId,
+            supabase
+          });
+        } else {
+          // ESTRATÉGIA ORIGINAL: Sweep de Liquidez + IA
+          analysis = await analyzeCyclePhase({
+            candles,
+            asset: pair,
+            session: currentSession,
+            phase: cyclePhase,
+            sessionState,
+            supabase,
+            userId
+          });
+        }
+
+        if (analysis) {
+          analysisResults.push({
+            pair,
+            ...analysis
+          });
+
+          // ✅ COOLDOWN: Verificar se já EXECUTAMOS uma ordem recente para este ativo (últimos 30 segundos)
+          const thirtySecondsAgo = new Date(Date.now() - 30 * 1000).toISOString();
+          const { data: recentOrder } = await supabase
+            .from('operations')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('asset', pair)
+            .eq('direction', mapDirection(analysis.signal))
+            .gte('created_at', thirtySecondsAgo)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+          const shouldSkipDueToCooldown = recentOrder && analysis.signal !== 'STAY_OUT';
+          
+          if (shouldSkipDueToCooldown) {
+            console.log(`⏸️ COOLDOWN ATIVO: Ordem ${analysis.signal} para ${pair} já foi EXECUTADA há menos de 30 segundos. Aguardando...`);
+          }
+
+          // ✅ Gravar análise no histórico (sempre, inclusive em cooldown)
+          await supabase.from('session_history').insert({
+            user_id: userId,
+            pair,
+            session: currentSession,
+            cycle_phase: cyclePhase,
+            direction: analysis.direction,
+            signal: analysis.signal,
+            confidence_score: analysis.confidence,
+            volume_factor: analysis.volumeFactor,
+            notes: shouldSkipDueToCooldown 
+              ? `${analysis.notes} [COOLDOWN ATIVO - Aguardando 30s]`
+              : analysis.notes,
+            confirmation: analysis.confirmation,
+            c1_direction: analysis.c1Direction,
+            range_high: analysis.rangeHigh,
+            range_low: analysis.rangeLow,
+            market_data: analysis.marketData,
+            risk: analysis.risk,
+            strategy: selectedStrategy, // ✅ GARANTIR que strategy NUNCA seja NULL
+            timestamp: new Date().toISOString(),
+          });
+
+          // ✅ Skip execution if cooldown is active
+          if (shouldSkipDueToCooldown) {
+            continue; // Skip this pair to avoid duplicate signals
+          }
+        }
+
+        // ✅ Execute trades if signal is valid
+        if (analysis && analysis.signal !== 'STAY_OUT' && analysis.risk) {
+          console.log(`🎯 SINAL DETECTADO - Tentando executar ${pair} - ${analysis.signal}`);
+          
+          const tradeExecuted = await executeTradeSignal(
+            supabase,
+            userId,
+            pair,
+            analysis,
+            settings,
+            currentSession
+          );
+          
+          if (tradeExecuted) {
+            console.log(`✅ Ordem executada com sucesso para ${pair}`);
+          } else {
+            console.log(`⚠️ Falha ao executar ordem para ${pair} - mas PARANDO scan conforme single_position_mode`);
+          }
+          
+          // ✅ PARAR SEMPRE após primeira tentativa (sucesso OU falha) em modo single position
+          if (settings.single_position_mode) {
+            console.log(`🛑 Single Position Mode: Parando scan após primeira tentativa de entrada`);
+            break;
+          }
+        }
+        
+        pairsAnalyzed++;
+        console.log(`✅ ${pair} analisado (${pairsAnalyzed}/${validPairs.length})`);
+        
+      } catch (error) {
+        console.error(`Error analyzing ${pair}:`, error);
       }
-      
-      pairsAnalyzed++;
-      console.log(`✅ ${pair} analisado (${pairsAnalyzed}/${validPairs.length})`);
-      
-    } catch (error) {
-      console.error(`Error analyzing ${pair}:`, error);
-    }
-  } // fim do batch
-  } // fim do for batch
+    } // fim do for pair of batch
+  } // fim do for batchIndex
 
   return {
     session: currentSession,
