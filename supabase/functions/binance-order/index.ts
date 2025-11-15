@@ -178,6 +178,40 @@ serve(async (req) => {
         console.error('Error inserting operation:', opError);
       }
 
+      // ✅ INCREMENTAR CONTADOR DA SESSÃO APÓS SUCESSO
+      if (session) {
+        console.log(`📊 Incrementando contador da sessão ${session}...`);
+        const today = new Date().toISOString().split('T')[0];
+        
+        const { data: existingCount, error: fetchError } = await supabase
+          .from('session_trade_count')
+          .select('*')
+          .eq('user_id', user_id)
+          .eq('session', session)
+          .eq('date', today)
+          .maybeSingle();
+
+        if (fetchError) {
+          console.error('Erro ao buscar contador:', fetchError);
+        } else if (existingCount) {
+          await supabase
+            .from('session_trade_count')
+            .update({ trade_count: (existingCount.trade_count || 0) + 1 })
+            .eq('id', existingCount.id);
+          console.log(`✅ Contador atualizado: ${(existingCount.trade_count || 0) + 1}/1`);
+        } else {
+          await supabase
+            .from('session_trade_count')
+            .insert({
+              user_id,
+              session,
+              date: today,
+              trade_count: 1
+            });
+          console.log(`✅ Contador criado: 1/1`);
+        }
+      }
+
       return new Response(
         JSON.stringify({ 
           success: true, 
@@ -508,6 +542,40 @@ serve(async (req) => {
 
     if (opError) {
       console.error('Error inserting operation:', opError);
+    }
+
+    // ✅ INCREMENTAR CONTADOR DA SESSÃO APÓS SUCESSO (REAL MODE)
+    if (session) {
+      console.log(`📊 Incrementando contador da sessão ${session}...`);
+      const today = new Date().toISOString().split('T')[0];
+      
+      const { data: existingCount, error: fetchError } = await supabase
+        .from('session_trade_count')
+        .select('*')
+        .eq('user_id', user_id)
+        .eq('session', session)
+        .eq('date', today)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error('Erro ao buscar contador:', fetchError);
+      } else if (existingCount) {
+        await supabase
+          .from('session_trade_count')
+          .update({ trade_count: (existingCount.trade_count || 0) + 1 })
+          .eq('id', existingCount.id);
+        console.log(`✅ Contador atualizado: ${(existingCount.trade_count || 0) + 1}/1`);
+      } else {
+        await supabase
+          .from('session_trade_count')
+          .insert({
+            user_id,
+            session,
+            date: today,
+            trade_count: 1
+          });
+        console.log(`✅ Contador criado: 1/1`);
+      }
     }
 
     return new Response(

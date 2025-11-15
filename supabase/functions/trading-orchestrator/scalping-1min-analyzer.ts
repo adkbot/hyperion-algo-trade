@@ -58,6 +58,7 @@ interface AnalysisResult {
   retestCandle?: any;
   engulfingCandle?: any;
   phase: string;
+  session?: string; // ✅ Adicionar session para incrementar contador após sucesso
 }
 
 /**
@@ -329,8 +330,8 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   console.log(`📈 Risk/Reward: 3:1`);
   console.log(`${'='.repeat(80)}\n`);
   
-  // Incrementar contador de trades da sessão
-  await incrementSessionTradeCount(session, userId, supabase);
+  // ⚠️ NÃO INCREMENTAR AQUI! Incrementar somente APÓS ordem ser executada com sucesso
+  // O incremento será feito em binance-order após confirmação da execução
   
   return {
     signal: fvg.direction,
@@ -346,6 +347,7 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
     c1Direction: null,
     rangeHigh: foundation.high,
     rangeLow: foundation.low,
+    session, // ✅ Passar session para binance-order poder incrementar
     marketData: {
       foundation: { high: foundation.high, low: foundation.low },
       fvg: { top: fvg.fvgTop, bottom: fvg.fvgBottom, direction: fvg.direction },
