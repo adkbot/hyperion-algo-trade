@@ -151,28 +151,32 @@ function calculateTradeParams(
   if (direction === 'BUY') {
     // ✅ COMPRA (LONG):
     // - Entrada: Close do engulfing
-    // - Stop: ABAIXO da mínima do reteste
+    // - Stop: ABAIXO da MÍNIMA entre engulfing e reteste
     // - TP: ACIMA da entrada (RR 3:1)
     entryPrice = engulfingCandle.close;
-    stopLoss = retestCandle.low - (tickSize * 2);  // Stop ABAIXO
+    stopLoss = Math.min(engulfingCandle.low, retestCandle.low) - (tickSize * 2);  // Stop ABAIXO
     
     const stopDistance = Math.abs(entryPrice - stopLoss);
     takeProfit = entryPrice + (stopDistance * 3);  // TP ACIMA
     
     console.log(`🟢 BUY: Entry ${entryPrice} | Stop ${stopLoss} (ABAIXO) | TP ${takeProfit} (ACIMA)`);
+    console.log(`   📏 Engulfing Low: ${engulfingCandle.low} | Retest Low: ${retestCandle.low}`);
+    console.log(`   📏 Stop Distance: ${stopDistance.toFixed(4)} | TP Distance: ${(stopDistance * 3).toFixed(4)}`);
     
   } else { // SELL
     // ✅ VENDA (SHORT):
     // - Entrada: Close do engulfing
-    // - Stop: ACIMA da máxima do reteste
+    // - Stop: ACIMA da MÁXIMA entre engulfing e reteste
     // - TP: ABAIXO da entrada (RR 3:1)
     entryPrice = engulfingCandle.close;
-    stopLoss = retestCandle.high + (tickSize * 2);  // Stop ACIMA
+    stopLoss = Math.max(engulfingCandle.high, retestCandle.high) + (tickSize * 2);  // Stop ACIMA
     
     const stopDistance = Math.abs(stopLoss - entryPrice);
     takeProfit = entryPrice - (stopDistance * 3);  // TP ABAIXO
     
     console.log(`🔴 SELL: Entry ${entryPrice} | Stop ${stopLoss} (ACIMA) | TP ${takeProfit} (ABAIXO)`);
+    console.log(`   📏 Engulfing High: ${engulfingCandle.high} | Retest High: ${retestCandle.high}`);
+    console.log(`   📏 Stop Distance: ${stopDistance.toFixed(4)} | TP Distance: ${(stopDistance * 3).toFixed(4)}`);
   }
   
   // Arredondar para tickSize
@@ -184,10 +188,33 @@ function calculateTradeParams(
   const profitDistance = Math.abs(takeProfit - entryPrice);
   const riskReward = profitDistance / stopDistance;
   
-  console.log(`📊 Parâmetros de Trade:`);
+  // ✅ VALIDAÇÃO DE SANIDADE
+  if (direction === 'BUY' && stopLoss >= entryPrice) {
+    console.error(`❌ ERRO: Stop Loss para BUY deve estar ABAIXO da entrada!`);
+    console.error(`   Entry: ${entryPrice}, Stop: ${stopLoss}`);
+    throw new Error('Invalid Stop Loss calculation for BUY - Stop must be BELOW entry');
+  }
+  
+  if (direction === 'SELL' && stopLoss <= entryPrice) {
+    console.error(`❌ ERRO: Stop Loss para SELL deve estar ACIMA da entrada!`);
+    console.error(`   Entry: ${entryPrice}, Stop: ${stopLoss}`);
+    throw new Error('Invalid Stop Loss calculation for SELL - Stop must be ABOVE entry');
+  }
+  
+  if (direction === 'BUY' && takeProfit <= entryPrice) {
+    console.error(`❌ ERRO: Take Profit para BUY deve estar ACIMA da entrada!`);
+    throw new Error('Invalid Take Profit calculation for BUY - TP must be ABOVE entry');
+  }
+  
+  if (direction === 'SELL' && takeProfit >= entryPrice) {
+    console.error(`❌ ERRO: Take Profit para SELL deve estar ABAIXO da entrada!`);
+    throw new Error('Invalid Take Profit calculation for SELL - TP must be BELOW entry');
+  }
+  
+  console.log(`📊 Parâmetros de Trade (VALIDADOS):`);
   console.log(`   Entry: ${entryPrice}`);
-  console.log(`   Stop: ${stopLoss}`);
-  console.log(`   TP: ${takeProfit}`);
+  console.log(`   Stop: ${stopLoss} (${direction === 'BUY' ? 'ABAIXO ✅' : 'ACIMA ✅'})`);
+  console.log(`   TP: ${takeProfit} (${direction === 'BUY' ? 'ACIMA ✅' : 'ABAIXO ✅'})`);
   console.log(`   RR: ${riskReward.toFixed(2)}:1`);
   
   return {
