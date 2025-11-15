@@ -84,6 +84,63 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
     timestamp: new Date().toISOString(),
   });
   
+  // ==========================================
+  // PASSO 1.5: VALIDAÇÃO CRÍTICA - JANELA DE OPERAÇÃO (5 MINUTOS)
+  // ==========================================
+  console.log(`\n📍 PASSO 1.5: Validando JANELA DE OPERAÇÃO (CRÍTICO)...`);
+
+  const foundationTime = new Date(foundation.timestamp).getTime();
+  const currentTime = Date.now();
+  const OPERATION_WINDOW_MS = 5 * 60 * 1000; // 5 minutos
+  const windowEnd = foundationTime + OPERATION_WINDOW_MS;
+
+  console.log(`   ├─ Foundation: ${new Date(foundationTime).toISOString()}`);
+  console.log(`   ├─ Atual: ${new Date(currentTime).toISOString()}`);
+  console.log(`   └─ Janela fecha: ${new Date(windowEnd).toISOString()}`);
+
+  if (currentTime > windowEnd) {
+    const minutesElapsed = Math.floor((currentTime - foundationTime) / 1000 / 60);
+    
+    console.log(`❌ JANELA FECHADA! Foundation há ${minutesElapsed} minutos`);
+    
+    await supabase.from('session_history').insert({
+      user_id: userId,
+      session: foundation.session,
+      pair: asset,
+      cycle_phase: 'Execution',
+      event_type: 'OPERATION_WINDOW_CLOSED',
+      signal: 'STAY_OUT',
+      direction: null,
+      notes: `⏸️ Janela fechada. Foundation há ${minutesElapsed}min (limite: 5min)`,
+      timestamp: new Date().toISOString(),
+      market_data: {
+        foundation: { 
+          high: foundation.high, 
+          low: foundation.low,
+          timestamp: foundation.timestamp,
+          session: foundation.session
+        },
+        window: {
+          foundationTime: new Date(foundationTime).toISOString(),
+          currentTime: new Date(currentTime).toISOString(),
+          minutesElapsed
+        }
+      }
+    });
+    
+    return {
+      signal: 'STAY_OUT',
+      direction: null,
+      confidence: 0,
+      notes: `⏸️ JANELA FECHADA: Foundation há ${minutesElapsed}min. Apenas primeiros 5min permitidos.`,
+      risk: null
+    };
+  }
+
+  const minutesRemaining = Math.floor((windowEnd - currentTime) / 1000 / 60);
+  const secondsRemaining = Math.floor(((windowEnd - currentTime) % (60 * 1000)) / 1000);
+  console.log(`✅ JANELA ABERTA: ${minutesRemaining}min ${secondsRemaining}s restantes`);
+  
   // Verificar se já executamos 1 trade neste ciclo hoje
   const today = new Date().toISOString().split('T')[0];
   const { data: todayTrades } = await supabase

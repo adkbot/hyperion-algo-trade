@@ -2793,7 +2793,100 @@ async function analyzeTechnicalStandalone(
   
   // ============================================
   // ETAPA 1: ANALISAR ESTRUTURA H1
-  // ============================================
+  // ==========================================
+  
+  // ==========================================
+  // PASSO 0.5: VALIDAÇÃO CRÍTICA - JANELA DE OPERAÇÃO (5 MINUTOS) - SWEEP
+  // ==========================================
+  console.log(`\n📍 PASSO 0.5: Validando JANELA DE OPERAÇÃO - SWEEP (CRÍTICO)...`);
+
+  // Buscar foundation do SWEEP para esta sessão
+  const { getOrCreateFoundation: getOrCreateSweepFoundation } = await import('./sweep-foundation.ts');
+  const sweepFoundation = await getOrCreateSweepFoundation(session, candles5m, userId, supabase);
+
+  if (!sweepFoundation.valid) {
+    console.log(`⏳ Foundation SWEEP ainda não disponível para ${session}`);
+    return {
+      signal: 'STAY_OUT',
+      direction: 'NEUTRAL',
+      confidence: 0,
+      notes: `Aguardando foundation SWEEP para ${session}`,
+      risk: null,
+      c1Direction: null,
+      volumeFactor: indicators.volume.factor,
+      confirmation: 'Foundation pendente',
+      marketData: { price: currentPrice },
+      rangeHigh: 0,
+      rangeLow: 0,
+    };
+  }
+
+  const foundationTime = new Date(sweepFoundation.timestamp).getTime();
+  const currentTime = Date.now();
+  const OPERATION_WINDOW_MS = 5 * 60 * 1000; // 5 minutos
+  const windowEnd = foundationTime + OPERATION_WINDOW_MS;
+
+  console.log(`   ├─ Foundation SWEEP: ${new Date(foundationTime).toISOString()}`);
+  console.log(`   ├─ Atual: ${new Date(currentTime).toISOString()}`);
+  console.log(`   └─ Janela fecha: ${new Date(windowEnd).toISOString()}`);
+
+  if (currentTime > windowEnd) {
+    const minutesElapsed = Math.floor((currentTime - foundationTime) / 1000 / 60);
+    
+    console.log(`❌ JANELA FECHADA (SWEEP)! Foundation há ${minutesElapsed} minutos`);
+    
+    await supabase.from('session_history').insert({
+      user_id: userId,
+      session,
+      pair: asset,
+      cycle_phase: 'Execution',
+      event_type: 'OPERATION_WINDOW_CLOSED',
+      signal: 'STAY_OUT',
+      direction: null,
+      notes: `⏸️ SWEEP - Janela fechada. Foundation há ${minutesElapsed}min (limite: 5min)`,
+      timestamp: new Date().toISOString(),
+      market_data: {
+        foundation: { 
+          high: sweepFoundation.high, 
+          low: sweepFoundation.low,
+          timestamp: sweepFoundation.timestamp,
+          session
+        },
+        window: {
+          foundationTime: new Date(foundationTime).toISOString(),
+          currentTime: new Date(currentTime).toISOString(),
+          minutesElapsed
+        }
+      }
+    });
+    
+    return {
+      signal: 'STAY_OUT',
+      direction: 'NEUTRAL',
+      confidence: 0,
+      notes: `⏸️ SWEEP - JANELA FECHADA: Foundation há ${minutesElapsed}min. Apenas primeiros 5min permitidos.`,
+      risk: null,
+      c1Direction: null,
+      volumeFactor: indicators.volume.factor,
+      confirmation: 'Janela fechada',
+      marketData: { 
+        price: currentPrice,
+        foundation: sweepFoundation,
+        window: {
+          foundationTime: new Date(foundationTime).toISOString(),
+          currentTime: new Date(currentTime).toISOString(),
+          minutesElapsed
+        }
+      },
+      rangeHigh: sweepFoundation.high,
+      rangeLow: sweepFoundation.low,
+    };
+  }
+
+  const minutesRemaining = Math.floor((windowEnd - currentTime) / 1000 / 60);
+  const secondsRemaining = Math.floor(((windowEnd - currentTime) % (60 * 1000)) / 1000);
+  console.log(`✅ JANELA ABERTA (SWEEP): ${minutesRemaining}min ${secondsRemaining}s restantes`);
+  
   const h1Structure = analyzeH1Structure(candles1h);
   
   // 🟢 FASE 3: H1 ESTRUTURA COMO REFERÊNCIA (NÃO BLOQUEIA)
