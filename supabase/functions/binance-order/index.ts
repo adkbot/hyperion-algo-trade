@@ -60,10 +60,18 @@ serve(async (req) => {
     const finalStopLoss = correctedStopLoss;
     const finalTakeProfit = correctedTakeProfit;
     
+    // Calcular distâncias
+    const stopDistance = Math.abs(price - finalStopLoss);
+    const tpDistance = Math.abs(finalTakeProfit - price);
+    const calculatedRR = tpDistance / stopDistance;
+    
     console.log(`\n✅ VALORES FINAIS:`);
     console.log(`├─ Entry: ${price}`);
     console.log(`├─ Stop: ${finalStopLoss} ${direction === 'BUY' ? '(ABAIXO)' : '(ACIMA)'}`);
-    console.log(`└─ TP: ${finalTakeProfit} ${direction === 'BUY' ? '(ACIMA)' : '(ABAIXO)'}`);
+    console.log(`├─ TP: ${finalTakeProfit} ${direction === 'BUY' ? '(ACIMA)' : '(ABAIXO)'}`);
+    console.log(`├─ 📏 Stop Distance: ${stopDistance.toFixed(4)}`);
+    console.log(`├─ 📏 TP Distance: ${tpDistance.toFixed(4)}`);
+    console.log(`└─ ⚖️ Risk/Reward Calculado: ${calculatedRR.toFixed(2)}:1`);
     console.log('================================================================================\n');
     
     // Decodificar informações dos agentes se disponível
