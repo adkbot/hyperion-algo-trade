@@ -248,14 +248,28 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
 
             <Button 
               onClick={() => {
-                clearOldHistory.mutate();
+                clearOldHistory.mutate(false);
                 onOpenChange(false);
+              }}
+              className="w-full" 
+              variant="outline"
+              disabled={clearOldHistory.isPending}
+            >
+              {clearOldHistory.isPending ? "Limpando..." : "🧹 Limpar Histórico Antigo"}
+            </Button>
+
+            <Button 
+              onClick={() => {
+                if (confirm("⚠️ ATENÇÃO: Isso vai deletar TODOS os eventos de session_history, incluindo os de hoje. Tem certeza?")) {
+                  clearOldHistory.mutate(true);
+                  onOpenChange(false);
+                }
               }}
               className="w-full" 
               variant="destructive"
               disabled={clearOldHistory.isPending}
             >
-              {clearOldHistory.isPending ? "Limpando..." : "🧹 Limpar Histórico Antigo"}
+              {clearOldHistory.isPending ? "Limpando..." : "🗑️ Limpar TUDO (incluindo hoje)"}
             </Button>
           </div>
         </div>

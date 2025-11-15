@@ -6,12 +6,12 @@ export const useClearOldHistory = () => {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (deleteAll: boolean = false) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
 
       const { data, error } = await supabase.functions.invoke("clear-old-history", {
-        body: { user_id: user.id },
+        body: { user_id: user.id, delete_all: deleteAll },
       });
 
       if (error) throw error;
