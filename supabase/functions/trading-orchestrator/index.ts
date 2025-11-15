@@ -215,12 +215,15 @@ const DYNAMIC_RR_MAP: Record<string, number> = {
   'NEAR_WEAK': 3.5,
 };
 
-// ✅ Session time ranges in UTC - Adjusted for 30min transition buffers
+// ✅ Session time ranges in UTC - 7 sessões de mercado detalhadas
 const SESSIONS = {
-  OCEANIA: { start: 0, end: 2.5, name: 'OCEANIA' },        // 00:00 - 02:30 UTC
-  ASIA: { start: 3, end: 7.5, name: 'ASIA' },              // 03:00 - 07:30 UTC
-  LONDON: { start: 8, end: 12.5, name: 'LONDON' },         // 08:00 - 12:30 UTC
-  NEW_YORK: { start: 13, end: 23.5, name: 'NY' },          // 13:00 - 23:30 UTC
+  WELLINGTON: { start: 21, end: 22.9, name: 'WELLINGTON' },    // 21:00-22:54 UTC
+  SYDNEY: { start: 23, end: 0.9, name: 'SYDNEY' },             // 23:00-00:54 UTC (next day)
+  TOKYO: { start: 0, end: 1.9, name: 'TOKYO' },                // 00:00-01:54 UTC
+  HONG_KONG: { start: 1.5, end: 2.9, name: 'HONG_KONG' },     // 01:30-02:54 UTC
+  SINGAPORE: { start: 1, end: 2.9, name: 'SINGAPORE' },        // 01:00-02:54 UTC
+  LONDON: { start: 8, end: 13.4, name: 'LONDON' },             // 08:00-13:24 UTC
+  NY: { start: 13.5, end: 21.4, name: 'NY' },                  // 13:30-21:24 UTC (com DST)
 };
 
 // Map direction from LONG/SHORT to BUY/SELL for database
