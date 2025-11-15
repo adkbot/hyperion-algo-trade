@@ -104,38 +104,37 @@ async function monitorActivePositionsAdvanced(supabase: any, userId: string): Pr
     
   if (!positions || positions.length === 0) return;
   
-  // Importar módulo de momentum
-  const { 
-    calculateCurrentRR, 
-    fetchRecentCandles, 
-    shouldClosePosition 
-  } = await import('./scalping-1min-momentum-analyzer.ts');
-  
   for (const pos of positions) {
     if (!pos.current_price || !pos.entry_price) continue;
+    
+    // Determinar qual analyzer usar baseado na estratégia
+    const strategy = (pos.agents as any)?.strategy || 'SCALPING_1MIN';
+    
+    let analyzer;
+    if (strategy === 'FIRST_CANDLE_RULE') {
+      // Usar analyzer do First Candle
+      analyzer = await import('./first-candle-momentum-analyzer.ts');
+    } else {
+      // Usar analyzer padrão (SCALPING_1MIN)
+      analyzer = await import('./scalping-1min-momentum-analyzer.ts');
+    }
+    
+    const { calculateCurrentRR, shouldClosePosition } = analyzer;
     
     // CALCULAR RR ATUAL
     const rr = calculateCurrentRR(pos);
     
-    console.log(`📊 Monitorando ${pos.asset}: RR atual = ${rr.toFixed(2)}`);
+    console.log(`📊 Monitorando ${pos.asset} [${strategy}]: RR atual = ${rr.toFixed(2)}`);
     
     // ZONA DE PROTEÇÃO: 1.0 - 1.5 RR
     if (rr >= 1.0 && rr <= 1.5) {
       console.log(`🔍 ZONA DE PROTEÇÃO ATIVADA - Analisando momentum...`);
       
-      // Buscar candles recentes (últimas 5 velas de 1min)
-      const candles = await fetchRecentCandles(pos.asset, 5);
-      
-      if (candles.length < 3) {
-        console.log(`⚠️ Candles insuficientes para ${pos.asset} - mantendo posição`);
-        continue;
-      }
-      
-      // Analisar se deve fechar
-      const decision = shouldClosePosition(pos, candles);
+      // Analisar se deve fechar (o analyzer cuida de buscar os candles)
+      const decision = await shouldClosePosition(pos);
       
       if (decision.shouldClose) {
-        console.log(`🚨 FECHAMENTO ANTECIPADO: ${decision.reason}`);
+        console.log(`🚨 FECHAMENTO ANTECIPADO [${strategy}]: ${decision.reason}`);
         
         // Chamar edge function para fechar posição
         const { data: closeData, error: closeError } = await supabase.functions.invoke('binance-close-order', {

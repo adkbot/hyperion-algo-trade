@@ -296,10 +296,10 @@ export function analyzeWeakness(
 /**
  * Decide se deve fechar a posição baseado em momentum
  */
-export function shouldClosePosition(
+export async function shouldClosePosition(
   position: ActivePosition, 
-  candles: Candle[]
-): ClosureDecision {
+  candles?: Candle[]
+): Promise<ClosureDecision> {
   const rr = calculateCurrentRR(position);
   
   // Só analisa se RR entre 1.0 e 1.5
@@ -313,8 +313,19 @@ export function shouldClosePosition(
   
   console.log(`🔍 ZONA DE PROTEÇÃO ATIVADA - RR ${rr.toFixed(2)}`);
   
-  const continuity = analyzeContinuity(candles, position.direction);
-  const weakness = analyzeWeakness(candles, position.direction);
+  // Buscar candles se não foram fornecidos
+  const analyzedCandles = candles || await fetchRecentCandles(position.asset, 10);
+  
+  if (analyzedCandles.length === 0) {
+    return { 
+      shouldClose: false, 
+      reason: 'Dados insuficientes para análise',
+      confidence: 0
+    };
+  }
+  
+  const continuity = analyzeContinuity(analyzedCandles, position.direction);
+  const weakness = analyzeWeakness(analyzedCandles, position.direction);
   
   console.log(`📊 Análise de Momentum:`);
   console.log(`├─ Continuidade: ${continuity.hasContinuity ? '✅ SIM' : '❌ NÃO'} (Score: ${continuity.score})`);
