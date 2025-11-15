@@ -31,8 +31,17 @@ export const ResetDayButton = () => {
 
       const today = new Date().toISOString().split('T')[0];
 
-      // Resetar apenas os contadores do dia atual
-      const { error } = await supabase
+      // 1. Limpar contadores de sessão (session_trade_count)
+      const { error: sessionError } = await supabase.functions.invoke('clear-session-counter', {
+        body: { user_id: user.id }
+      });
+
+      if (sessionError) {
+        console.error('Erro ao limpar contador de sessão:', sessionError);
+      }
+
+      // 2. Resetar apenas os contadores do dia atual (daily_goals)
+      const { error: dailyError } = await supabase
         .from('daily_goals')
         .update({
           wins: 0,
@@ -43,11 +52,11 @@ export const ResetDayButton = () => {
         .eq('user_id', user.id)
         .eq('date', today);
 
-      if (error) throw error;
+      if (dailyError) throw dailyError;
 
       toast({
         title: "Dia resetado!",
-        description: "Contadores diários foram zerados com sucesso.",
+        description: "Contadores diários e limites de sessão foram zerados.",
       });
 
       // Recarregar para atualizar os dados

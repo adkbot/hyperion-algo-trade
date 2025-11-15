@@ -127,17 +127,32 @@ export const AlertPanel = () => {
     )
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  // Disparar toast para eventos ENGULFING novos (usando useEffect para evitar loop infinito)
+  // Disparar toast APENAS para eventos ENGULFING que resultaram em posição ativa
   useEffect(() => {
     if (!alerts || alerts.length === 0) return;
     
-    alerts.forEach((alert: any) => {
+    alerts.forEach(async (alert: any) => {
       if (alert.eventType === 'ENGULFING' && alert.signalId && !processedEngulfingIds.current.has(alert.signalId)) {
-        processedEngulfingIds.current.add(alert.signalId);
-        toast({
-          title: `🚀 First Candle Rule - ${alert.asset}`,
-          description: `Sequência completa! Entrada ${alert.direction} confirmada.`,
-        });
+        
+        // ✅ VALIDAÇÃO: Verificar se realmente existe uma posição ativa
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        
+        const { data: activePosition } = await supabase
+          .from('active_positions')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('asset', alert.asset)
+          .maybeSingle();
+        
+        // Só mostrar toast se houver posição ativa de fato
+        if (activePosition) {
+          processedEngulfingIds.current.add(alert.signalId);
+          toast({
+            title: `🚀 First Candle Rule - ${alert.asset}`,
+            description: `Sequência completa! Entrada ${alert.direction} confirmada.`,
+          });
+        }
       }
     });
   }, [alerts, toast]);

@@ -30,7 +30,7 @@ serve(async (req) => {
     console.log(`👤 User ID: ${user_id}`);
     console.log(`🎯 Asset: ${asset}`);
     console.log(`📊 Direction recebida: ${direction}`);
-    console.log(`💰 Quantity: ${quantity}`);
+    console.log(`💰 Quantity recebida: ${quantity}`);
     console.log(`💵 Price: ${price}`);
     console.log(`🛑 Stop Loss: ${stopLoss}`);
     console.log(`🎯 Take Profit: ${takeProfit}`);
@@ -266,6 +266,28 @@ serve(async (req) => {
     console.log(`├─ Side para Binance: ${side}`);
     console.log(`└─ Lógica: ${direction === 'LONG' ? 'LONG → BUY' : direction === 'SHORT' ? 'SHORT → SELL' : 'Direto'}`);
     
+    // ✅ VALIDAÇÃO CRÍTICA: Garantir quantity mínima para atender notional da Binance
+    const MIN_NOTIONAL = 100; // $100 USD mínimo
+    let calculatedQuantity = quantity;
+    let notionalValue = calculatedQuantity * price;
+    
+    console.log('\n💰 VALIDAÇÃO DE QUANTITY MÍNIMA:');
+    console.log(`├─ Quantity recebida: ${quantity}`);
+    console.log(`├─ Price: $${price}`);
+    console.log(`├─ Notional calculado: $${notionalValue.toFixed(2)}`);
+    console.log(`└─ Mínimo requerido: $${MIN_NOTIONAL}`);
+    
+    // Se notional for menor que o mínimo, ajustar quantity
+    if (notionalValue < MIN_NOTIONAL) {
+      calculatedQuantity = MIN_NOTIONAL / price;
+      notionalValue = calculatedQuantity * price;
+      console.log(`⚠️ AJUSTE NECESSÁRIO:`);
+      console.log(`├─ Nova quantity: ${calculatedQuantity}`);
+      console.log(`└─ Novo notional: $${notionalValue.toFixed(2)}`);
+    } else {
+      console.log(`✅ Notional OK - Nenhum ajuste necessário`);
+    }
+    
     // ✅ CRÍTICO: Formatar quantidade com precisão EXATA da Binance
     // Regras de precisão:
     // - Pares com "1000" (1000PEPE, 1000FLOKI, etc): 0 decimais (inteiros)
@@ -276,13 +298,13 @@ serve(async (req) => {
     if (asset.includes('1000') || asset.includes('DOGE') || asset.includes('SHIB') || 
         asset.includes('PEPE') || asset.includes('FLOKI') || asset.includes('BONK')) {
       // Quantidade inteira (sem decimais)
-      formattedQuantity = Math.floor(quantity);
+      formattedQuantity = Math.floor(calculatedQuantity);
     } else if (asset.includes('BTC') || asset.includes('ETH')) {
       // Alta precisão: 3 decimais
-      formattedQuantity = parseFloat(quantity.toFixed(3));
+      formattedQuantity = parseFloat(calculatedQuantity.toFixed(3));
     } else {
       // Padrão: 0 decimais (inteiros) para maioria das altcoins
-      formattedQuantity = Math.floor(quantity);
+      formattedQuantity = Math.floor(calculatedQuantity);
     }
     
     console.log('\n================================================================================');
@@ -290,7 +312,10 @@ serve(async (req) => {
     console.log('================================================================================');
     console.log(`🎯 Symbol: ${asset}`);
     console.log(`📊 Side: ${side} (${direction})`);
-    console.log(`💰 Quantity: ${quantity} → ${formattedQuantity} (adjusted)`);
+    console.log(`💰 Quantity original: ${quantity}`);
+    console.log(`💰 Quantity calculada: ${calculatedQuantity}`);
+    console.log(`💰 Quantity formatada: ${formattedQuantity}`);
+    console.log(`💵 Notional final: $${(formattedQuantity * price).toFixed(2)}`);
     console.log(`💵 Type: MARKET`);
     console.log(`📍 Stop Loss: $${finalStopLoss}`);
     console.log(`🎯 Take Profit: $${finalTakeProfit}`);
