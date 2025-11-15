@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { useState, useEffect } from "react";
 import { useUserSettings, useUpdateSettings } from "@/hooks/useTradingData";
 import { useSetupScalping1Min } from "@/hooks/useSetupScalping1Min";
+import { useClearOldHistory } from "@/hooks/useClearOldHistory";
 import { useToast } from "@/hooks/use-toast";
 
 interface SettingsModalProps {
@@ -17,6 +18,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
   const { data: settings } = useUserSettings();
   const updateSettings = useUpdateSettings();
   const setupScalping = useSetupScalping1Min();
+  const clearOldHistory = useClearOldHistory();
   const { toast } = useToast();
   
   const [balance, setBalance] = useState(10000);
@@ -243,6 +245,18 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
                 {setupScalping.isPending ? "Ativando..." : "🎯 Ativar Scalping 1 Min Agora"}
               </Button>
             )}
+
+            <Button 
+              onClick={() => {
+                clearOldHistory.mutate();
+                onOpenChange(false);
+              }}
+              className="w-full" 
+              variant="destructive"
+              disabled={clearOldHistory.isPending}
+            >
+              {clearOldHistory.isPending ? "Limpando..." : "🧹 Limpar Histórico Antigo"}
+            </Button>
           </div>
         </div>
       </DialogContent>
