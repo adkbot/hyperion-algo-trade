@@ -146,7 +146,7 @@ serve(async (req) => {
           take_profit: finalTakeProfit,       // ✅ Usar valor corrigido
           risk_reward: riskReward,
           current_pnl: 0,
-          projected_profit: direction === 'LONG' 
+          projected_profit: (direction === 'BUY' || direction === 'LONG')
             ? (finalTakeProfit - price) * quantity
             : (price - finalTakeProfit) * quantity,
           agents,
@@ -256,8 +256,10 @@ serve(async (req) => {
       // Continue anyway - leverage configuration is not critical for order execution
     }
 
-    // Map direction to Binance side (LONG -> BUY, SHORT -> SELL)
-    const side = direction === 'LONG' ? 'BUY' : direction === 'SHORT' ? 'SELL' : direction;
+    // Map direction to Binance side (LONG/BUY -> BUY, SHORT/SELL -> SELL)
+    const side = (direction === 'LONG' || direction === 'BUY') ? 'BUY' 
+               : (direction === 'SHORT' || direction === 'SELL') ? 'SELL' 
+               : direction;
     
     console.log('\n🔄 MAPEAMENTO DE DIREÇÃO:');
     console.log(`├─ Direction do sistema: ${direction}`);
@@ -438,7 +440,7 @@ serve(async (req) => {
         take_profit: finalTakeProfit,       // ✅ Usar valor corrigido
         risk_reward: riskReward,
         current_pnl: pnlReal,              // ✅ P&L REAL da Binance
-        projected_profit: direction === 'LONG'
+        projected_profit: (direction === 'BUY' || direction === 'LONG')
           ? (finalTakeProfit - entryPriceReal) * quantity
           : (entryPriceReal - finalTakeProfit) * quantity,
         agents,
