@@ -25,46 +25,70 @@ interface Candle {
 
 /**
  * Horários de início de cada sessão (UTC)
- * CORRIGIDO: Alinhado com os horários reais das sessões
+ * ATUALIZADO: Conforme PDF "1ª Vela 5min" com todos os mercados
  */
 const SESSION_START_TIMES = {
-  OCEANIA: { hour: 0, minute: 0 },  // 00:00 UTC
-  ASIA: { hour: 3, minute: 0 },     // 03:00 UTC
-  LONDON: { hour: 8, minute: 0 },   // 08:00 UTC
-  NY: { hour: 13, minute: 0 }       // 13:00 UTC
+  // OCEANIA
+  WELLINGTON: { hour: 21, minute: 0 },  // 10:00 local = 21:00 UTC (dia anterior) = 18:00 Brasil
+  SYDNEY: { hour: 23, minute: 0 },      // 10:00 local = 23:00 UTC (dia anterior) = 20:00 Brasil
+  
+  // ÁSIA
+  SINGAPORE: { hour: 1, minute: 0 },    // 09:00 local = 01:00 UTC = 22:00 Brasil (dia anterior)
+  HONG_KONG: { hour: 1, minute: 30 },   // 09:30 local = 01:30 UTC = 22:30 Brasil (dia anterior)
+  TOKYO: { hour: 0, minute: 0 },        // 09:00 JST = 00:00 UTC = 21:00 Brasil (dia anterior)
+  
+  // EUROPA
+  LONDON: { hour: 8, minute: 0 },       // 08:00 local = 08:00 UTC = 05:00 Brasil
+  
+  // AMÉRICA
+  NY: { hour: 14, minute: 30 },         // 09:30 EST = 14:30 UTC = 11:30 Brasil
+  
+  // Mantém sessões genéricas para compatibilidade
+  OCEANIA: { hour: 23, minute: 0 },     // Mapeado para SYDNEY
+  ASIA: { hour: 0, minute: 0 }          // Mapeado para TOKYO
 };
 
 /**
- * Mapeia sessões TRANSITION para a próxima sessão real
+ * Mapeia sessões TRANSITION ou genéricas para a sessão específica ativa
  */
 function mapTransitionToRealSession(session: string): string {
-  if (session !== 'TRANSITION') return session;
+  if (session !== 'TRANSITION' && session !== 'OCEANIA' && session !== 'ASIA') {
+    return session;
+  }
   
   const now = new Date();
   const utcHour = now.getUTCHours();
   const utcMinute = now.getUTCMinutes();
   const timeInMinutes = utcHour * 60 + utcMinute;
   
-  // TRANSITION antes de OCEANIA (23:30-00:00)
-  if (timeInMinutes >= 23 * 60 + 30 || timeInMinutes < 0) {
-    return 'OCEANIA';
-  }
-  // TRANSITION antes de ASIA (02:30-03:00)
-  if (timeInMinutes >= 2 * 60 + 30 && timeInMinutes < 3 * 60) {
-    return 'ASIA';
-  }
-  // TRANSITION antes de LONDON (07:30-08:00)
-  if (timeInMinutes >= 7 * 60 + 30 && timeInMinutes < 8 * 60) {
-    return 'LONDON';
-  }
-  // TRANSITION antes de NY (12:30-13:00)
-  if (timeInMinutes >= 12 * 60 + 30 && timeInMinutes < 13 * 60) {
-    return 'NY';
-  }
+  // WELLINGTON: 21:00 UTC
+  if (timeInMinutes >= 21 * 60 && timeInMinutes < 23 * 60) return 'WELLINGTON';
   
-  // Fallback: retorna a sessão mais próxima
-  console.log(`⚠️ TRANSITION em horário não esperado (${utcHour}:${utcMinute}), usando NY como fallback`);
-  return 'NY';
+  // SYDNEY: 23:00 UTC
+  if (timeInMinutes >= 23 * 60 || timeInMinutes < 0) return 'SYDNEY';
+  
+  // TOKYO: 00:00 UTC
+  if (timeInMinutes >= 0 && timeInMinutes < 1 * 60) return 'TOKYO';
+  
+  // SINGAPORE: 01:00 UTC
+  if (timeInMinutes >= 1 * 60 && timeInMinutes < 1 * 60 + 30) return 'SINGAPORE';
+  
+  // HONG_KONG: 01:30 UTC
+  if (timeInMinutes >= 1 * 60 + 30 && timeInMinutes < 8 * 60) return 'HONG_KONG';
+  
+  // LONDON: 08:00 UTC
+  if (timeInMinutes >= 8 * 60 && timeInMinutes < 14 * 60 + 30) return 'LONDON';
+  
+  // NY: 14:30 UTC (ou 13:30 durante horário de verão)
+  const month = now.getUTCMonth() + 1;
+  const isDST = month >= 3 && month <= 11;
+  const nyStartMinute = isDST ? 13 * 60 + 30 : 14 * 60 + 30;
+  
+  if (timeInMinutes >= nyStartMinute && timeInMinutes < 21 * 60) return 'NY';
+  
+  // Fallback: SYDNEY para período noturno
+  console.log(`⚠️ Horário não mapeado (${utcHour}:${utcMinute}), usando SYDNEY como fallback`);
+  return 'SYDNEY';
 }
 
 /**

@@ -22,36 +22,62 @@ interface FirstCandleFoundation {
   isValid: boolean;
 }
 
-// Horários de início dos ciclos (UTC)
+// Horários de início dos ciclos (UTC) - ATUALIZADO conforme PDF "1ª Vela 5min"
 const CYCLE_START_TIMES = {
-  PRIMEIRA_HORA: { hour: 13, minute: 30 }, // 09:30 NY (primeira hora após abertura)
-  NY: { hour: 14, minute: 30 },            // 10:30 NY
-  ASIA: { hour: 0, minute: 0 },            // 00:00 UTC
-  OCEANIA: { hour: 22, minute: 0 },        // 22:00 UTC (dia anterior)
+  // OCEANIA
+  WELLINGTON: { hour: 21, minute: 0 },  // 10:00 local = 21:00 UTC (dia anterior) = 18:00 Brasil
+  SYDNEY: { hour: 23, minute: 0 },      // 10:00 local = 23:00 UTC (dia anterior) = 20:00 Brasil
+  
+  // ÁSIA
+  SINGAPORE: { hour: 1, minute: 0 },    // 09:00 local = 01:00 UTC = 22:00 Brasil (dia anterior)
+  HONG_KONG: { hour: 1, minute: 30 },   // 09:30 local = 01:30 UTC = 22:30 Brasil (dia anterior)
+  TOKYO: { hour: 0, minute: 0 },        // 09:00 JST = 00:00 UTC = 21:00 Brasil (dia anterior)
+  
+  // EUROPA
+  LONDON: { hour: 8, minute: 0 },       // 08:00 local = 08:00 UTC = 05:00 Brasil
+  
+  // AMÉRICA
+  NY: { hour: 14, minute: 30 },         // 09:30 EST = 14:30 UTC = 11:30 Brasil
+  // Durante horário de verão NY (EDT): 13:30 UTC = 10:30 Brasil
 };
 
 /**
- * Identifica qual ciclo está ativo no momento
+ * Identifica qual ciclo/mercado está ativo no momento
+ * Baseado nos horários de abertura do PDF "1ª Vela 5min"
  */
 function getCurrentCycle(): string {
   const now = new Date();
   const hour = now.getUTCHours();
   const minute = now.getUTCMinutes();
+  const timeInMinutes = hour * 60 + minute;
   
-  // PRIMEIRA_HORA: 13:30 - 14:30 UTC
-  if (hour === 13 && minute >= 30) return 'PRIMEIRA_HORA';
+  // WELLINGTON: 21:00 UTC (dia anterior)
+  if (timeInMinutes >= 21 * 60 && timeInMinutes < 23 * 60) return 'WELLINGTON';
   
-  // NY: 14:30 - 22:00 UTC
-  if (hour === 14 && minute >= 30) return 'NY';
-  if (hour > 14 && hour < 22) return 'NY';
+  // SYDNEY: 23:00 UTC (dia anterior)
+  if (timeInMinutes >= 23 * 60 || timeInMinutes < 1 * 60) return 'SYDNEY';
   
-  // OCEANIA: 22:00 - 00:00 UTC
-  if (hour >= 22) return 'OCEANIA';
+  // TOKYO: 00:00 UTC
+  if (timeInMinutes >= 0 && timeInMinutes < 1 * 60) return 'TOKYO';
   
-  // ASIA: 00:00 - 13:30 UTC
-  if (hour < 13 || (hour === 13 && minute < 30)) return 'ASIA';
+  // SINGAPORE: 01:00 UTC
+  if (timeInMinutes >= 1 * 60 && timeInMinutes < 1 * 60 + 30) return 'SINGAPORE';
   
-  return 'NY'; // Default
+  // HONG_KONG: 01:30 UTC
+  if (timeInMinutes >= 1 * 60 + 30 && timeInMinutes < 8 * 60) return 'HONG_KONG';
+  
+  // LONDON: 08:00 UTC
+  if (timeInMinutes >= 8 * 60 && timeInMinutes < 14 * 60 + 30) return 'LONDON';
+  
+  // NY: 14:30 UTC (ou 13:30 durante horário de verão)
+  // Detectar horário de verão (aproximado: março-novembro)
+  const month = now.getUTCMonth() + 1; // 1-12
+  const isDST = month >= 3 && month <= 11;
+  const nyStartMinute = isDST ? 13 * 60 + 30 : 14 * 60 + 30;
+  
+  if (timeInMinutes >= nyStartMinute && timeInMinutes < 21 * 60) return 'NY';
+  
+  return 'SYDNEY'; // Default para período noturno
 }
 
 /**
