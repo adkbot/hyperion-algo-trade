@@ -3,6 +3,7 @@ import { Play, Pause, Square, Settings, LogOut, Zap, Trash2 } from "lucide-react
 import { useState } from "react";
 import { SettingsModal } from "./SettingsModal";
 import { ClearHistoryButton } from "./ClearHistoryButton";
+import { ResetDayButton } from "./ResetDayButton";
 import { useUserSettings, useUpdateBotStatus } from "@/hooks/useTradingData";
 import { useSetupScalping1Min } from "@/hooks/useSetupScalping1Min";
 import { useClearScalpingHistory } from "@/hooks/useClearScalpingHistory";
@@ -121,6 +122,8 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
                   </Button>
                 </>
               )}
+              
+              <ResetDayButton />
               
               <ClearHistoryButton />
               
