@@ -6,6 +6,7 @@
 
 import { getOrCreateFirstCandleFoundation } from './first-candle-foundation.ts';
 import { detectBreakout } from './first-candle-breakout.ts';
+import { detectRetest } from './first-candle-retest.ts';
 import { detectEngulfingAfterRetest } from './first-candle-engulfing.ts';
 
 interface Candle {
@@ -191,16 +192,85 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
     direction: breakoutResult.direction,
     signal: 'STAY_OUT',
     confidence_score: 0,
-    notes: `⚡ Breakout ${breakoutResult.direction} @ ${breakoutResult.breakoutPrice}. Aguardando engulfing...`,
+    notes: `⚡ Breakout ${breakoutResult.direction} @ ${breakoutResult.breakoutPrice}. Aguardando reteste...`,
     event_type: 'BREAKOUT',
     event_data: { price: breakoutResult.breakoutPrice, direction: breakoutResult.direction },
     timestamp: new Date().toISOString(),
   });
   
-  // PASSO 3: Detectar Engulfing IMEDIATO após breakout
+  // ==========================================
+  // PASSO 2.5: VALIDAÇÃO CRÍTICA - RETESTE DO NÍVEL ROMPIDO
+  // ==========================================
+  console.log(`\n📍 PASSO 2.5: Detectando RETESTE do nível rompido...`);
+  
+  const retestResult = await detectRetest(
+    candles['1m'],
+    breakoutResult.breakoutPrice,
+    breakoutResult.direction!,
+    breakoutResult.breakoutCandle!.timestamp
+  );
+  
+  if (!retestResult.hasRetest) {
+    console.log(`⏳ Aguardando reteste do nível ${breakoutResult.breakoutPrice}...`);
+    
+    // Salvar evento de "Aguardando Reteste"
+    await supabase.from('session_history').insert({
+      user_id: userId,
+      session: foundation.session,
+      pair: asset,
+      cycle_phase: 'Consolidation',
+      direction: breakoutResult.direction,
+      signal: 'STAY_OUT',
+      confidence_score: 0,
+      notes: `⏳ Breakout confirmado @ ${breakoutResult.breakoutPrice}. Aguardando RETESTE antes de entrar.`,
+      event_type: 'AWAITING_RETEST',
+      event_data: { 
+        breakoutPrice: breakoutResult.breakoutPrice, 
+        direction: breakoutResult.direction 
+      },
+      timestamp: new Date().toISOString(),
+    });
+    
+    return {
+      signal: 'STAY_OUT',
+      direction: breakoutResult.direction,
+      confidence: 0,
+      notes: `Breakout ${breakoutResult.direction} @ ${breakoutResult.breakoutPrice}. Aguardando RETESTE.`,
+      risk: null,
+    };
+  }
+  
+  console.log(`✅ Reteste confirmado @ ${retestResult.retestPrice}`);
+  console.log(`   ├─ Candle do reteste: Low ${retestResult.retestCandle!.low}, High ${retestResult.retestCandle!.high}`);
+  console.log(`   └─ Timestamp: ${new Date(retestResult.retestCandle!.timestamp).toISOString()}`);
+  
+  // Salvar evento de Reteste confirmado
+  await supabase.from('session_history').insert({
+    user_id: userId,
+    session: foundation.session,
+    pair: asset,
+    cycle_phase: 'Consolidation',
+    direction: breakoutResult.direction,
+    signal: 'STAY_OUT',
+    confidence_score: 0,
+    notes: `✅ RETESTE confirmado @ ${retestResult.retestPrice}. Aguardando engulfing para entrada.`,
+    event_type: 'RETEST_CONFIRMED',
+    event_data: { 
+      breakoutPrice: breakoutResult.breakoutPrice,
+      retestPrice: retestResult.retestPrice,
+      direction: breakoutResult.direction 
+    },
+    timestamp: new Date().toISOString(),
+  });
+  
+  // ==========================================
+  // PASSO 3: DETECTAR ENGULFING APÓS RETESTE
+  // ==========================================
+  console.log(`\n📍 PASSO 3: Detectando engulfing APÓS reteste...`);
+  
   const engulfingResult = await detectEngulfingAfterRetest(
     candles['1m'],
-    breakoutResult.breakoutCandle!,
+    retestResult.retestCandle!,  // ✅ USAR VELA DO RETESTE, NÃO DO BREAKOUT
     breakoutResult.direction!,
     asset
   );
@@ -219,7 +289,8 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
   console.log(`🎯 ✅ SEQUÊNCIA COMPLETA CONFIRMADA!`);
   console.log(`   1. ✅ Foundation detectada: ${foundation.session}`);
   console.log(`   2. ✅ Breakout: ${breakoutResult.direction} @ ${breakoutResult.breakoutPrice}`);
-  console.log(`   3. ✅ Engulfing confirmado`);
+  console.log(`   3. ✅ Reteste: @ ${retestResult.retestPrice}`);
+  console.log(`   4. ✅ Engulfing confirmado`);
   console.log(`   📊 Entry: ${engulfingResult.entryPrice} | Stop: ${engulfingResult.stopLoss} | TP: ${engulfingResult.takeProfit}`);
   console.log(`   💰 RR: ${engulfingResult.riskReward.toFixed(2)}:1`);
   
