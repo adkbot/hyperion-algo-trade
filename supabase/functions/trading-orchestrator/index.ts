@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { detectEngulfingAfterSweep } from './sweep-engulfing.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1191,19 +1192,19 @@ async function analyzeCyclePhase(params: any) {
   if (sessionState?.c1_direction) {
     
     if (phase === 'Projection_Oceania') {
-      return await analyzeOceaniaPhase(candles15m, candles1h, indicators, currentPrice, asset, sessionState, supabase, userId);
+      return await analyzeOceaniaPhase(candles1m, candles15m, candles1h, indicators, currentPrice, asset, sessionState, supabase, userId);
     }
     
     if (phase === 'Projection_Asia') {
-      return await analyzeAsiaPhase(candles5m, candles15m, candles1h, indicators, currentPrice, asset, sessionState, supabase, userId);
+      return await analyzeAsiaPhase(candles1m, candles5m, candles15m, candles1h, indicators, currentPrice, asset, sessionState, supabase, userId);
     }
     
     if (phase === 'Consolidation') {
-      return await analyzeLondonPhase(candles15m, candles1h, indicators, currentPrice, asset, sessionState, supabase, userId);
+      return await analyzeLondonPhase(candles1m, candles15m, candles1h, indicators, currentPrice, asset, sessionState, supabase, userId);
     }
     
     if (phase === 'Execution') {
-      return await analyzeNYPhase(candles5m, candles15m, candles1h, indicators, currentPrice, asset, sessionState);
+      return await analyzeNYPhase(candles1m, candles5m, candles15m, candles1h, indicators, currentPrice, asset, sessionState);
     }
   }
   
@@ -2874,6 +2875,58 @@ async function analyzeTechnicalStandalone(
   `);
   
   // ============================================
+  // 🔍 VALIDAÇÃO ENGULFING (NOVO)
+  // ============================================
+  console.log(`\n🔍 VALIDAÇÃO ENGULFING - ${asset}`);
+  
+  // Usar a última vela como referência de sweep
+  const lastCandle = candles1m[candles1m.length - 1];
+  const sweepCandle1m = {
+    timestamp: parseFloat(lastCandle.timestamp),
+    open: parseFloat(lastCandle.open),
+    high: parseFloat(lastCandle.high),
+    low: parseFloat(lastCandle.low),
+    close: parseFloat(lastCandle.close),
+    volume: parseFloat(lastCandle.volume),
+  };
+  
+  // Converter direção de BUY/SELL para BUY/SELL
+  const engulfingDirection: 'BUY' | 'SELL' = sweepData.direction === 'BUY' ? 'BUY' : 'SELL';
+  
+  const engulfingResult = await detectEngulfingAfterSweep(
+    candles1m.map((c: any) => ({
+      timestamp: parseFloat(c.timestamp),
+      open: parseFloat(c.open),
+      high: parseFloat(c.high),
+      low: parseFloat(c.low),
+      close: parseFloat(c.close),
+      volume: parseFloat(c.volume),
+    })),
+    sweepCandle1m,
+    engulfingDirection,
+    asset
+  );
+  
+  if (!engulfingResult.engulfingDetected || !engulfingResult.expressiveCandleConfirmed) {
+    console.log(`❌ ${asset}: Sweep detectado mas SEM engulfing expressivo - CANCELAR`);
+    return {
+      signal: 'STAY_OUT',
+      direction: sweepData.direction,
+      confidence: 0,
+      notes: `Sweep ${sweepData.sweepType} sem engulfing expressivo`,
+      risk: null,
+      c1Direction: null,
+      volumeFactor: indicators.volume.factor,
+      confirmation: 'Aguardando engulfing expressivo',
+      marketData: { price: currentPrice, h1Structure, sweep: sweepData },
+      rangeHigh: h1Structure.previousHigh,
+      rangeLow: h1Structure.previousLow,
+    };
+  }
+  
+  console.log(`✅ ${asset}: ENGULFING EXPRESSIVO CONFIRMADO!`);
+  
+  // ============================================
   // VALIDAR TENDÊNCIA GERAL (CRÍTICO)
   // ============================================
   const direction = sweepData.direction!;
@@ -2999,8 +3052,61 @@ async function analyzeTechnicalStandalone(
   };
 }
 
+// ============================================
+// 🔍 HELPER: VALIDAR ENGULFING PARA FASES FIMATHE
+// ============================================
+async function validateEngulfingForPhase(
+  candles1m: any[],
+  direction: 'BUY' | 'SELL',
+  asset: string,
+  phaseName: string
+): Promise<{ valid: boolean; reason: string }> {
+  console.log(`\n🔍 VALIDAÇÃO ENGULFING (${phaseName}) - ${asset}`);
+  
+  if (!candles1m || candles1m.length < 2) {
+    return { valid: false, reason: 'Dados M1 insuficientes' };
+  }
+  
+  // Usar a última vela como referência
+  const lastCandle = candles1m[candles1m.length - 1];
+  const sweepCandle1m = {
+    timestamp: parseFloat(lastCandle.timestamp),
+    open: parseFloat(lastCandle.open),
+    high: parseFloat(lastCandle.high),
+    low: parseFloat(lastCandle.low),
+    close: parseFloat(lastCandle.close),
+    volume: parseFloat(lastCandle.volume),
+  };
+  
+  const engulfingResult = await detectEngulfingAfterSweep(
+    candles1m.map((c: any) => ({
+      timestamp: parseFloat(c.timestamp),
+      open: parseFloat(c.open),
+      high: parseFloat(c.high),
+      low: parseFloat(c.low),
+      close: parseFloat(c.close),
+      volume: parseFloat(c.volume),
+    })),
+    sweepCandle1m,
+    direction,
+    asset
+  );
+  
+  if (!engulfingResult.engulfingDetected || !engulfingResult.expressiveCandleConfirmed) {
+    console.log(`❌ ${phaseName}: Sem engulfing expressivo`);
+    return { 
+      valid: false, 
+      reason: `${phaseName} sem engulfing expressivo confirmado`
+    };
+  }
+  
+  console.log(`✅ ${phaseName}: ENGULFING EXPRESSIVO CONFIRMADO!`);
+  return { valid: true, reason: `${phaseName} com engulfing expressivo` };
+}
+
+
 // ✅ FASE 2: Oceania - O Desenhista (CRÍTICO)
-async function analyzeOceaniaPhase(candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
+async function analyzeOceaniaPhase(candles1m: any[], candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
   const { volume, atr } = indicators;
   const now = new Date();
   const utcHour = now.getUTCHours();
@@ -3089,6 +3195,26 @@ async function analyzeOceaniaPhase(candles15m: any[], candles1h: any[], indicato
         };
       }
       
+      // 🔍 VALIDAR ENGULFING antes de aprovar  
+      const engulfingValidation = await validateEngulfingForPhase(
+        candles1m,
+        c1Direction === 'LONG' ? 'BUY' : 'SELL',
+        asset,
+        'Oceania'
+      );
+      
+      if (!engulfingValidation.valid) {
+        console.log(`❌ ${asset}: Oceania - ${engulfingValidation.reason}`);
+        return {
+          signal: 'STAY_OUT',
+          direction: c1Direction === 'LONG' ? 'BUY' : 'SELL',
+          confidence: 0,
+          notes: engulfingValidation.reason,
+          phase: 'oceania_no_engulfing',
+          timestamp: new Date().toISOString(),
+        };
+      }
+      
       const stopLoss = c1Direction === 'LONG'
         ? currentPrice - (atr * 0.6)  // SCALPING: mais próximo
         : currentPrice + (atr * 0.6);
@@ -3109,7 +3235,7 @@ async function analyzeOceaniaPhase(candles15m: any[], candles1h: any[], indicato
           direction: c1Direction,
           c1Direction,
           volumeFactor: volume.factor,
-          confirmation: `Oceania C1 confirmation trade - aligned momentum`,
+          confirmation: `Oceania C1 confirmation trade + Engulfing`,
           risk: {
             entry: currentPrice,
             stop: stopLoss,
@@ -3117,7 +3243,7 @@ async function analyzeOceaniaPhase(candles15m: any[], candles1h: any[], indicato
             rr_ratio: rrRatio,
           },
           confidence: 0.72, // ✅ Aumentado de 0.68
-          notes: `Confirming C1 ${c1Direction} with volume ${volume.factor.toFixed(2)}x, strength ${trend.strength.toFixed(2)}`,
+          notes: `Confirming C1 ${c1Direction} with volume ${volume.factor.toFixed(2)}x, strength ${trend.strength.toFixed(2)} + engulfing`,
           marketData: { price: currentPrice, atr },
           rangeHigh: null,
           rangeLow: null,
@@ -3146,7 +3272,7 @@ async function analyzeOceaniaPhase(candles15m: any[], candles1h: any[], indicato
 }
 
 // ✅ FASE 3: Asia - O Confirmador
-async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
+async function analyzeAsiaPhase(candles1m: any[], candles5m: any[], candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
   const { rsi, volume, atr } = indicators;
   const c1Direction = sessionState?.c1_direction;
   
@@ -3195,12 +3321,38 @@ async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], candles1h: 
       const rrRatio = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
       
       if (rrRatio >= RR_RANGES.ASIA_CONFIRMATION.min && rrRatio <= RR_RANGES.ASIA_CONFIRMATION.max) {
+        
+        // 🔍 VALIDAR ENGULFING antes de aprovar
+        const engulfingValidation = await validateEngulfingForPhase(
+          candles1m,
+          c1Direction === 'LONG' ? 'BUY' : 'SELL',
+          asset,
+          'Asia Confirmação'
+        );
+        
+        if (!engulfingValidation.valid) {
+          console.log(`❌ ${asset}: Asia - ${engulfingValidation.reason}`);
+          return {
+            signal: 'STAY_OUT',
+            direction: c1Direction,
+            c1Direction,
+            volumeFactor: volume.factor,
+            confirmation: engulfingValidation.reason,
+            risk: null,
+            confidence: 0,
+            notes: engulfingValidation.reason,
+            marketData: { price: currentPrice, rsi, atr },
+            rangeHigh: null,
+            rangeLow: null,
+          };
+        }
+        
         return {
           signal: c1Direction,
           direction: c1Direction,
           c1Direction,
           volumeFactor: volume.factor,
-          confirmation: `Asia CONFIRMED Oceania C1: ${c1Direction}`,
+          confirmation: `Asia CONFIRMED Oceania C1: ${c1Direction} + Engulfing`,
           risk: {
             entry: currentPrice,
             stop: stopLoss,
@@ -3208,7 +3360,7 @@ async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], candles1h: 
             rr_ratio: rrRatio,
           },
           confidence: 0.78,
-          notes: `Asia confirms C1 ${c1Direction} - strong alignment`,
+          notes: `Asia confirms C1 ${c1Direction} - strong alignment + engulfing`,
           marketData: { price: currentPrice, rsi, atr },
           rangeHigh: null,
           rangeLow: null,
@@ -3327,7 +3479,7 @@ async function analyzeAsiaPhase(candles5m: any[], candles15m: any[], candles1h: 
 }
 
 // ✅ FASE 4: London - O Precificador
-async function analyzeLondonPhase(candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
+async function analyzeLondonPhase(candles1m: any[], candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any, supabase: any, userId: string) {
   const { rsi, vwma, ema, volume, atr } = indicators;
   const c1Direction = sessionState?.c1_direction;
   
@@ -3384,12 +3536,38 @@ async function analyzeLondonPhase(candles15m: any[], candles1h: any[], indicator
     const rrRatio = Math.abs(target - entry) / Math.abs(entry - stop);
     
     if (rrRatio >= RR_RANGES.LONDON_SCALP.min && rrRatio <= RR_RANGES.LONDON_SCALP.max) {
+      
+      // 🔍 VALIDAR ENGULFING antes de aprovar
+      const engulfingValidation = await validateEngulfingForPhase(
+        candles1m,
+        'BUY',
+        asset,
+        'London LONG'
+      );
+      
+      if (!engulfingValidation.valid) {
+        console.log(`❌ ${asset}: London LONG - ${engulfingValidation.reason}`);
+        return {
+          signal: 'STAY_OUT',
+          direction: 'LONG',
+          c1Direction,
+          volumeFactor: volume.factor,
+          confirmation: engulfingValidation.reason,
+          risk: null,
+          confidence: 0,
+          notes: engulfingValidation.reason,
+          marketData: { price: currentPrice, rsi, vwma, ema },
+          rangeHigh,
+          rangeLow,
+        };
+      }
+      
       return {
         signal: 'LONG',
         direction: 'LONG',
         c1Direction,
         volumeFactor: volume.factor,
-        confirmation: 'London support bounce - aligned with C1',
+        confirmation: 'London support bounce - aligned with C1 + Engulfing',
         risk: {
           entry,
           stop,
@@ -3397,7 +3575,7 @@ async function analyzeLondonPhase(candles15m: any[], candles1h: any[], indicator
           rr_ratio: rrRatio,
         },
         confidence: 0.70,
-        notes: `London scalp LONG from support ${rangeLow.toFixed(2)}`,
+        notes: `London scalp LONG from support ${rangeLow.toFixed(2)} + engulfing`,
         marketData: { price: currentPrice, rsi, vwma, ema },
         rangeHigh,
         rangeLow,
@@ -3437,12 +3615,19 @@ async function analyzeLondonPhase(candles15m: any[], candles1h: any[], indicator
     const rrRatio = Math.abs(entry - target) / Math.abs(stop - entry);
     
     if (rrRatio >= RR_RANGES.LONDON_SCALP.min && rrRatio <= RR_RANGES.LONDON_SCALP.max) {
+      
+      // 🔍 VALIDAR ENGULFING
+      const engulfingValidation = await validateEngulfingForPhase(candles1m, 'SELL', asset, 'London SHORT');
+      if (!engulfingValidation.valid) {
+        return { signal: 'STAY_OUT', direction: 'SELL', c1Direction, volumeFactor: volume.factor, confirmation: engulfingValidation.reason, risk: null, confidence: 0, notes: engulfingValidation.reason, marketData: { price: currentPrice, rsi, vwma, ema }, rangeHigh, rangeLow };
+      }
+      
       return {
         signal: 'SHORT',
         direction: 'SHORT',
         c1Direction,
         volumeFactor: volume.factor,
-        confirmation: 'London resistance rejection - aligned with C1',
+        confirmation: 'London resistance rejection - aligned with C1 + Engulfing',
         risk: {
           entry,
           stop,
@@ -3450,7 +3635,7 @@ async function analyzeLondonPhase(candles15m: any[], candles1h: any[], indicator
           rr_ratio: rrRatio,
         },
         confidence: 0.70,
-        notes: `London scalp SHORT from resistance ${rangeHigh.toFixed(2)}`,
+        notes: `London scalp SHORT from resistance ${rangeHigh.toFixed(2)} + engulfing`,
         marketData: { price: currentPrice, rsi, vwma, ema },
         rangeHigh,
         rangeLow,
@@ -3474,7 +3659,7 @@ async function analyzeLondonPhase(candles15m: any[], candles1h: any[], indicator
 }
 
 // ✅ FASE 5: NY - O Executor (Melhorado)
-async function analyzeNYPhase(candles5m: any[], candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any) {
+async function analyzeNYPhase(candles1m: any[], candles5m: any[], candles15m: any[], candles1h: any[], indicators: any, currentPrice: number, asset: string, sessionState: any) {
   const { rsi, vwma, ema, macd, volume, atr } = indicators;
   
   // Calcular H1 structure para validação
@@ -3571,8 +3756,11 @@ async function analyzeNYPhase(candles5m: any[], candles15m: any[], candles1h: an
         };
       }
       
-      // ✅ H1/M5 APROVADO
-      console.log(`✅ NY LONG: ${h1m5Validation.reason}`);
+      // ✅ H1/M5 APROVADO + 🔍 VALIDAR ENGULFING
+      const engulfingValidation = await validateEngulfingForPhase(candles1m, 'BUY', asset, 'NY LONG');
+      if (!engulfingValidation.valid) {
+        return { signal: 'STAY_OUT', direction: 'LONG', c1Direction, volumeFactor: volume.factor, confirmation: engulfingValidation.reason, risk: null, confidence: 0, notes: engulfingValidation.reason, marketData: { price: currentPrice }, rangeHigh: londonHigh, rangeLow: londonLow };
+      }
       
       const rrRatio = Math.abs(h1m5Validation.target! - h1m5Validation.entry!) / 
                        Math.abs(h1m5Validation.entry! - h1m5Validation.stop!);
@@ -3582,7 +3770,7 @@ async function analyzeNYPhase(candles5m: any[], candles15m: any[], candles1h: an
         direction: 'LONG',
         c1Direction,
         volumeFactor: volume.factor,
-        confirmation: `NY breakout UP + H1/M5 validado - C1: ${c1Direction}, Asia: ${asiaConfirmation}`,
+        confirmation: `NY breakout UP + H1/M5 validado + Engulfing - C1: ${c1Direction}, Asia: ${asiaConfirmation}`,
         risk: {
           entry: h1m5Validation.entry,
           stop: h1m5Validation.stop,
@@ -3653,8 +3841,11 @@ async function analyzeNYPhase(candles5m: any[], candles15m: any[], candles1h: an
         };
       }
       
-      // ✅ H1/M5 APROVADO
-      console.log(`✅ NY SHORT: ${h1m5Validation.reason}`);
+      // ✅ H1/M5 APROVADO + 🔍 VALIDAR ENGULFING
+      const engulfingValidation = await validateEngulfingForPhase(candles1m, 'SELL', asset, 'NY SHORT');
+      if (!engulfingValidation.valid) {
+        return { signal: 'STAY_OUT', direction: 'SHORT', c1Direction, volumeFactor: volume.factor, confirmation: engulfingValidation.reason, risk: null, confidence: 0, notes: engulfingValidation.reason, marketData: { price: currentPrice }, rangeHigh: londonHigh, rangeLow: londonLow };
+      }
       
       const rrRatio = Math.abs(h1m5Validation.entry! - h1m5Validation.target!) / 
                        Math.abs(h1m5Validation.stop! - h1m5Validation.entry!);
@@ -3664,7 +3855,7 @@ async function analyzeNYPhase(candles5m: any[], candles15m: any[], candles1h: an
         direction: 'SHORT',
         c1Direction,
         volumeFactor: volume.factor,
-        confirmation: `NY breakout DOWN + H1/M5 validado - C1: ${c1Direction}, Asia: ${asiaConfirmation}`,
+        confirmation: `NY breakout DOWN + H1/M5 validado + Engulfing - C1: ${c1Direction}, Asia: ${asiaConfirmation}`,
         risk: {
           entry: h1m5Validation.entry,
           stop: h1m5Validation.stop,
