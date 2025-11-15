@@ -146,7 +146,9 @@ serve(async (req) => {
           take_profit: finalTakeProfit,       // ✅ Usar valor corrigido
           risk_reward: riskReward,
           current_pnl: 0,
-          projected_profit: (finalTakeProfit - price) * quantity,
+          projected_profit: direction === 'LONG' 
+            ? (finalTakeProfit - price) * quantity
+            : (price - finalTakeProfit) * quantity,
           agents,
           session,
         });
@@ -436,7 +438,9 @@ serve(async (req) => {
         take_profit: finalTakeProfit,       // ✅ Usar valor corrigido
         risk_reward: riskReward,
         current_pnl: pnlReal,              // ✅ P&L REAL da Binance
-        projected_profit: (finalTakeProfit - entryPriceReal) * quantity,
+        projected_profit: direction === 'LONG'
+          ? (finalTakeProfit - entryPriceReal) * quantity
+          : (entryPriceReal - finalTakeProfit) * quantity,
         agents,
         session,
       });

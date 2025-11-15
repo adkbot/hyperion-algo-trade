@@ -1014,31 +1014,48 @@ async function processUserTradingCycle(
               continue;
             }
 
-            // Log session_history com timestamp atual e strategy preenchido
-            if (analysis.signal !== 'STAY_OUT') {
-              const { error: historyError } = await supabase
-                .from('session_history')
-                .insert({
-                  user_id: userId,
-                  session: currentSession,
-                  phase: cyclePhase,
-                  asset: pair,
-                  direction: mapDirection(analysis.signal),
-                  signal: analysis.signal,
-                  confidence: analysis.confidence || 0,
-                  entry_price: analysis.entry || 0,
-                  stop_loss: analysis.stopLoss || 0,
-                  take_profit: analysis.takeProfit || 0,
-                  notes: analysis.notes || '',
-                  strategy: selectedStrategy, // ✅ GARANTIR QUE NUNCA SEJA NULL
-                  timestamp: new Date().toISOString(),
-                });
-              
-              if (historyError) {
-                console.error('❌ Error logging session_history:', historyError);
-              } else {
-                console.log(`✅ Logged ${analysis.signal} signal for ${pair} to session_history with strategy: ${selectedStrategy}`);
-              }
+            // ✅ CORREÇÃO: Registrar TODAS as análises, não apenas sinais de trade
+            const determineEventType = (signal: string, phase?: string): string => {
+              if (phase === 'WAITING_FOUNDATION') return 'FOUNDATION_PENDING';
+              if (phase === 'SESSION_FILTER_REJECTED') return 'SESSION_FILTER';
+              if (phase === 'WAITING_FVG') return 'FVG_PENDING';
+              if (phase === 'FVG_INVALID_SEQUENCE') return 'FVG_INVALID';
+              if (phase === 'INVALID_THIRD_CANDLE_CLOSE') return 'THIRD_CANDLE_INVALID';
+              if (phase === 'SESSION_LIMIT_REACHED') return 'SESSION_LIMIT';
+              if (signal === 'BUY' || signal === 'SELL') return 'TRADE_SIGNAL';
+              if (signal === 'STAY_OUT') return 'STAY_OUT';
+              return 'ANALYSIS';
+            };
+
+            const { error: historyError } = await supabase
+              .from('session_history')
+              .insert({
+                user_id: userId,
+                session: currentSession,
+                cycle_phase: cyclePhase,
+                pair: pair,
+                signal: analysis.signal,
+                direction: analysis.signal === 'BUY' || analysis.signal === 'SELL' ? mapDirection(analysis.signal) : null,
+                confidence_score: analysis.confidence || 0,
+                notes: analysis.notes || '',
+                event_type: determineEventType(analysis.signal, analysis.phase),
+                event_data: {
+                  foundation: analysis.foundation || null,
+                  fvg: analysis.fvg || null,
+                  phase: analysis.phase,
+                  entryPrice: analysis.entryPrice || analysis.entry,
+                  stopLoss: analysis.stopLoss,
+                  takeProfit: analysis.takeProfit,
+                  riskReward: analysis.riskReward,
+                  strategy: selectedStrategy
+                },
+                timestamp: new Date().toISOString(),
+              });
+            
+            if (historyError) {
+              console.error('❌ Error logging session_history:', historyError);
+            } else {
+              console.log(`✅ Logged ${analysis.signal} (${determineEventType(analysis.signal, analysis.phase)}) for ${pair} to session_history`);
             }
 
             // Execute trade if signal is valid

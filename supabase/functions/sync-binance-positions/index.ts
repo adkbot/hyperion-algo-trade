@@ -148,7 +148,9 @@ serve(async (req) => {
           : entryPrice * 0.985; // -1.5% para SHORT
 
         const riskReward = Math.abs((takeProfit - entryPrice) / (stopLoss - entryPrice));
-        const projectedProfit = Math.abs(takeProfit - entryPrice) * Math.abs(positionAmt);
+        const projectedProfit = direction === 'BUY'
+          ? (takeProfit - entryPrice) * Math.abs(positionAmt)
+          : (entryPrice - takeProfit) * Math.abs(positionAmt);
 
         const { error: insertError } = await supabase
           .from('active_positions')
