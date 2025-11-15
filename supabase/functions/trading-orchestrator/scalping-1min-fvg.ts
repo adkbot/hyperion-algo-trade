@@ -22,10 +22,42 @@ interface FVGResult {
   candles: [Candle, Candle, Candle] | null;
   breakoutConfirmed: boolean;
   fvgZoneSize: number;
+  expressiveCandleConfirmed: boolean; // NOVO: Validação de vela expressiva
 }
 
 /**
- * Detecta Fair Value Gap (FVG) com confirmação de breakout
+ * Calcula volume médio e tamanho médio do corpo das últimas N velas
+ */
+function calculateAverages(candles: Candle[], count: number = 20): { avgVolume: number, avgBodySize: number } {
+  const recentCandles = candles.slice(-count);
+  
+  const avgVolume = recentCandles.reduce((sum, c) => sum + c.volume, 0) / recentCandles.length;
+  const avgBodySize = recentCandles.reduce((sum, c) => sum + Math.abs(c.close - c.open), 0) / recentCandles.length;
+  
+  return { avgVolume, avgBodySize };
+}
+
+/**
+ * Valida se a 3ª vela é "expressiva" conforme PDF
+ * Critério: Volume >= 1.5x média OU Corpo >= 2x média
+ */
+function isExpressiveCandle(candle: Candle, avgVolume: number, avgBodySize: number): boolean {
+  const bodySize = Math.abs(candle.close - candle.open);
+  const volumeRatio = candle.volume / avgVolume;
+  const bodySizeRatio = bodySize / avgBodySize;
+  
+  const isExpressive = volumeRatio >= 1.5 || bodySizeRatio >= 2.0;
+  
+  console.log(`   🔍 Validação Vela Expressiva:`);
+  console.log(`      ├─ Volume: ${candle.volume.toFixed(2)} (${volumeRatio.toFixed(2)}x média)`);
+  console.log(`      ├─ Corpo: ${bodySize.toFixed(5)} (${bodySizeRatio.toFixed(2)}x média)`);
+  console.log(`      └─ Expressiva: ${isExpressive ? '✅ SIM' : '❌ NÃO'}`);
+  
+  return isExpressive;
+}
+
+/**
+ * Detecta Fair Value Gap (FVG) com confirmação de breakout E vela expressiva
  */
 export function detectFVG(
   candles1m: Candle[],
@@ -40,9 +72,13 @@ export function detectFVG(
       fvgBottom: 0,
       candles: null,
       breakoutConfirmed: false,
-      fvgZoneSize: 0
+      fvgZoneSize: 0,
+      expressiveCandleConfirmed: false
     };
   }
+  
+  // Calcular médias para validação de vela expressiva
+  const { avgVolume, avgBodySize } = calculateAverages(candles1m, 20);
   
   // Iterar sobre as últimas 20 velas procurando padrão FVG
   const startIndex = Math.max(0, candles1m.length - 20);
@@ -63,22 +99,30 @@ export function detectFVG(
       );
       
       if (breakoutConfirmed) {
+        // NOVO: Validar se a 3ª vela é expressiva
+        const expressiveConfirmed = isExpressiveCandle(candle3, avgVolume, avgBodySize);
+        
         console.log(`\n📈 FVG BULLISH DETECTADO:`);
         console.log(`├─ FVG Top: ${bullishFVG.fvgTop}`);
         console.log(`├─ FVG Bottom: ${bullishFVG.fvgBottom}`);
         console.log(`├─ Gap Size: ${bullishFVG.gapSize}`);
         console.log(`├─ Foundation High: ${foundationHigh}`);
-        console.log(`└─ Breakout: ✅ CONFIRMADO`);
+        console.log(`├─ Breakout: ✅ CONFIRMADO`);
+        console.log(`└─ Vela Expressiva: ${expressiveConfirmed ? '✅ CONFIRMADA' : '❌ NÃO CONFIRMADA'}`);
         
-        return {
-          fvgDetected: true,
-          direction: 'BUY',
-          fvgTop: bullishFVG.fvgTop,
-          fvgBottom: bullishFVG.fvgBottom,
-          candles: [candle1, candle2, candle3],
-          breakoutConfirmed: true,
-          fvgZoneSize: bullishFVG.gapSize
-        };
+        // Só retorna sinal válido se AMBOS breakout E vela expressiva forem confirmados
+        if (expressiveConfirmed) {
+          return {
+            fvgDetected: true,
+            direction: 'BUY',
+            fvgTop: bullishFVG.fvgTop,
+            fvgBottom: bullishFVG.fvgBottom,
+            candles: [candle1, candle2, candle3],
+            breakoutConfirmed: true,
+            fvgZoneSize: bullishFVG.gapSize,
+            expressiveCandleConfirmed: true
+          };
+        }
       }
     }
     
@@ -93,22 +137,30 @@ export function detectFVG(
       );
       
       if (breakoutConfirmed) {
+        // NOVO: Validar se a 3ª vela é expressiva
+        const expressiveConfirmed = isExpressiveCandle(candle3, avgVolume, avgBodySize);
+        
         console.log(`\n📉 FVG BEARISH DETECTADO:`);
         console.log(`├─ FVG Top: ${bearishFVG.fvgTop}`);
         console.log(`├─ FVG Bottom: ${bearishFVG.fvgBottom}`);
         console.log(`├─ Gap Size: ${bearishFVG.gapSize}`);
         console.log(`├─ Foundation Low: ${foundationLow}`);
-        console.log(`└─ Breakout: ✅ CONFIRMADO`);
+        console.log(`├─ Breakout: ✅ CONFIRMADO`);
+        console.log(`└─ Vela Expressiva: ${expressiveConfirmed ? '✅ CONFIRMADA' : '❌ NÃO CONFIRMADA'}`);
         
-        return {
-          fvgDetected: true,
-          direction: 'SELL',
-          fvgTop: bearishFVG.fvgTop,
-          fvgBottom: bearishFVG.fvgBottom,
-          candles: [candle1, candle2, candle3],
-          breakoutConfirmed: true,
-          fvgZoneSize: bearishFVG.gapSize
-        };
+        // Só retorna sinal válido se AMBOS breakout E vela expressiva forem confirmados
+        if (expressiveConfirmed) {
+          return {
+            fvgDetected: true,
+            direction: 'SELL',
+            fvgTop: bearishFVG.fvgTop,
+            fvgBottom: bearishFVG.fvgBottom,
+            candles: [candle1, candle2, candle3],
+            breakoutConfirmed: true,
+            fvgZoneSize: bearishFVG.gapSize,
+            expressiveCandleConfirmed: true
+          };
+        }
       }
     }
   }
@@ -120,7 +172,8 @@ export function detectFVG(
     fvgBottom: 0,
     candles: null,
     breakoutConfirmed: false,
-    fvgZoneSize: 0
+    fvgZoneSize: 0,
+    expressiveCandleConfirmed: false
   };
 }
 
