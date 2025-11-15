@@ -19,6 +19,38 @@ interface EngulfingResult {
   stopLoss: number;
   takeProfit: number;
   riskReward: number;
+  expressiveCandleConfirmed: boolean; // NOVO: Validação de vela expressiva
+}
+
+/**
+ * Calcula volume médio e tamanho médio do corpo das últimas N velas
+ */
+function calculateAverages(candles: Candle[], count: number = 20): { avgVolume: number, avgBodySize: number } {
+  const recentCandles = candles.slice(-count);
+  
+  const avgVolume = recentCandles.reduce((sum, c) => sum + c.volume, 0) / recentCandles.length;
+  const avgBodySize = recentCandles.reduce((sum, c) => sum + Math.abs(c.close - c.open), 0) / recentCandles.length;
+  
+  return { avgVolume, avgBodySize };
+}
+
+/**
+ * Valida se a vela engulfing é "expressiva" conforme critério
+ * Critério: Volume >= 1.5x média OU Corpo >= 2x média
+ */
+function isExpressiveCandle(candle: Candle, avgVolume: number, avgBodySize: number): boolean {
+  const bodySize = Math.abs(candle.close - candle.open);
+  const volumeRatio = candle.volume / avgVolume;
+  const bodySizeRatio = bodySize / avgBodySize;
+  
+  const isExpressive = volumeRatio >= 1.5 || bodySizeRatio >= 2.0;
+  
+  console.log(`   🔍 Validação Vela Expressiva (Engulfing):`);
+  console.log(`      ├─ Volume: ${candle.volume.toFixed(2)} (${volumeRatio.toFixed(2)}x média)`);
+  console.log(`      ├─ Corpo: ${bodySize.toFixed(5)} (${bodySizeRatio.toFixed(2)}x média)`);
+  console.log(`      └─ Expressiva: ${isExpressive ? '✅ SIM' : '❌ NÃO'}`);
+  
+  return isExpressive;
 }
 
 /**
@@ -39,6 +71,7 @@ export async function detectEngulfingAfterRetest(
       stopLoss: 0,
       takeProfit: 0,
       riskReward: 0,
+      expressiveCandleConfirmed: false,
     };
   }
   
@@ -54,6 +87,7 @@ export async function detectEngulfingAfterRetest(
       stopLoss: 0,
       takeProfit: 0,
       riskReward: 0,
+      expressiveCandleConfirmed: false,
     };
   }
   
@@ -74,10 +108,30 @@ export async function detectEngulfingAfterRetest(
       stopLoss: 0,
       takeProfit: 0,
       riskReward: 0,
+      expressiveCandleConfirmed: false,
     };
   }
   
-  console.log(`🎯 ENGULFING CONFIRMADO após reteste (${direction})!`);
+  // NOVO: Calcular médias para validação de vela expressiva
+  const { avgVolume, avgBodySize } = calculateAverages(candles1m, 20);
+  
+  // NOVO: Validar se a vela engulfing é expressiva
+  const expressiveConfirmed = isExpressiveCandle(nextCandle, avgVolume, avgBodySize);
+  
+  if (!expressiveConfirmed) {
+    console.log(`❌ Vela engulfing NÃO é expressiva - SINAL REJEITADO`);
+    return {
+      hasEngulfing: false,
+      engulfingCandle: null,
+      entryPrice: 0,
+      stopLoss: 0,
+      takeProfit: 0,
+      riskReward: 0,
+      expressiveCandleConfirmed: false,
+    };
+  }
+  
+  console.log(`🎯 ENGULFING CONFIRMADO após reteste (${direction}) + Vela Expressiva ✅`);
   console.log(`   Retest Candle: O:${retestCandle.open} H:${retestCandle.high} L:${retestCandle.low} C:${retestCandle.close}`);
   console.log(`   Engulfing Candle: O:${nextCandle.open} H:${nextCandle.high} L:${nextCandle.low} C:${nextCandle.close}`);
   console.log(`   Time: ${new Date(nextCandle.timestamp).toISOString()}`);
@@ -89,6 +143,7 @@ export async function detectEngulfingAfterRetest(
   return {
     hasEngulfing: true,
     engulfingCandle: nextCandle,
+    expressiveCandleConfirmed: true,
     ...tradeParams,
   };
 }
