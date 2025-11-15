@@ -16,6 +16,7 @@
 
 import { getOrCreateFoundation } from './scalping-1min-foundation.ts';
 import { detectFVG } from './scalping-1min-fvg.ts';
+import { validateTrend, TrendValidation } from './scalping-1min-trend-validator.ts';
 
 interface Candle {
   timestamp: number;
@@ -57,6 +58,7 @@ interface AnalysisResult {
   fvg?: any;
   retestCandle?: any;
   engulfingCandle?: any;
+  trendValidation?: TrendValidation;
   phase: string;
   session?: string; // ✅ Adicionar session para incrementar contador após sucesso
 }
@@ -179,9 +181,70 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   }
   
   // ==========================================
-  // PASSO 3: VALIDAR FECHAMENTO DA 3ª VELA
+  // PASSO 3: VALIDAÇÃO RIGOROSA DE TENDÊNCIA CONFIRMADA
   // ==========================================
-  console.log(`\n📍 PASSO 3: Validando fechamento da 3ª vela do FVG...`);
+  console.log(`\n📍 PASSO 3: Validando TENDÊNCIA CONFIRMADA (CRÍTICO)...`);
+  const trendValidation = validateTrend(candles['1m'], fvg.direction as 'BUY' | 'SELL');
+  
+  if (!trendValidation.isTrending) {
+    console.log(`❌ TENDÊNCIA NÃO CONFIRMADA - Operação REJEITADA`);
+    console.log(`   └─ Motivo: ${trendValidation.notes}`);
+    
+    // Log detalhado no session_history
+    await supabase.from('session_history').insert({
+      user_id: userId,
+      session,
+      pair: asset,
+      cycle_phase: 'Execution',
+      event_type: 'TREND_REJECTED',
+      signal: 'STAY_OUT',
+      direction: fvg.direction,
+      notes: `Tendência não confirmada: ${trendValidation.notes}`,
+      timestamp: new Date().toISOString(),
+      market_data: {
+        foundation: { high: foundation.high, low: foundation.low },
+        fvg: { top: fvg.fvgTop, bottom: fvg.fvgBottom, direction: fvg.direction },
+        trendValidation: {
+          strength: trendValidation.strength,
+          consecutiveCandles: trendValidation.consecutiveCandles,
+          volumeTrend: trendValidation.volumeTrend,
+          priceVsMA: trendValidation.priceVsMA,
+          ma10: trendValidation.ma10,
+          currentPrice: trendValidation.currentPrice,
+          detailedAnalysis: trendValidation.detailedAnalysis
+        }
+      }
+    });
+    
+    return {
+      signal: 'STAY_OUT',
+      direction: null,
+      entryPrice: 0,
+      stopLoss: 0,
+      takeProfit: 0,
+      riskReward: 0,
+      confidence: 0,
+      notes: `⏸️ FVG detectado mas TENDÊNCIA NÃO CONFIRMADA: ${trendValidation.notes}`,
+      foundation,
+      fvg,
+      trendValidation,
+      phase: 'TREND_NOT_CONFIRMED'
+    };
+  }
+  
+  console.log(`✅ TENDÊNCIA CONFIRMADA!`);
+  console.log(`   ├─ Direção: ${trendValidation.direction}`);
+  console.log(`   ├─ Força: ${trendValidation.strength.toFixed(0)}%`);
+  console.log(`   ├─ Velas consecutivas: ${trendValidation.consecutiveCandles}/5`);
+  console.log(`   ├─ Volume: ${trendValidation.volumeTrend}`);
+  console.log(`   ├─ Preço vs MA10: ${trendValidation.priceVsMA}`);
+  console.log(`   ├─ MA10: ${trendValidation.ma10.toFixed(8)}`);
+  console.log(`   └─ Preço atual: ${trendValidation.currentPrice.toFixed(8)}`);
+  
+  // ==========================================
+  // PASSO 4: VALIDAR FECHAMENTO DA 3ª VELA
+  // ==========================================
+  console.log(`\n📍 PASSO 4: Validando fechamento da 3ª vela do FVG...`);
   
   // TypeScript safety check
   if (!fvg.direction || !fvg.candles || fvg.candles.length < 3) {
@@ -240,9 +303,55 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   console.log(`✅ 3ª vela fechou ${fvg.direction === 'BUY' ? 'bullish' : 'bearish'} - Pronto para entrada!`);
   
   // ==========================================
-  // PASSO 4: CALCULAR PREÇOS DE ENTRADA
+  // PASSO 5: VALIDAÇÃO EXTRA - TAMANHO DO FVG
   // ==========================================
-  console.log(`\n📍 PASSO 4: Calculando Entry, Stop Loss e Take Profit...`);
+  console.log(`\n📍 PASSO 5: Validando tamanho do FVG...`);
+  const fvgSize = (fvg.fvgTop - fvg.fvgBottom) / fvg.fvgBottom;
+  const MIN_FVG_SIZE = 0.002; // 0.2%
+  
+  console.log(`   ├─ Tamanho do FVG: ${(fvgSize * 100).toFixed(3)}% (mínimo: 0.2%)`);
+  
+  if (fvgSize < MIN_FVG_SIZE) {
+    console.log(`   └─ ❌ FVG muito pequeno - Operação REJEITADA`);
+    
+    await supabase.from('session_history').insert({
+      user_id: userId,
+      session,
+      pair: asset,
+      cycle_phase: 'Execution',
+      event_type: 'FVG_TOO_SMALL',
+      signal: 'STAY_OUT',
+      direction: fvg.direction,
+      notes: `FVG muito pequeno: ${(fvgSize * 100).toFixed(3)}% (requer >= 0.2%)`,
+      timestamp: new Date().toISOString(),
+      market_data: {
+        foundation: { high: foundation.high, low: foundation.low },
+        fvg: { top: fvg.fvgTop, bottom: fvg.fvgBottom, direction: fvg.direction, size: fvgSize }
+      }
+    });
+    
+    return {
+      signal: 'STAY_OUT',
+      direction: null,
+      entryPrice: 0,
+      stopLoss: 0,
+      takeProfit: 0,
+      riskReward: 0,
+      confidence: 0,
+      notes: `⏸️ FVG muito pequeno (${(fvgSize * 100).toFixed(3)}%) - Requer >= 0.2%`,
+      foundation,
+      fvg,
+      trendValidation,
+      phase: 'FVG_TOO_SMALL'
+    };
+  }
+  
+  console.log(`   └─ ✅ Tamanho do FVG adequado`);
+  
+  // ==========================================
+  // PASSO 6: CALCULAR PREÇOS DE ENTRADA
+  // ==========================================
+  console.log(`\n📍 PASSO 6: Calculando Entry, Stop Loss e Take Profit...`);
   
   const tickSize = await getTickSize(asset);
   let entryPrice: number;
@@ -330,6 +439,52 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   console.log(`📈 Risk/Reward: 3:1`);
   console.log(`${'='.repeat(80)}\n`);
   
+  // ==========================================
+  // PASSO 7: VALIDAÇÃO FINAL DE STOP LOSS DISTANCE
+  // ==========================================
+  const stopDistance = Math.abs(entryPrice - stopLoss) / entryPrice;
+  const MIN_STOP_DISTANCE = 0.003; // 0.3%
+  
+  console.log(`📍 Validando distância do Stop Loss: ${(stopDistance * 100).toFixed(2)}% (mínimo: 0.3%)`);
+  
+  if (stopDistance < MIN_STOP_DISTANCE) {
+    console.log(`❌ Stop Loss muito próximo - Operação REJEITADA`);
+    
+    await supabase.from('session_history').insert({
+      user_id: userId,
+      session,
+      pair: asset,
+      cycle_phase: 'Execution',
+      event_type: 'STOP_TOO_CLOSE',
+      signal: 'STAY_OUT',
+      direction: fvg.direction,
+      notes: `Stop Loss muito próximo: ${(stopDistance * 100).toFixed(2)}% (requer >= 0.3%)`,
+      timestamp: new Date().toISOString(),
+      market_data: {
+        foundation: { high: foundation.high, low: foundation.low },
+        fvg: { top: fvg.fvgTop, bottom: fvg.fvgBottom, direction: fvg.direction },
+        levels: { entry: entryPrice, stop: stopLoss, takeProfit, stopDistance }
+      }
+    });
+    
+    return {
+      signal: 'STAY_OUT',
+      direction: null,
+      entryPrice: 0,
+      stopLoss: 0,
+      takeProfit: 0,
+      riskReward: 0,
+      confidence: 0,
+      notes: `⏸️ Stop Loss muito próximo (${(stopDistance * 100).toFixed(2)}%) - Requer >= 0.3%`,
+      foundation,
+      fvg,
+      trendValidation,
+      phase: 'STOP_TOO_CLOSE'
+    };
+  }
+  
+  console.log(`✅ Distância do Stop Loss adequada\n`);
+  
   // ⚠️ NÃO INCREMENTAR AQUI! Incrementar somente APÓS ordem ser executada com sucesso
   // O incremento será feito em binance-order após confirmação da execução
   
@@ -347,10 +502,18 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
     c1Direction: null,
     rangeHigh: foundation.high,
     rangeLow: foundation.low,
+    trendValidation, // ✅ Passar validação de tendência
     session, // ✅ Passar session para binance-order poder incrementar
     marketData: {
       foundation: { high: foundation.high, low: foundation.low },
-      fvg: { top: fvg.fvgTop, bottom: fvg.fvgBottom, direction: fvg.direction },
+      fvg: { top: fvg.fvgTop, bottom: fvg.fvgBottom, direction: fvg.direction, size: fvgSize },
+      trend: {
+        strength: trendValidation.strength,
+        consecutiveCandles: trendValidation.consecutiveCandles,
+        volumeTrend: trendValidation.volumeTrend,
+        priceVsMA: trendValidation.priceVsMA,
+        ma10: trendValidation.ma10
+      },
       thirdCandle: {
         timestamp: thirdCandle.timestamp,
         open: thirdCandle.open,
