@@ -165,6 +165,7 @@ export async function getOrCreateFoundation(
 
 /**
  * Detecta a primeira vela de 5 minutos da sessão
+ * ATUALIZADO: Busca flexível - primeira vela APÓS o horário de início
  */
 export function detectSessionFoundation(
   candles5m: Candle[],
@@ -184,21 +185,36 @@ export function detectSessionFoundation(
     };
   }
   
-  const targetTime = sessionStart.hour * 60 + sessionStart.minute; // Minutos desde meia-noite UTC
-  const tolerance = 5; // 5 minutos de tolerância
+  if (!candles5m || candles5m.length === 0) {
+    console.log(`⚠️ Nenhuma vela de 5min disponível para ${session}`);
+    return {
+      high: 0,
+      low: 0,
+      timestamp: new Date().toISOString(),
+      valid: false,
+      session,
+      date: new Date().toISOString().split('T')[0]
+    };
+  }
   
-  console.log(`🔍 Buscando primeira vela de 5min para ${session} (${sessionStart.hour}:${String(sessionStart.minute).padStart(2, '0')} UTC)`);
+  const targetTime = sessionStart.hour * 60 + sessionStart.minute;
+  console.log(`🔍 Buscando primeira vela ≥ ${sessionStart.hour}:${String(sessionStart.minute).padStart(2, '0')} UTC para ${session}`);
+  console.log(`   📊 Total de velas disponíveis: ${candles5m.length}`);
   
-  // Buscar primeira vela que coincide com o horário de início da sessão
-  for (const candle of candles5m) {
+  // Ordenar velas por timestamp (mais antigas primeiro)
+  const sortedCandles = [...candles5m].sort((a, b) => a.timestamp - b.timestamp);
+  
+  // ESTRATÉGIA 1: Buscar primeira vela >= horário de início (janela de 30min)
+  for (const candle of sortedCandles) {
     const candleDate = new Date(candle.timestamp);
     const candleMinutes = candleDate.getUTCHours() * 60 + candleDate.getUTCMinutes();
     
-    const diff = Math.abs(candleMinutes - targetTime);
-    
-    if (diff <= tolerance) {
-      console.log(`✅ Primeira vela 5min encontrada para ${session}:`);
+    // Aceita qualquer vela dentro de 30min APÓS o início
+    if (candleMinutes >= targetTime && candleMinutes <= targetTime + 30) {
+      console.log(`✅ Foundation encontrada (APÓS início):`);
+      console.log(`   ├─ Sessão: ${session}`);
       console.log(`   ├─ Timestamp: ${candleDate.toISOString()}`);
+      console.log(`   ├─ Horário UTC: ${candleDate.getUTCHours()}:${String(candleDate.getUTCMinutes()).padStart(2, '0')}`);
       console.log(`   ├─ HIGH: ${candle.high}`);
       console.log(`   └─ LOW: ${candle.low}`);
       
@@ -213,12 +229,21 @@ export function detectSessionFoundation(
     }
   }
   
-  console.log(`⚠️ Primeira vela de 5min não encontrada para ${session}`);
+  // ESTRATÉGIA 2: Fallback - usar vela mais recente disponível
+  const mostRecentCandle = sortedCandles[sortedCandles.length - 1];
+  const mostRecentDate = new Date(mostRecentCandle.timestamp);
+  
+  console.log(`⚠️ Vela exata não encontrada - usando FALLBACK (vela mais recente):`);
+  console.log(`   ├─ Sessão: ${session}`);
+  console.log(`   ├─ Timestamp: ${mostRecentDate.toISOString()}`);
+  console.log(`   ├─ HIGH: ${mostRecentCandle.high}`);
+  console.log(`   └─ LOW: ${mostRecentCandle.low}`);
+  
   return {
-    high: 0,
-    low: 0,
-    timestamp: new Date().toISOString(),
-    valid: false,
+    high: mostRecentCandle.high,
+    low: mostRecentCandle.low,
+    timestamp: mostRecentDate.toISOString(),
+    valid: true,
     session,
     date: new Date().toISOString().split('T')[0]
   };
