@@ -11,10 +11,6 @@ export const ClosePositionButton = () => {
   const queryClient = useQueryClient();
 
   const handleClosePosition = async () => {
-    if (!confirm("❌ Tem certeza que deseja FECHAR a posição ativa na Binance?")) {
-      return;
-    }
-
     setIsClosing(true);
     
     try {
@@ -32,6 +28,23 @@ export const ClosePositionButton = () => {
       if (error) {
         console.error("❌ Erro ao fechar posição:", error);
         throw error;
+      }
+
+      // Caso especial: nenhuma posição ativa (não é erro crítico)
+      if (!data?.success && data?.error === "Nenhuma posição ativa encontrada") {
+        if (!confirm("⚠️ Não há posições ativas abertas. Deseja sincronizar com a Binance?")) {
+          return;
+        }
+        // Sincronizar posições
+        await supabase.functions.invoke('sync-binance-positions', {
+          body: { user_id: user.id }
+        });
+        toast({
+          title: "ℹ️ Nenhuma Posição Ativa",
+          description: "Não há posições abertas para fechar. Posições sincronizadas.",
+        });
+        queryClient.invalidateQueries({ queryKey: ["activePositions"] });
+        return;
       }
 
       if (!data?.success) {
