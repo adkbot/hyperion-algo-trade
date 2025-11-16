@@ -13,9 +13,9 @@ export const useTradingOrchestrator = (botStatus: "stopped" | "running" | "pause
       try {
         console.log(`📡 Calling trading orchestrator... (attempt ${retryCount + 1})`);
         
-        // Timeout de 90 segundos (aumentado para dar tempo ao orchestrator)
+        // Timeout de 45 segundos (ajustado para intervalo de 15s)
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 90000);
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
 
         const { data, error } = await supabase.functions.invoke("trading-orchestrator", {
           method: "POST",
@@ -127,10 +127,10 @@ export const useTradingOrchestrator = (botStatus: "stopped" | "running" | "pause
       // Call immediately
       callOrchestrator();
       
-      // Then call every 60 seconds (aumentado de 10s para dar tempo ao orchestrator completar)
+      // Then call every 15 seconds for faster signal detection
       intervalRef.current = window.setInterval(() => {
         callOrchestrator();
-      }, 60000);
+      }, 15000);
     }
 
     // Cleanup on unmount or status change
