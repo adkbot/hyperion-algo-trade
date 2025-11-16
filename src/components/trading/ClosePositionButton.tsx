@@ -82,10 +82,10 @@ export const ClosePositionButton = () => {
       size="sm"
       onClick={handleClosePosition}
       disabled={isClosing}
-      className="gap-2"
+      className="h-8 w-8 p-0"
+      title={isClosing ? "Fechando..." : "Fechar Posição"}
     >
       <X className="h-4 w-4" />
-      {isClosing ? "Fechando..." : "Fechar Posição Binance"}
     </Button>
   );
 };
