@@ -11,6 +11,7 @@ import { DailyHistory } from "@/components/trading/DailyHistory";
 import { SessionCyclePanel } from "@/components/trading/SessionCyclePanel";
 import { SessionStatePanel } from "@/components/trading/SessionStatePanel";
 import { SystemStatusPanel } from "@/components/trading/SystemStatusPanel";
+import { ADKPanel } from "@/components/trading/ADKPanel";
 import { useUserSettings } from "@/hooks/useTradingData";
 import { useTradingOrchestrator } from "@/hooks/useTradingOrchestrator";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
@@ -55,12 +56,13 @@ const Index = () => {
           </div>
           
           {/* Right Column (1/3) - Stats, Goals, Panels, and Daily History */}
-          <div className="grid grid-rows-[auto_auto_auto_auto_auto_auto_auto] gap-4">
+          <div className="grid grid-rows-[auto_auto_auto_auto_auto_auto_auto_auto] gap-4">
             <StatsPanel />
             <DailyGoals />
             <SystemStatusPanel />
             <SessionStatePanel />
             <SessionCyclePanel />
+            <ADKPanel />
             <AgentPanel />
             <DailyHistory />
           </div>

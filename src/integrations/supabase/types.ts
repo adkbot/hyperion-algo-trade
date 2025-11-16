@@ -301,8 +301,10 @@ export type Database = {
           id: string
           low: number
           session: string
+          timeframe: string | null
           timestamp: string
           user_id: string
+          validity_type: string | null
         }
         Insert: {
           created_at?: string | null
@@ -311,8 +313,10 @@ export type Database = {
           id?: string
           low: number
           session: string
+          timeframe?: string | null
           timestamp: string
           user_id: string
+          validity_type?: string | null
         }
         Update: {
           created_at?: string | null
@@ -321,8 +325,10 @@ export type Database = {
           id?: string
           low?: number
           session?: string
+          timeframe?: string | null
           timestamp?: string
           user_id?: string
+          validity_type?: string | null
         }
         Relationships: []
       }

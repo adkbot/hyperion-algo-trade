@@ -1117,10 +1117,19 @@ async function processUserTradingCycle(
           let analysis;
           
           if (selectedStrategy === 'FIRST_CANDLE_RULE') {
-            // NOVA ESTRATÉGIA: First Candle Rule (Breakout → Reteste → Engulfing)
+            // ESTRATÉGIA: First Candle Rule (Breakout → Reteste → Engulfing)
             const { analyzeFirstCandleRule } = await import('./first-candle-analyzer.ts');
             analysis = await analyzeFirstCandleRule({
               candles: { '1m': candles['1m'], '5m': candles['5m'] },
+              asset: pair,
+              userId,
+              supabase
+            });
+          } else if (selectedStrategy === 'FIRST_CANDLE_ADK') {
+            // 🎯 NOVA ESTRATÉGIA: First Candle ADK (15m Foundation + Multi-TF FVG)
+            const { analyzeADKStrategy } = await import('./first-candle-adk-analyzer.ts');
+            analysis = await analyzeADKStrategy({
+              candles: { '1m': candles['1m'], '15m': candles['15m'] },
               asset: pair,
               userId,
               supabase
@@ -1136,7 +1145,7 @@ async function processUserTradingCycle(
               supabase
             });
           } else {
-            // ✅ NOVA ESTRATÉGIA: SWEEP DE LIQUIDEZ + 2CR (TWO CANDLE REVERSAL)
+            // ESTRATÉGIA PADRÃO: SWEEP DE LIQUIDEZ + 2CR (TWO CANDLE REVERSAL)
             const { analyzeSweepWith2CR } = await import('./sweep-2cr-analyzer.ts');
             analysis = await analyzeSweepWith2CR({
               candles: { '1m': candles['1m'], '5m': candles['5m'] },
