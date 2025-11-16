@@ -83,24 +83,25 @@ export const ActivePositions = () => {
 
   return (
     <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">Posições Ativas</CardTitle>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
+            <CardTitle className="text-base">Posições Ativas</CardTitle>
+            <Badge variant="outline" className="border-success text-success text-xs">
+              {activePositions.length}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-1.5">
             <ClosePositionButton />
             <Button
               variant="outline"
               size="sm"
               onClick={handleSync}
               disabled={syncing}
-              className="h-8"
+              className="h-7 px-2"
             >
-              <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Sincronizando...' : 'Sincronizar'}
+              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
             </Button>
-            <Badge variant="outline" className="border-success text-success">
-              {activePositions.length} Posicionadas
-            </Badge>
           </div>
         </div>
       </CardHeader>
