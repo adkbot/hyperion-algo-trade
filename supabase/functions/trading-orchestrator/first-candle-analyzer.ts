@@ -55,92 +55,20 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
   
   console.log(`\n🎯 ========== FIRST CANDLE RULE ANALYSIS: ${asset} ==========`);
   
-  // PASSO 1: Buscar ou criar Foundation (First 5-min High/Low)
-  const foundation = await getOrCreateFirstCandleFoundation(candles['5m'], userId, supabase);
+  // ✅ FOUNDATION DESABILITADA - Operando sem restrição de vela de 5 minutos
+  console.log(`✅ Foundation desabilitada para FIRST CANDLE RULE - operando sem restrição de tempo`);
   
-  if (!foundation.isValid) {
-    console.log(`⏳ Foundation ainda não disponível para ${foundation.session}. Aguardando...`);
-    return {
-      signal: 'STAY_OUT',
-      direction: null,
-      confidence: 0,
-      notes: `Aguardando primeira vela de 5 min do ciclo ${foundation.session}`,
-      risk: null,
-    };
-  }
+  const foundation = {
+    session: 'UNRESTRICTED',
+    high: 0,
+    low: 0,
+    timestamp: Date.now(),
+    isValid: true
+  };
   
-  console.log(`✅ Foundation ativa (${foundation.session}): High ${foundation.high}, Low ${foundation.low}`);
+  console.log(`\n📍 PASSO 1.5: Validação de janela de operação DESABILITADA`);
   
-  // Salvar evento de Foundation detectada
-  await supabase.from('session_history').insert({
-    user_id: userId,
-    session: foundation.session,
-    pair: asset,
-    cycle_phase: 'Projection',
-    signal: 'STAY_OUT',
-    confidence_score: 0,
-    notes: `✅ Foundation detectada: H ${foundation.high} | L ${foundation.low}`,
-    event_type: 'FOUNDATION_DETECTED',
-    event_data: { high: foundation.high, low: foundation.low },
-    timestamp: new Date().toISOString(),
-  });
-  
-  // ==========================================
-  // PASSO 1.5: VALIDAÇÃO CRÍTICA - JANELA DE OPERAÇÃO (5 MINUTOS)
-  // ==========================================
-  console.log(`\n📍 PASSO 1.5: Validando JANELA DE OPERAÇÃO (CRÍTICO)...`);
 
-  const foundationTime = new Date(foundation.timestamp).getTime();
-  const currentTime = Date.now();
-  const OPERATION_WINDOW_MS = 5 * 60 * 1000; // 5 minutos
-  const windowEnd = foundationTime + OPERATION_WINDOW_MS;
-
-  console.log(`   ├─ Foundation: ${new Date(foundationTime).toISOString()}`);
-  console.log(`   ├─ Atual: ${new Date(currentTime).toISOString()}`);
-  console.log(`   └─ Janela fecha: ${new Date(windowEnd).toISOString()}`);
-
-  if (currentTime > windowEnd) {
-    const minutesElapsed = Math.floor((currentTime - foundationTime) / 1000 / 60);
-    
-    console.log(`❌ JANELA FECHADA! Foundation há ${minutesElapsed} minutos`);
-    
-    await supabase.from('session_history').insert({
-      user_id: userId,
-      session: foundation.session,
-      pair: asset,
-      cycle_phase: 'Execution',
-      event_type: 'OPERATION_WINDOW_CLOSED',
-      signal: 'STAY_OUT',
-      direction: null,
-      notes: `⏸️ Janela fechada. Foundation há ${minutesElapsed}min (limite: 5min)`,
-      timestamp: new Date().toISOString(),
-      market_data: {
-        foundation: { 
-          high: foundation.high, 
-          low: foundation.low,
-          timestamp: foundation.timestamp,
-          session: foundation.session
-        },
-        window: {
-          foundationTime: new Date(foundationTime).toISOString(),
-          currentTime: new Date(currentTime).toISOString(),
-          minutesElapsed
-        }
-      }
-    });
-    
-    return {
-      signal: 'STAY_OUT',
-      direction: null,
-      confidence: 0,
-      notes: `⏸️ JANELA FECHADA: Foundation há ${minutesElapsed}min. Apenas primeiros 5min permitidos.`,
-      risk: null
-    };
-  }
-
-  const minutesRemaining = Math.floor((windowEnd - currentTime) / 1000 / 60);
-  const secondsRemaining = Math.floor(((windowEnd - currentTime) % (60 * 1000)) / 1000);
-  console.log(`✅ JANELA ABERTA: ${minutesRemaining}min ${secondsRemaining}s restantes`);
   
   // Verificar se já executamos 1 trade neste ciclo hoje
   const today = new Date().toISOString().split('T')[0];
@@ -162,6 +90,7 @@ export async function analyzeFirstCandleRule(params: AnalysisParams): Promise<An
       risk: null,
     };
   }
+  
   
   // PASSO 2: Detectar Breakout
   const breakoutResult = await detectBreakout(
