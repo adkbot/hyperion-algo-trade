@@ -421,6 +421,19 @@ serve(async (req) => {
     const binanceResult = await response.json();
     console.log('✅ Order executed successfully on Binance:', binanceResult);
 
+    // ✅ VALIDAR STATUS DA ORDEM (CRÍTICO!)
+    const acceptedStatuses = ['NEW', 'FILLED', 'PARTIALLY_FILLED'];
+    if (!binanceResult.orderId || !acceptedStatuses.includes(binanceResult.status)) {
+      const rejectionReason = binanceResult.status === 'REJECTED' 
+        ? `Ordem rejeitada pela Binance: ${binanceResult.msg || 'Motivo desconhecido'}` 
+        : `Status inválido: ${binanceResult.status}`;
+      
+      console.error(`❌ ${rejectionReason}:`, binanceResult);
+      throw new Error(rejectionReason);
+    }
+
+    console.log(`✅ Ordem ${binanceResult.status} - Order ID: ${binanceResult.orderId}`);
+
     // ✅ BUSCAR DADOS REAIS DA POSIÇÃO NA BINANCE
     let entryPriceReal = price;
     let currentPriceReal = price;
@@ -523,7 +536,7 @@ serve(async (req) => {
       console.log(`✅ Posição inserida em active_positions: ${asset} ${direction}`);
     }
 
-    // ✅ Insert operation COM user_id e strategy
+    // ✅ Insert operation COM user_id e strategy - SÓ APÓS VALIDAÇÃO
     const { error: opError } = await supabase
       .from('operations')
       .insert({
@@ -541,11 +554,13 @@ serve(async (req) => {
       });
 
     if (opError) {
-      console.error('Error inserting operation:', opError);
+      console.error('❌ ERRO CRÍTICO ao inserir operation:', opError);
+      // ⚠️ Ordem FOI executada na Binance, mas falhou ao registrar
+      // NÃO reverter ordem, apenas logar erro grave
     }
 
-    // ✅ INCREMENTAR CONTADOR DA SESSÃO APÓS SUCESSO (REAL MODE)
-    if (session) {
+    // ✅ INCREMENTAR CONTADOR APENAS SE INSERÇÃO EM OPERATIONS FOI BEM-SUCEDIDA
+    if (!opError && session) {
       console.log(`📊 Incrementando contador da sessão ${session}...`);
       const today = new Date().toISOString().split('T')[0];
       
