@@ -123,7 +123,7 @@ export async function getOrCreateFoundation(
   }
   
   if (existing) {
-    console.log(`✅ Fundação existente para ${realSession}: HIGH ${existing.high} | LOW ${existing.low}`);
+    // Log otimizado
     return {
       high: Number(existing.high),
       low: Number(existing.low),
@@ -153,11 +153,7 @@ export async function getOrCreateFoundation(
     if (insertError) {
       console.error('❌ Erro ao salvar fundação:', insertError);
     } else {
-      console.log(`\n🏗️ NOVA FUNDAÇÃO CRIADA - ${realSession}:`);
-      console.log(`├─ HIGH: ${foundation.high}`);
-      console.log(`├─ LOW: ${foundation.low}`);
-      console.log(`├─ Timestamp: ${foundation.timestamp}`);
-      console.log(`└─ Range: ${(foundation.high - foundation.low).toFixed(5)}`);
+      console.log(`✅ NOVA FOUNDATION: ${realSession} | HIGH: ${foundation.high} | LOW: ${foundation.low}`);
     }
   }
   
@@ -202,8 +198,7 @@ function detectSessionFoundation(
   }
   
   const targetTime = sessionStart.hour * 60 + sessionStart.minute;
-  console.log(`🔍 Buscando primeira vela ≥ ${sessionStart.hour}:${String(sessionStart.minute).padStart(2, '0')} UTC para ${session}`);
-  console.log(`   📊 Total de velas disponíveis: ${candles5m.length}`);
+  // Log reduzido
   
   // Ordenar velas por timestamp (mais antigas primeiro)
   const sortedCandles = [...candles5m].sort((a, b) => a.timestamp - b.timestamp);
@@ -215,12 +210,7 @@ function detectSessionFoundation(
     
     // Aceita qualquer vela dentro de 30min APÓS o início
     if (candleMinutes >= targetTime && candleMinutes <= targetTime + 30) {
-      console.log(`✅ Foundation encontrada (APÓS início):`);
-      console.log(`   ├─ Sessão: ${session}`);
-      console.log(`   ├─ Timestamp: ${candleDate.toISOString()}`);
-      console.log(`   ├─ Horário UTC: ${candleDate.getUTCHours()}:${String(candleDate.getUTCMinutes()).padStart(2, '0')}`);
-      console.log(`   ├─ HIGH: ${candle.high}`);
-      console.log(`   └─ LOW: ${candle.low}`);
+      console.log(`✅ Foundation: ${session} | ${candleDate.getUTCHours()}:${String(candleDate.getUTCMinutes()).padStart(2, '0')} | H:${candle.high} L:${candle.low}`);
       
       return {
         high: candle.high,
@@ -237,11 +227,7 @@ function detectSessionFoundation(
   const mostRecentCandle = sortedCandles[sortedCandles.length - 1];
   const mostRecentDate = new Date(mostRecentCandle.timestamp);
   
-  console.log(`⚠️ Vela exata não encontrada - usando FALLBACK (vela mais recente):`);
-  console.log(`   ├─ Sessão: ${session}`);
-  console.log(`   ├─ Timestamp: ${mostRecentDate.toISOString()}`);
-  console.log(`   ├─ HIGH: ${mostRecentCandle.high}`);
-  console.log(`   └─ LOW: ${mostRecentCandle.low}`);
+  console.log(`⚠️ FALLBACK Foundation: ${session} | ${mostRecentDate.getUTCHours()}:${String(mostRecentDate.getUTCMinutes()).padStart(2, '0')}`);
   
   return {
     high: mostRecentCandle.high,
