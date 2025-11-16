@@ -71,8 +71,45 @@ export const FoundationDiagnostic = () => {
     // Atualizar a cada 30 segundos
     const interval = setInterval(fetchFoundations, 30000);
     
-    return () => clearInterval(interval);
-  }, []);
+    // Verificar alertas de foundation não criada (10 minutos após início da sessão)
+    const checkFoundationAlert = () => {
+      const now = new Date();
+      const utcHour = now.getUTCHours();
+      const utcMinute = now.getUTCMinutes();
+      const currentTime = utcHour * 60 + utcMinute;
+      
+      const SESSION_TIMES = {
+        WELLINGTON: 21 * 60,
+        SYDNEY: 23 * 60,
+        TOKYO: 0,
+        SINGAPORE: 1 * 60,
+        HONG_KONG: 1 * 60 + 30,
+        LONDON: 8 * 60,
+        NY: 14 * 60 + 30
+      };
+      
+      Object.entries(SESSION_TIMES).forEach(([session, startTime]) => {
+        const timeSinceStart = currentTime - startTime;
+        if (timeSinceStart > 10 && timeSinceStart < 15) {
+          const hasFoundation = foundations.some(f => f.session === session);
+          if (!hasFoundation) {
+            toast({
+              title: "⚠️ Foundation não estabelecida",
+              description: `Sessão ${session}: Foundation ainda não criada após 10min`,
+              variant: "destructive",
+            });
+          }
+        }
+      });
+    };
+    
+    const alertInterval = setInterval(checkFoundationAlert, 60000); // Check every minute
+    
+    return () => {
+      clearInterval(interval);
+      clearInterval(alertInterval);
+    };
+  }, [foundations, toast]);
 
   // Detectar sessão atual
   const getCurrentSession = () => {
@@ -133,13 +170,17 @@ export const FoundationDiagnostic = () => {
           
           {currentFoundation ? (
             <div className="space-y-1 text-xs text-muted-foreground">
-              <div>HIGH: {currentFoundation.high?.toFixed(4)}</div>
-              <div>LOW: {currentFoundation.low?.toFixed(4)}</div>
+              <div className="font-medium text-foreground">HIGH: {currentFoundation.high?.toFixed(5)}</div>
+              <div className="font-medium text-foreground">LOW: {currentFoundation.low?.toFixed(5)}</div>
+              <div>Range: {((currentFoundation.high! - currentFoundation.low!) * 100).toFixed(3)}%</div>
               <div>Timeframe: {currentFoundation.timeframe}</div>
-              <div>Horário: {new Date(currentFoundation.timestamp!).toLocaleTimeString()}</div>
+              <div>Criada: {new Date(currentFoundation.timestamp!).toLocaleTimeString()}</div>
             </div>
           ) : (
-            <p className="text-xs text-yellow-600">Foundation ainda não estabelecida</p>
+            <div className="space-y-1">
+              <p className="text-xs text-yellow-600 font-medium">Foundation ainda não estabelecida</p>
+              <p className="text-xs text-muted-foreground">Aguardando primeira vela de 5min...</p>
+            </div>
           )}
         </div>
 
