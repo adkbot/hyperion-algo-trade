@@ -98,8 +98,14 @@ export const useADKProgress = () => {
     const currentState = adkStates[0];
     const prevState = prevStateRef.current;
     
+    // Se não há estado anterior, apenas salvar o atual e retornar
+    if (!prevState) {
+      prevStateRef.current = currentState;
+      return;
+    }
+    
     // Detectar mudanças de fase
-    if (prevState && currentState.current_phase !== prevState.current_phase) {
+    if (currentState.current_phase !== prevState.current_phase) {
       // Foundation completado
       if (currentState.current_phase === 'ADK_STEP_2_FVG_15M' && 
           currentState.foundation_data?.isValid) {
@@ -135,16 +141,19 @@ export const useADKProgress = () => {
           description: "Processando sinal de entrada...",
         });
       }
-      
-      // Entry signal gerado
-      if (currentState.entry_signal?.signal !== 'STAY_OUT' && 
-          (!prevState.entry_signal || prevState.entry_signal?.signal === 'STAY_OUT')) {
-        toast({
-          title: `🎯 SINAL DE ENTRADA: ${currentState.entry_signal.signal}!`,
-          description: `Entry: $${currentState.entry_signal.risk?.entry?.toFixed(2)} | SL: $${currentState.entry_signal.risk?.stop?.toFixed(2)} | TP: $${currentState.entry_signal.risk?.target?.toFixed(2)}`,
-          duration: 10000,
-        });
-      }
+    }
+    
+    // Entry signal gerado - verificar mudança no sinal independente da fase
+    const currentSignal = currentState.entry_signal?.signal;
+    const prevSignal = prevState.entry_signal?.signal;
+    
+    if (currentSignal && currentSignal !== 'STAY_OUT' && 
+        (!prevSignal || prevSignal === 'STAY_OUT')) {
+      toast({
+        title: `🎯 SINAL DE ENTRADA: ${currentSignal}!`,
+        description: `Entry: $${currentState.entry_signal?.risk?.entry?.toFixed(2)} | SL: $${currentState.entry_signal?.risk?.stop?.toFixed(2)} | TP: $${currentState.entry_signal?.risk?.target?.toFixed(2)}`,
+        duration: 10000,
+      });
     }
     
     prevStateRef.current = currentState;
