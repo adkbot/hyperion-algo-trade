@@ -408,7 +408,6 @@ Deno.serve(async (req) => {
 └─ P&L: $${pnl.toFixed(2)} (${pnl > 0 ? 'WIN ✅' : 'LOSS ❌'})`);
 
     // 3. Atualizar operations
-
     const { error: updateError } = await supabase
       .from('operations')
       .update({ 
@@ -425,6 +424,52 @@ Deno.serve(async (req) => {
       console.error('⚠️ Erro ao atualizar operations:', updateError);
     } else {
       console.log(`✅ Operations atualizada: ${pnl > 0 ? 'WIN' : 'LOSS'} | P&L: $${pnl.toFixed(2)}`);
+    }
+
+    // ✅ 4. ATUALIZAR DAILY_GOALS
+    const today = new Date().toISOString().split('T')[0];
+    const { data: dailyGoal } = await supabase
+      .from('daily_goals')
+      .select('*')
+      .eq('user_id', user_id)
+      .eq('date', today)
+      .maybeSingle();
+
+    if (dailyGoal) {
+      const newWins = pnl > 0 ? (dailyGoal.wins || 0) + 1 : dailyGoal.wins || 0;
+      const newLosses = pnl <= 0 ? (dailyGoal.losses || 0) + 1 : dailyGoal.losses || 0;
+      const newTotalOps = (dailyGoal.total_operations || 0) + 1;
+      const newTotalPnl = (dailyGoal.total_pnl || 0) + pnl;
+      
+      await supabase
+        .from('daily_goals')
+        .update({
+          total_operations: newTotalOps,
+          wins: newWins,
+          losses: newLosses,
+          total_pnl: newTotalPnl,
+          completed: newLosses >= (dailyGoal.max_losses || 15) || newTotalOps >= (dailyGoal.target_operations || 45)
+        })
+        .eq('id', dailyGoal.id);
+        
+      console.log(`✅ daily_goals atualizado: ${newWins}W/${newLosses}L | Total: ${newTotalOps} ops | PnL: $${newTotalPnl.toFixed(2)}`);
+    } else {
+      // Criar daily_goal se não existir
+      await supabase
+        .from('daily_goals')
+        .insert({
+          user_id,
+          date: today,
+          total_operations: 1,
+          wins: pnl > 0 ? 1 : 0,
+          losses: pnl <= 0 ? 1 : 0,
+          total_pnl: pnl,
+          target_operations: 45,
+          max_losses: 15,
+          completed: false
+        });
+        
+      console.log(`✅ daily_goals criado para hoje`);
     }
 
     return new Response(
