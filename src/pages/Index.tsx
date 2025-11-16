@@ -13,7 +13,6 @@ import { SessionStatePanel } from "@/components/trading/SessionStatePanel";
 import { SystemStatusPanel } from "@/components/trading/SystemStatusPanel";
 import { ADKPanel } from "@/components/trading/ADKPanel";
 import { FoundationDiagnostic } from "@/components/trading/FoundationDiagnostic";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUserSettings } from "@/hooks/useTradingData";
 import { useTradingOrchestrator } from "@/hooks/useTradingOrchestrator";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
@@ -48,46 +47,26 @@ const Index = () => {
           <AlertPanel />
         </div>
         
-        {/* Grid Layout - Chart + Tabs */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-          {/* Left Column (2/3) - Chart */}
-          <div className="lg:col-span-2">
+        {/* Grid Layout - Chart + Compact Panels */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
+          {/* Left Column (2/3) - Chart + History */}
+          <div className="lg:col-span-2 space-y-3">
             <TradingChart />
+            <OperationHistory />
           </div>
           
-          {/* Right Column (1/3) - Tabs */}
-          <div className="lg:col-span-1">
-            <Tabs defaultValue="monitoring" className="w-full">
-              <TabsList className="grid w-full grid-cols-4 mb-4">
-                <TabsTrigger value="monitoring">Monitor</TabsTrigger>
-                <TabsTrigger value="strategy">ADK</TabsTrigger>
-                <TabsTrigger value="sessions">Sessões</TabsTrigger>
-                <TabsTrigger value="history">Histórico</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="monitoring" className="space-y-4 mt-0">
-                <StatsPanel />
-                <ActivePositions />
-                <SystemStatusPanel />
-              </TabsContent>
-              
-              <TabsContent value="strategy" className="space-y-4 mt-0">
-                <ADKPanel />
-                <FoundationDiagnostic />
-                <AgentPanel />
-              </TabsContent>
-              
-              <TabsContent value="sessions" className="space-y-4 mt-0">
-                <DailyGoals />
-                <SessionStatePanel />
-                <SessionCyclePanel />
-              </TabsContent>
-              
-              <TabsContent value="history" className="space-y-4 mt-0">
-                <OperationHistory />
-                <DailyHistory />
-              </TabsContent>
-            </Tabs>
+          {/* Right Column (1/3) - Compact Stats and Controls */}
+          <div className="lg:col-span-1 space-y-3">
+            <StatsPanel />
+            <DailyGoals />
+            <ActivePositions />
+            <SystemStatusPanel />
+            <ADKPanel />
+            <FoundationDiagnostic />
+            <SessionStatePanel />
+            <SessionCyclePanel />
+            <AgentPanel />
+            <DailyHistory />
           </div>
         </div>
       </div>
