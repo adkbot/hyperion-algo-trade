@@ -472,6 +472,151 @@ function isInOperatingWindow(session: string): { canOperate: boolean; message: s
   */
 }
 
+// ==========================================
+// 🔵 PENDING SIGNALS SYSTEM
+// ==========================================
+
+/**
+ * Salvar sinal pendente no banco para execução futura
+ */
+async function savePendingSignal(
+  supabase: any,
+  userId: string,
+  asset: string,
+  strategy: string,
+  session: string,
+  analysis: any
+): Promise<void> {
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutos
+  
+  await supabase.from('pending_signals').insert({
+    user_id: userId,
+    asset,
+    strategy,
+    session,
+    direction: analysis.signal,
+    entry_price: analysis.entryPrice || analysis.risk?.entry,
+    stop_loss: analysis.stopLoss || analysis.risk?.stop,
+    take_profit: analysis.takeProfit || analysis.risk?.target,
+    risk_reward: analysis.riskReward || analysis.risk?.rr_ratio,
+    confidence_score: analysis.confidence,
+    agents: analysis.marketData,
+    signal_data: {
+      notes: analysis.notes,
+      confirmation: analysis.confirmation,
+      volumeFactor: analysis.volumeFactor,
+      rangeHigh: analysis.rangeHigh,
+      rangeLow: analysis.rangeLow,
+    },
+    status: 'PENDING',
+    expires_at: expiresAt.toISOString(),
+  });
+  
+  console.log(`✅ Sinal pendente salvo: ${asset} ${analysis.signal} @ ${analysis.entryPrice || analysis.risk?.entry}`);
+}
+
+/**
+ * Executar sinais pendentes ainda válidos
+ */
+async function executePendingSignals(
+  supabase: any,
+  userId: string,
+  settings: any,
+  currentSession: string
+): Promise<number> {
+  try {
+    // Buscar sinais pendentes não expirados
+    const { data: pendingSignals, error } = await supabase
+      .from('pending_signals')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'PENDING')
+      .eq('session', currentSession)
+      .gt('expires_at', new Date().toISOString())
+      .order('detected_at', { ascending: true });
+    
+    if (error || !pendingSignals || pendingSignals.length === 0) {
+      return 0;
+    }
+    
+    console.log(`\n📋 ${pendingSignals.length} sinal(is) pendente(s) encontrado(s)`);
+    
+    let executed = 0;
+    
+    for (const signal of pendingSignals) {
+      console.log(`\n🔄 Processando sinal pendente: ${signal.asset} ${signal.direction}`);
+      
+      // Verificar se ainda não há posição ativa
+      const { data: activePositions } = await supabase
+        .from('active_positions')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('asset', signal.asset);
+      
+      if (activePositions && activePositions.length > 0) {
+        console.log(`⚠️ Já existe posição ativa em ${signal.asset} - Cancelando sinal pendente`);
+        await supabase
+          .from('pending_signals')
+          .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
+          .eq('id', signal.id);
+        continue;
+      }
+      
+      // Executar trade
+      const analysisObject = {
+        signal: signal.direction,
+        risk: {
+          entry: signal.entry_price,
+          stop: signal.stop_loss,
+          target: signal.take_profit,
+          rr_ratio: signal.risk_reward,
+        },
+        confidence: signal.confidence_score,
+        marketData: signal.agents || {},
+      };
+      
+      const success = await executeTradeSignal(
+        supabase,
+        userId,
+        signal.asset,
+        analysisObject,
+        settings,
+        currentSession
+      );
+      
+      if (success) {
+        // Marcar como executado
+        await supabase
+          .from('pending_signals')
+          .update({ 
+            status: 'EXECUTED', 
+            executed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', signal.id);
+        
+        executed++;
+        console.log(`✅ Sinal pendente executado: ${signal.asset} ${signal.direction}`);
+      } else {
+        console.log(`❌ Falha ao executar sinal pendente: ${signal.asset} ${signal.direction}`);
+      }
+    }
+    
+    // Expirar sinais antigos
+    await supabase
+      .from('pending_signals')
+      .update({ status: 'EXPIRED', updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('status', 'PENDING')
+      .lt('expires_at', new Date().toISOString());
+    
+    return executed;
+  } catch (error) {
+    console.error('❌ Erro ao executar sinais pendentes:', error);
+    return 0;
+  }
+}
+
 // ✅ NOVA FUNÇÃO: Processar ciclo de trading para um usuário específico
 async function processUserTradingCycle(
   supabase: any, 
@@ -578,7 +723,22 @@ async function processUserTradingCycle(
     };
   }
 
-  // Check active positions ANTES de verificar se pode buscar nova
+  // ==========================================
+  // 🚀 EXECUTAR PENDING SIGNALS PRIMEIRO
+  // ==========================================
+  console.log(`\n🔍 Verificando sinais pendentes...`);
+  const executedSignals = await executePendingSignals(
+    supabase,
+    userId,
+    settings,
+    currentSession
+  );
+  
+  if (executedSignals > 0) {
+    console.log(`✅ ${executedSignals} sinal(is) pendente(s) executado(s)`);
+  }
+
+  // Check active positions DEPOIS de executar pending signals
   const { data: activePositions } = await supabase
     .from('active_positions')
     .select('*')
@@ -1084,7 +1244,7 @@ async function processUserTradingCycle(
               console.log(`📞 CHAMANDO executeTradeSignal para ${pair}...`);
               
               try {
-                await executeTradeSignal(
+                const success = await executeTradeSignal(
                   supabase,
                   userId,
                   pair,
@@ -1092,9 +1252,38 @@ async function processUserTradingCycle(
                   settings,
                   currentSession
                 );
-                console.log(`✅ executeTradeSignal completado com sucesso para ${pair}`);
+                
+                // Se falhou, salvar como pending signal para próxima tentativa
+                if (!success) {
+                  console.log(`⚠️ Execução falhou - Salvando como pending signal`);
+                  await savePendingSignal(
+                    supabase,
+                    userId,
+                    pair,
+                    settings.trading_strategy || 'SCALPING_1MIN',
+                    currentSession,
+                    analysis
+                  );
+                }
+                
+                console.log(`✅ executeTradeSignal completado para ${pair}`);
               } catch (execError) {
                 console.error(`❌ ERRO em executeTradeSignal para ${pair}:`, execError);
+                
+                // Salvar como pending signal em caso de erro
+                try {
+                  await savePendingSignal(
+                    supabase,
+                    userId,
+                    pair,
+                    settings.trading_strategy || 'SCALPING_1MIN',
+                    currentSession,
+                    analysis
+                  );
+                } catch (saveError) {
+                  console.error(`❌ Falha ao salvar pending signal:`, saveError);
+                }
+                
                 if (execError instanceof Error) {
                   console.error(`   Stack:`, execError.stack);
                 }

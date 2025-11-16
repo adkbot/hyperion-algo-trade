@@ -206,6 +206,72 @@ export type Database = {
         }
         Relationships: []
       }
+      pending_signals: {
+        Row: {
+          agents: Json | null
+          asset: string
+          confidence_score: number | null
+          created_at: string | null
+          detected_at: string
+          direction: string
+          entry_price: number
+          executed_at: string | null
+          expires_at: string
+          id: string
+          risk_reward: number
+          session: string
+          signal_data: Json | null
+          status: string
+          stop_loss: number
+          strategy: string
+          take_profit: number
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          agents?: Json | null
+          asset: string
+          confidence_score?: number | null
+          created_at?: string | null
+          detected_at?: string
+          direction: string
+          entry_price: number
+          executed_at?: string | null
+          expires_at: string
+          id?: string
+          risk_reward: number
+          session: string
+          signal_data?: Json | null
+          status?: string
+          stop_loss: number
+          strategy: string
+          take_profit: number
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          agents?: Json | null
+          asset?: string
+          confidence_score?: number | null
+          created_at?: string | null
+          detected_at?: string
+          direction?: string
+          entry_price?: number
+          executed_at?: string | null
+          expires_at?: string
+          id?: string
+          risk_reward?: number
+          session?: string
+          signal_data?: Json | null
+          status?: string
+          stop_loss?: number
+          strategy?: string
+          take_profit?: number
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string | null
