@@ -64,6 +64,19 @@ export async function analyzeADKStrategy(params: AnalysisParams): Promise<ADKAna
   
   const foundation15m = await getOrCreateFoundation15m(candles['15m'], userId, supabase);
   
+  // Salvar estado: Passo 1
+  await supabase.from('adk_strategy_state').upsert({
+    user_id: userId,
+    asset: asset,
+    date: new Date().toISOString().split('T')[0],
+    current_phase: 'ADK_STEP_1_FOUNDATION',
+    foundation_data: foundation15m,
+    next_action: foundation15m.isValid 
+      ? 'Aguardando Sweep + FVG em 15m'
+      : 'Aguardando foundation 15m (primeira vela do dia)',
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'user_id,asset,date' });
+  
   if (!foundation15m.isValid) {
     return {
       signal: 'STAY_OUT',
@@ -87,6 +100,20 @@ export async function analyzeADKStrategy(params: AnalysisParams): Promise<ADKAna
     foundation15m.high,
     foundation15m.low
   );
+  
+  // Salvar estado: Passo 2
+  await supabase.from('adk_strategy_state').upsert({
+    user_id: userId,
+    asset: asset,
+    date: new Date().toISOString().split('T')[0],
+    current_phase: fvg15m.fvgDetected && fvg15m.sweepConfirmed ? 'ADK_STEP_3_RETEST_50' : 'ADK_STEP_2_FVG_15M',
+    foundation_data: foundation15m,
+    fvg15m_data: fvg15m,
+    next_action: fvg15m.fvgDetected && fvg15m.sweepConfirmed
+      ? `Aguardando retest 50% do FVG ($${fvg15m.fvgMidpoint.toFixed(2)})`
+      : 'Aguardando Sweep + FVG em 15m',
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'user_id,asset,date' });
   
   if (!fvg15m.fvgDetected || !fvg15m.sweepConfirmed) {
     return {
@@ -117,6 +144,21 @@ export async function analyzeADKStrategy(params: AnalysisParams): Promise<ADKAna
     timestamp: fvg15m.timestamp
   });
   
+  // Salvar estado: Passo 3
+  await supabase.from('adk_strategy_state').upsert({
+    user_id: userId,
+    asset: asset,
+    date: new Date().toISOString().split('T')[0],
+    current_phase: retest.hasRetest && retest.entryReady ? 'ADK_STEP_4_CONFIRMATION_1M' : 'ADK_STEP_3_RETEST_50',
+    foundation_data: foundation15m,
+    fvg15m_data: fvg15m,
+    retest_data: retest,
+    next_action: retest.hasRetest && retest.entryReady
+      ? 'Aguardando confirmação no gráfico de 1 minuto'
+      : `Aguardando retest 50% do FVG ($${fvg15m.fvgMidpoint.toFixed(2)})`,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'user_id,asset,date' });
+  
   if (!retest.hasRetest || !retest.entryReady) {
     return {
       signal: 'STAY_OUT',
@@ -144,6 +186,22 @@ export async function analyzeADKStrategy(params: AnalysisParams): Promise<ADKAna
     fvg15m.fvgTop,
     fvg15m.fvgBottom
   );
+  
+  // Salvar estado: Passo 4
+  await supabase.from('adk_strategy_state').upsert({
+    user_id: userId,
+    asset: asset,
+    date: new Date().toISOString().split('T')[0],
+    current_phase: confirmation1m.confirmed ? 'ADK_COMPLETE' : 'ADK_STEP_4_CONFIRMATION_1M',
+    foundation_data: foundation15m,
+    fvg15m_data: fvg15m,
+    retest_data: retest,
+    confirmation1m_data: confirmation1m,
+    next_action: confirmation1m.confirmed
+      ? 'Processando sinal de entrada'
+      : 'Aguardando confirmação 1m (Sweep + FVG)',
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'user_id,asset,date' });
   
   if (!confirmation1m.confirmed) {
     return {
@@ -176,18 +234,38 @@ export async function analyzeADKStrategy(params: AnalysisParams): Promise<ADKAna
   console.log(`⭐ CONFIANÇA: 85%`);
   console.log('='.repeat(70) + '\n');
   
+  // Salvar estado final: Entry Signal
+  const entrySignal = {
+    signal: fvg15m.direction as 'BUY' | 'SELL',
+    risk: {
+      entry: confirmation1m.entryPrice,
+      stop: confirmation1m.stopLoss,
+      target: confirmation1m.takeProfit,
+      rr_ratio: confirmation1m.riskReward
+    }
+  };
+  
+  await supabase.from('adk_strategy_state').upsert({
+    user_id: userId,
+    asset: asset,
+    date: new Date().toISOString().split('T')[0],
+    current_phase: 'ADK_COMPLETE',
+    foundation_data: foundation15m,
+    fvg15m_data: fvg15m,
+    retest_data: retest,
+    confirmation1m_data: confirmation1m,
+    entry_signal: entrySignal,
+    next_action: `Sinal gerado: ${fvg15m.direction} @ $${confirmation1m.entryPrice.toFixed(2)}`,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'user_id,asset,date' });
+  
   return {
     signal: fvg15m.direction as 'BUY' | 'SELL',
     direction: fvg15m.direction,
     confidence: 0.85, // Alta confiança (5 validações)
     notes: `✅ ADK Strategy: Sweep 15m → FVG 15m → Retest 50% → Sweep 1m → FVG 1m`,
     phase: 'ADK_COMPLETE',
-    risk: {
-      entry: confirmation1m.entryPrice,
-      stop: confirmation1m.stopLoss,
-      target: confirmation1m.takeProfit,
-      rr_ratio: confirmation1m.riskReward
-    },
+    risk: entrySignal.risk,
     foundation: foundation15m,
     fvg15m,
     retest,
