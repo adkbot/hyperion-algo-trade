@@ -73,88 +73,25 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   console.log(`🔍 ANÁLISE SCALPING 1MIN - ${asset} | Sessão: ${session}`);
   console.log(`${'='.repeat(80)}`);
   
-  // ==========================================
-  // PASSO 1: OBTER/CRIAR FUNDAÇÃO DA SESSÃO
-  // ==========================================
-  console.log(`\n📍 PASSO 1: Verificando Fundação da Sessão...`);
-  const foundation = await getOrCreateFoundation(session, candles['5m'], userId, supabase);
+  // ✅ FOUNDATION DESABILITADA - Operando sem restrição de vela de 5 minutos
+  console.log(`\n📍 PASSO 1: Foundation desabilitada para SCALPING 1MIN - operando sem restrição de tempo`);
   
-  if (!foundation.valid) {
-    return {
-      signal: 'STAY_OUT',
-      direction: null,
-      entryPrice: 0,
-      stopLoss: 0,
-      takeProfit: 0,
-      riskReward: 0,
-      confidence: 0,
-      notes: `⏳ Aguardando primeira vela de 5min da sessão ${session}`,
-      phase: 'WAITING_FOUNDATION'
-    };
-  }
+  const foundation = {
+    session,
+    high: 0,
+    low: 0,
+    timestamp: Date.now(),
+    valid: true
+  };
   
-  console.log(`✅ Fundação válida: HIGH ${foundation.high} | LOW ${foundation.low}`);
+  console.log(`\n📍 PASSO 1.5: Validação de janela de operação DESABILITADA`);
+  
+
   
   // ==========================================
-  // PASSO 1.5: VALIDAÇÃO CRÍTICA - JANELA DE OPERAÇÃO (5 MINUTOS)
+  // REGRA 1: FILTRO DE QUALIDADE POR SESSÃO
   // ==========================================
-  console.log(`\n📍 PASSO 1.5: Validando JANELA DE OPERAÇÃO (CRÍTICO)...`);
-
-  const foundationTime = new Date(foundation.timestamp).getTime();
-  const currentTime = Date.now();
-  const OPERATION_WINDOW_MS = 5 * 60 * 1000; // 5 minutos
-  const windowEnd = foundationTime + OPERATION_WINDOW_MS;
-
-  console.log(`   ├─ Foundation: ${new Date(foundationTime).toISOString()}`);
-  console.log(`   ├─ Atual: ${new Date(currentTime).toISOString()}`);
-  console.log(`   └─ Janela fecha: ${new Date(windowEnd).toISOString()}`);
-
-  if (currentTime > windowEnd) {
-    const minutesElapsed = Math.floor((currentTime - foundationTime) / 1000 / 60);
-    
-    console.log(`❌ JANELA FECHADA! Foundation há ${minutesElapsed} minutos`);
-    
-    await supabase.from('session_history').insert({
-      user_id: userId,
-      session,
-      pair: asset,
-      cycle_phase: 'Execution',
-      event_type: 'OPERATION_WINDOW_CLOSED',
-      signal: 'STAY_OUT',
-      direction: null,
-      notes: `⏸️ Janela fechada. Foundation há ${minutesElapsed}min (limite: 5min)`,
-      timestamp: new Date().toISOString(),
-      market_data: {
-        foundation: { 
-          high: foundation.high, 
-          low: foundation.low,
-          timestamp: foundation.timestamp
-        },
-        window: {
-          foundationTime: new Date(foundationTime).toISOString(),
-          currentTime: new Date(currentTime).toISOString(),
-          minutesElapsed
-        }
-      }
-    });
-    
-    return {
-      signal: 'STAY_OUT',
-      direction: null,
-      entryPrice: 0,
-      stopLoss: 0,
-      takeProfit: 0,
-      riskReward: 0,
-      confidence: 0,
-      notes: `⏸️ JANELA FECHADA: Foundation há ${minutesElapsed}min. Apenas primeiros 5min permitidos.`,
-      phase: 'OPERATION_WINDOW_CLOSED',
-      foundation
-    };
-  }
-
-  const minutesRemaining = Math.floor((windowEnd - currentTime) / 1000 / 60);
-  const secondsRemaining = Math.floor(((windowEnd - currentTime) % (60 * 1000)) / 1000);
-  console.log(`✅ JANELA ABERTA: ${minutesRemaining}min ${secondsRemaining}s restantes`);
+  console.log(`\n📍 VERIFICANDO FILTRO DE SESSÃO...`);
   
   // ==========================================
   // REGRA 1: FILTRO DE QUALIDADE POR SESSÃO
