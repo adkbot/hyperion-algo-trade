@@ -239,8 +239,8 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // ⏱️ SISTEMA DE CONTROLE DE TEMPO - Nunca ultrapassar 90% do limite (54s de 60s)
-  const MAX_EXECUTION_TIME_MS = 54000; // 90% de 60s
+  // ⏱️ SISTEMA DE CONTROLE DE TEMPO - Limite de 50s para completar antes do timeout do cliente (90s)
+  const MAX_EXECUTION_TIME_MS = 50000; // 50s (margem para timeout de 90s no cliente)
   const startTime = Date.now();
   
   function getRemainingTime(): number {
@@ -1029,8 +1029,8 @@ async function processUserTradingCycle(
   // ✅ Análise de mercado para múltiplos pares COM BATCH PROCESSING E TIMEOUT PREVENTIVO (OTIMIZADO)
   const analysisResults: any[] = [];
   let pairsAnalyzed = 0;
-  const BATCH_SIZE = 5; // Reduzido de 10 → 5 para evitar timeouts
-  const MAX_EXECUTION_TIME = 90000; // 90s (reduzido de 100s)
+  const BATCH_SIZE = 5; // 5 pares por batch
+  const MAX_EXECUTION_TIME = 50000; // 50s limite interno
   const BATCH_TIMEOUT = 15000; // 15s por batch
   const orchestratorStartTime = Date.now();
 
@@ -4729,22 +4729,27 @@ async function scanMarketForValidPairs(getRemainingTime?: () => number): Promise
     const stats = await statsResponse.json();
     const statsMap = new Map(stats.map((s: any) => [s.symbol, s]));
 
-    // ✅ OTIMIZAÇÃO: Filtro mais rigoroso para reduzir pares analisados
-    const validPairs = perpetualPairs
-      .filter((pair: any) => {
+    // ✅ OTIMIZAÇÃO: Ordenar por volume e pegar top 50 de maior liquidez
+    const pairsWithVolume = perpetualPairs
+      .map((pair: any) => {
         const stat: any = statsMap.get(pair.symbol);
-        if (!stat) return false;
+        if (!stat) return null;
 
         const volume24h = parseFloat(stat.quoteVolume);
         const priceChange = Math.abs(parseFloat(stat.priceChangePercent));
 
-        // Critério mais rigoroso: $50M+ volume e 1%+ volatilidade
-        return volume24h >= 50_000_000 && priceChange >= 1.0;
-      })
-      .map((pair: any) => pair.symbol)
-      .slice(0, 80); // 🚀 Reduzido de 150 para 80 candidatos
+        // Critério base: $50M+ volume e 1%+ volatilidade
+        if (volume24h < 50_000_000 || priceChange < 1.0) return null;
 
-    console.log(`🎯 Filtrados ${validPairs.length} pares (volume >= $50M, volatilidade >= 1.0%)`);
+        return { symbol: pair.symbol, volume24h, priceChange };
+      })
+      .filter((p: any) => p !== null)
+      .sort((a: any, b: any) => b.volume24h - a.volume24h) // Ordenar por volume DESC
+      .slice(0, 50); // Top 50 de maior volume
+
+    const validPairs = pairsWithVolume.map((p: any) => p.symbol);
+
+    console.log(`🎯 Filtrados top ${validPairs.length} pares por volume (>= $50M, volatilidade >= 1.0%)`);
     
     console.log(`\n🚀 INICIANDO SMART SCANNER OTIMIZADO:`);
     console.log(`├─ Timeout máximo: 45s`);
@@ -4753,7 +4758,7 @@ async function scanMarketForValidPairs(getRemainingTime?: () => number): Promise
     
     // 🔒 FORÇAR INCLUSÃO DE BTCUSDT E ETHUSDT SEMPRE
     const mandatoryPairs = ['BTCUSDT', 'ETHUSDT'];
-    const maxPairs = 30; // 🚀 30 pares top
+    const maxPairs = 10; // 🚀 Top 10 pares de maior volume (otimizado)
     
     // ✅ FASE 5: Priorizar pares por volatilidade e volume (COM TIMEOUT)
     const remainingTime1 = SCANNER_MAX_TIME - (Date.now() - scannerStartTime);

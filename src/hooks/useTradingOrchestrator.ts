@@ -10,12 +10,13 @@ export const useTradingOrchestrator = (botStatus: "stopped" | "running" | "pause
 
   useEffect(() => {
     const callOrchestrator = async (retryCount = 0): Promise<void> => {
+      const startTime = Date.now();
       try {
         console.log(`📡 Calling trading orchestrator... (attempt ${retryCount + 1})`);
         
-        // Timeout de 45 segundos (ajustado para intervalo de 15s)
+        // Timeout de 90 segundos (Edge Function tem limite de 100s)
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 45000);
+        const timeoutId = setTimeout(() => controller.abort(), 90000);
 
         const { data, error } = await supabase.functions.invoke("trading-orchestrator", {
           method: "POST",
@@ -29,6 +30,7 @@ export const useTradingOrchestrator = (botStatus: "stopped" | "running" | "pause
           const isTimeout = error.message?.includes('aborted') || error.message?.includes('timeout');
           const isNetworkError = error.message?.includes('network') || error.message?.includes('Network connection lost');
           
+          const executionTime = Date.now() - startTime;
           console.error("❌ Orchestrator error:", error);
           console.error("Error details:", {
             message: error.message,
@@ -36,7 +38,12 @@ export const useTradingOrchestrator = (botStatus: "stopped" | "running" | "pause
             name: error.name,
             isTimeout,
             isNetworkError,
+            executionTime: `${executionTime}ms`,
           });
+          
+          if (isTimeout) {
+            console.warn(`⏱️ TIMEOUT após ${executionTime}ms - Edge Function pode ainda estar executando`);
+          }
           
           // Se for timeout ou erro de rede, tentar novamente (máximo 3 vezes)
           if ((isTimeout || isNetworkError) && retryCount < 2) {
@@ -98,6 +105,7 @@ export const useTradingOrchestrator = (botStatus: "stopped" | "running" | "pause
           }
         }
       } catch (error) {
+        const executionTime = Date.now() - startTime;
         const isTimeout = error instanceof Error && (
           error.name === 'AbortError' || 
           error.message?.includes('aborted') ||
@@ -108,7 +116,12 @@ export const useTradingOrchestrator = (botStatus: "stopped" | "running" | "pause
         console.error("Error type:", {
           name: error instanceof Error ? error.name : 'unknown',
           isTimeout,
+          executionTime: `${executionTime}ms`,
         });
+        
+        if (isTimeout) {
+          console.warn(`⏱️ TIMEOUT após ${executionTime}ms`);
+        }
         
         // Se for timeout, não incrementar erros (é esperado ocasionalmente)
         if (!isTimeout) {
