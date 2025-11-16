@@ -1136,15 +1136,13 @@ async function processUserTradingCycle(
               supabase
             });
           } else {
-            // ESTRATÉGIA ORIGINAL: Sweep de Liquidez + IA
-            analysis = await analyzeCyclePhase({
-              candles,
+            // ✅ NOVA ESTRATÉGIA: SWEEP DE LIQUIDEZ + 2CR (TWO CANDLE REVERSAL)
+            const { analyzeSweepWith2CR } = await import('./sweep-2cr-analyzer.ts');
+            analysis = await analyzeSweepWith2CR({
+              candles: { '1m': candles['1m'], '5m': candles['5m'] },
               asset: pair,
-              session: currentSession,
-              phase: cyclePhase,
-              sessionState,
-              supabase,
-              userId
+              userId,
+              supabase
             });
           }
 
@@ -1197,17 +1195,18 @@ async function processUserTradingCycle(
                 signal: analysis.signal,
                 direction: analysis.signal === 'BUY' || analysis.signal === 'SELL' ? mapDirection(analysis.signal) : null,
                 confidence_score: analysis.confidence || 0,
-                notes: analysis.notes || '',
-                event_type: determineEventType(analysis.signal, analysis.phase),
+                notes: (analysis as any).notes || '',
+                event_type: determineEventType(analysis.signal, (analysis as any).phase || cyclePhase),
                 event_data: {
-                  foundation: analysis.foundation || null,
-                  fvg: analysis.fvg || null,
-                  phase: analysis.phase,
-                  entryPrice: analysis.entryPrice || analysis.entry,
-                  stopLoss: analysis.stopLoss,
-                  takeProfit: analysis.takeProfit,
-                  riskReward: analysis.riskReward,
-                  strategy: selectedStrategy
+                  foundation: (analysis as any).foundation || null,
+                  fvg: (analysis as any).fvg || null,
+                  phase: (analysis as any).phase || cyclePhase,
+                  entryPrice: (analysis as any).entryPrice || (analysis as any).entry || 0,
+                  stopLoss: (analysis as any).stopLoss || (analysis as any).stop || 0,
+                  takeProfit: (analysis as any).takeProfit || (analysis as any).target || 0,
+                  riskReward: (analysis as any).riskReward || (analysis as any).rr_ratio || 0,
+                  strategy: selectedStrategy,
+                  marketData: (analysis as any).marketData || null
                 },
                 timestamp: new Date().toISOString(),
               });
@@ -1215,14 +1214,14 @@ async function processUserTradingCycle(
             if (historyError) {
               console.error('❌ Error logging session_history:', historyError);
             } else {
-              console.log(`✅ Logged ${analysis.signal} (${determineEventType(analysis.signal, analysis.phase)}) for ${pair} to session_history`);
+              console.log(`✅ Logged ${analysis.signal} (${determineEventType(analysis.signal, (analysis as any).phase || cyclePhase)}) for ${pair} to session_history`);
             }
 
             // Execute trade if signal is valid
             console.log(`🔍 Verificando sinal de ${pair}: ${analysis?.signal} (type: ${typeof analysis?.signal})`);
-            console.log(`   Risk object presente:`, analysis?.risk ? 'SIM' : 'NÃO');
-            if (analysis?.risk) {
-              console.log(`   Risk keys:`, Object.keys(analysis.risk));
+            console.log(`   Risk object presente:`, (analysis as any)?.risk ? 'SIM' : 'NÃO');
+            if ((analysis as any)?.risk) {
+              console.log(`   Risk keys:`, Object.keys((analysis as any).risk));
             }
             
             if (analysis.signal === 'BUY' || analysis.signal === 'SELL') {
