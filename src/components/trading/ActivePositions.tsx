@@ -91,16 +91,17 @@ export const ActivePositions = () => {
               {activePositions.length}
             </Badge>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <ClosePositionButton />
             <Button
               variant="outline"
               size="sm"
               onClick={handleSync}
               disabled={syncing}
-              className="h-7 px-2"
+              className="h-8 w-8 p-0"
+              title={syncing ? 'Sincronizando...' : 'Sincronizar'}
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
             </Button>
           </div>
         </div>
