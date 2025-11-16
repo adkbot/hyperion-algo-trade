@@ -92,6 +92,23 @@ export const useRealtimeUpdates = () => {
       )
       .subscribe();
 
+    // Subscribe to adk_strategy_state changes
+    const adkProgressChannel = supabase
+      .channel('adk-progress-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'adk_strategy_state'
+        },
+        () => {
+          console.log('ADK progress updated');
+          queryClient.invalidateQueries({ queryKey: ["adk-progress"] });
+        }
+      )
+      .subscribe();
+
     // Cleanup subscriptions
     return () => {
       supabase.removeChannel(positionsChannel);
@@ -99,6 +116,7 @@ export const useRealtimeUpdates = () => {
       supabase.removeChannel(goalsChannel);
       supabase.removeChannel(logsChannel);
       supabase.removeChannel(settingsChannel);
+      supabase.removeChannel(adkProgressChannel);
     };
   }, [queryClient]);
 };

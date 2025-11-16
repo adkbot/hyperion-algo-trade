@@ -68,6 +68,54 @@ export type Database = {
         }
         Relationships: []
       }
+      adk_strategy_state: {
+        Row: {
+          asset: string
+          confirmation1m_data: Json | null
+          created_at: string | null
+          current_phase: string
+          date: string
+          entry_signal: Json | null
+          foundation_data: Json | null
+          fvg15m_data: Json | null
+          id: string
+          next_action: string | null
+          retest_data: Json | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          asset: string
+          confirmation1m_data?: Json | null
+          created_at?: string | null
+          current_phase: string
+          date: string
+          entry_signal?: Json | null
+          foundation_data?: Json | null
+          fvg15m_data?: Json | null
+          id?: string
+          next_action?: string | null
+          retest_data?: Json | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          asset?: string
+          confirmation1m_data?: Json | null
+          created_at?: string | null
+          current_phase?: string
+          date?: string
+          entry_signal?: Json | null
+          foundation_data?: Json | null
+          fvg15m_data?: Json | null
+          id?: string
+          next_action?: string | null
+          retest_data?: Json | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       agent_logs: {
         Row: {
           agent_name: string
