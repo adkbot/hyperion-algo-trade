@@ -167,68 +167,88 @@ export async function getOrCreateFoundation(
 /**
  * Detecta a primeira vela de 5 minutos da sessão
  */
+/**
+ * Detecta a primeira vela de 5 minutos da sessão
+ * ATUALIZADO: Busca flexível - primeira vela APÓS o horário de início
+ */
 function detectSessionFoundation(
   candles5m: Candle[],
   session: string
 ): SessionFoundation {
-  if (!candles5m || candles5m.length === 0) {
-    return {
-      high: 0,
-      low: 0,
-      timestamp: '',
-      valid: false,
-      session,
-      date: ''
-    };
-  }
-  
   const sessionStart = SESSION_START_TIMES[session as keyof typeof SESSION_START_TIMES];
+  
   if (!sessionStart) {
-    console.error(`❌ Sessão inválida: ${session}`);
+    console.log(`⚠️ Sessão desconhecida: ${session}`);
     return {
       high: 0,
       low: 0,
-      timestamp: '',
+      timestamp: new Date().toISOString(),
       valid: false,
       session,
-      date: ''
+      date: new Date().toISOString().split('T')[0]
     };
   }
   
-  // Encontrar a primeira vela de 5min após o início da sessão
-  const now = new Date();
-  const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  
-  todayUTC.setUTCHours(sessionStart.hour, sessionStart.minute, 0, 0);
-  const sessionStartTimestamp = todayUTC.getTime();
-  
-  // Buscar vela que corresponde ao início da sessão (tolerância de 5 minutos)
-  const foundationCandle = candles5m.find(candle => {
-    const candleTime = candle.timestamp;
-    const diff = Math.abs(candleTime - sessionStartTimestamp);
-    return diff < 5 * 60 * 1000; // Tolerância de 5 minutos
-  });
-  
-  if (!foundationCandle) {
-    console.log(`⏳ Aguardando primeira vela de 5min para ${session} (início: ${todayUTC.toISOString()})`);
+  if (!candles5m || candles5m.length === 0) {
+    console.log(`⚠️ Nenhuma vela de 5min disponível para ${session}`);
     return {
       high: 0,
       low: 0,
-      timestamp: '',
+      timestamp: new Date().toISOString(),
       valid: false,
       session,
-      date: ''
+      date: new Date().toISOString().split('T')[0]
     };
   }
   
-  const candleDate = new Date(foundationCandle.timestamp);
+  const targetTime = sessionStart.hour * 60 + sessionStart.minute;
+  console.log(`🔍 Buscando primeira vela ≥ ${sessionStart.hour}:${String(sessionStart.minute).padStart(2, '0')} UTC para ${session}`);
+  console.log(`   📊 Total de velas disponíveis: ${candles5m.length}`);
+  
+  // Ordenar velas por timestamp (mais antigas primeiro)
+  const sortedCandles = [...candles5m].sort((a, b) => a.timestamp - b.timestamp);
+  
+  // ESTRATÉGIA 1: Buscar primeira vela >= horário de início (janela de 30min)
+  for (const candle of sortedCandles) {
+    const candleDate = new Date(candle.timestamp);
+    const candleMinutes = candleDate.getUTCHours() * 60 + candleDate.getUTCMinutes();
+    
+    // Aceita qualquer vela dentro de 30min APÓS o início
+    if (candleMinutes >= targetTime && candleMinutes <= targetTime + 30) {
+      console.log(`✅ Foundation encontrada (APÓS início):`);
+      console.log(`   ├─ Sessão: ${session}`);
+      console.log(`   ├─ Timestamp: ${candleDate.toISOString()}`);
+      console.log(`   ├─ Horário UTC: ${candleDate.getUTCHours()}:${String(candleDate.getUTCMinutes()).padStart(2, '0')}`);
+      console.log(`   ├─ HIGH: ${candle.high}`);
+      console.log(`   └─ LOW: ${candle.low}`);
+      
+      return {
+        high: candle.high,
+        low: candle.low,
+        timestamp: candleDate.toISOString(),
+        valid: true,
+        session,
+        date: new Date().toISOString().split('T')[0]
+      };
+    }
+  }
+  
+  // ESTRATÉGIA 2: Fallback - usar vela mais recente disponível
+  const mostRecentCandle = sortedCandles[sortedCandles.length - 1];
+  const mostRecentDate = new Date(mostRecentCandle.timestamp);
+  
+  console.log(`⚠️ Vela exata não encontrada - usando FALLBACK (vela mais recente):`);
+  console.log(`   ├─ Sessão: ${session}`);
+  console.log(`   ├─ Timestamp: ${mostRecentDate.toISOString()}`);
+  console.log(`   ├─ HIGH: ${mostRecentCandle.high}`);
+  console.log(`   └─ LOW: ${mostRecentCandle.low}`);
   
   return {
-    high: foundationCandle.high,
-    low: foundationCandle.low,
-    timestamp: candleDate.toISOString(),
+    high: mostRecentCandle.high,
+    low: mostRecentCandle.low,
+    timestamp: mostRecentDate.toISOString(),
     valid: true,
     session,
-    date: candleDate.toISOString().split('T')[0]
+    date: new Date().toISOString().split('T')[0]
   };
 }
