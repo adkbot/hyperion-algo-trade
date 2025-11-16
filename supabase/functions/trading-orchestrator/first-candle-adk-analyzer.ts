@@ -116,11 +116,29 @@ export async function analyzeADKStrategy(params: AnalysisParams): Promise<ADKAna
   }, { onConflict: 'user_id,asset,date' });
   
   if (!fvg15m.fvgDetected || !fvg15m.sweepConfirmed) {
+    // ⏱️ FALLBACK: Verificar se já passou 3h desde a foundation
+    const foundationTimestamp = foundation15m.timestamp;
+    const currentTimestamp = Date.now();
+    const hoursSinceFoundation = (currentTimestamp - foundationTimestamp) / (1000 * 60 * 60);
+    
+    if (hoursSinceFoundation >= 3) {
+      console.log(`⚠️ ${hoursSinceFoundation.toFixed(1)}h desde Foundation sem FVG - Sugerindo Scalping 1min`);
+      return {
+        signal: 'STAY_OUT',
+        direction: null,
+        confidence: 0,
+        notes: `⚠️ ADK sem FVG após ${hoursSinceFoundation.toFixed(1)}h - Considere ativar Scalping 1min`,
+        phase: 'ADK_STEP_2_FVG_15M',
+        foundation: foundation15m,
+        fvg15m
+      };
+    }
+    
     return {
       signal: 'STAY_OUT',
       direction: null,
       confidence: 0,
-      notes: '⏳ Aguardando Sweep + FVG em 15m',
+      notes: `⏳ Aguardando Sweep + FVG em 15m (${hoursSinceFoundation.toFixed(1)}h desde Foundation)`,
       phase: 'ADK_STEP_2_FVG_15M',
       foundation: foundation15m,
       fvg15m

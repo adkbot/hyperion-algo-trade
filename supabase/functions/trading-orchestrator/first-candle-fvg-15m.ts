@@ -153,6 +153,7 @@ function detectBearishFVG(c1: Candle, c2: Candle, c3: Candle): boolean {
 
 /**
  * Verifica se houve sweep de liquidez antes da formação do FVG
+ * Critérios relaxados: permite sweep parcial (não precisa reverter totalmente)
  */
 function checkSweepBeforeFVG(
   candles: Candle[],
@@ -162,13 +163,15 @@ function checkSweepBeforeFVG(
   
   for (const candle of candles) {
     if (direction === 'BUY') {
-      // Para compra, deve ter tocado abaixo do foundation low e revertido
-      if (candle.low <= foundationLevel && candle.close > foundationLevel) {
+      // Para compra, basta tocar abaixo do foundation low
+      // Permite sweep parcial: não exige reversão completa
+      if (candle.low <= foundationLevel) {
         return true;
       }
     } else {
-      // Para venda, deve ter tocado acima do foundation high e revertido
-      if (candle.high >= foundationLevel && candle.close < foundationLevel) {
+      // Para venda, basta tocar acima do foundation high
+      // Permite sweep parcial: não exige reversão completa
+      if (candle.high >= foundationLevel) {
         return true;
       }
     }
@@ -179,6 +182,7 @@ function checkSweepBeforeFVG(
 
 /**
  * Verifica se a vela é "expressiva" (alto volume e corpo grande)
+ * Critérios relaxados para aumentar taxa de detecção
  */
 function isExpressiveCandle(
   candle: Candle,
@@ -187,9 +191,9 @@ function isExpressiveCandle(
 ): boolean {
   const bodySize = Math.abs(candle.close - candle.open);
   
-  // Critérios: volume 1.5x maior que média E corpo 1.3x maior
-  const isHighVolume = candle.volume >= avgVolume * 1.5;
-  const isLargeBody = bodySize >= avgBodySize * 1.3;
+  // Critérios relaxados: volume 1.2x maior que média E corpo 1.15x maior
+  const isHighVolume = candle.volume >= avgVolume * 1.2;
+  const isLargeBody = bodySize >= avgBodySize * 1.15;
   
   return isHighVolume && isLargeBody;
 }
