@@ -104,44 +104,8 @@ export const useADKProgress = () => {
       return;
     }
     
-    // Detectar mudanças de fase
-    if (currentState.current_phase !== prevState.current_phase) {
-      // Foundation completado
-      if (currentState.current_phase === 'ADK_STEP_2_FVG_15M' && 
-          currentState.foundation_data?.isValid) {
-        toast({
-          title: "✅ Foundation 15m detectada!",
-          description: `High: $${currentState.foundation_data.high.toFixed(2)} | Low: $${currentState.foundation_data.low.toFixed(2)}`,
-        });
-      }
-      
-      // FVG 15m detectado
-      if (currentState.current_phase === 'ADK_STEP_3_RETEST_50' && 
-          currentState.fvg15m_data?.fvgDetected) {
-        toast({
-          title: "✅ FVG 15m + Sweep detectados!",
-          description: `Direção: ${currentState.fvg15m_data.direction} | Aguardando retest em $${currentState.fvg15m_data.fvgMidpoint?.toFixed(2)}`,
-        });
-      }
-      
-      // Retest 50% completado
-      if (currentState.current_phase === 'ADK_STEP_4_CONFIRMATION_1M' && 
-          currentState.retest_data?.entryReady) {
-        toast({
-          title: "✅ Retest 50% confirmado!",
-          description: "Aguardando confirmação no gráfico de 1 minuto...",
-        });
-      }
-      
-      // Confirmação 1m completa
-      if (currentState.current_phase === 'ADK_COMPLETE' && 
-          currentState.confirmation1m_data?.confirmed) {
-        toast({
-          title: "✅ Confirmação 1m completa!",
-          description: "Processando sinal de entrada...",
-        });
-      }
-    }
+    // Detectar mudanças de fase - notificações intermediárias removidas
+    // Apenas o sinal de entrada final será notificado
     
     // Entry signal gerado - verificar mudança no sinal independente da fase
     const currentSignal = currentState.entry_signal?.signal;
