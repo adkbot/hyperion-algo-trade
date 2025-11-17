@@ -119,6 +119,17 @@ async function monitorActivePositionsAdvanced(supabase: any, userId: string): Pr
     if (decision.shouldClose) {
       console.log(`🚨 TRAVA RR 1:1 ATIVADA: ${decision.reason}`);
       
+      // ✅ FASE 5: Registrar decisão no banco
+      await supabase.from('protection_logs').insert({
+        user_id: userId,
+        position_id: pos.id,
+        asset: pos.asset,
+        decision: 'CLOSED',
+        rr_at_decision: decision.currentRR,
+        reason: decision.reason,
+        confidence: decision.confidence
+      });
+      
       // Chamar edge function para fechar posição
       const { data: closeData, error: closeError } = await supabase.functions.invoke('binance-close-order', {
         body: { user_id: userId, position_id: pos.id }
@@ -131,7 +142,19 @@ async function monitorActivePositionsAdvanced(supabase: any, userId: string): Pr
         console.log(`💰 P&L: $${pos.current_pnl?.toFixed(2) || 'N/A'}`);
       }
     } else {
-      if (decision.currentRR >= 1.0) {
+      // ✅ FASE 5: Registrar também quando MANTÉM na zona de proteção (1.0-1.8 RR)
+      if (decision.currentRR >= 1.0 && decision.currentRR <= 1.8) {
+        await supabase.from('protection_logs').insert({
+          user_id: userId,
+          position_id: pos.id,
+          asset: pos.asset,
+          decision: 'MAINTAINED',
+          rr_at_decision: decision.currentRR,
+          reason: decision.reason,
+          confidence: decision.confidence
+        });
+        console.log(`✅ Mantendo posição (RR ${decision.currentRR.toFixed(2)}): ${decision.reason}`);
+      } else if (decision.currentRR >= 1.0) {
         console.log(`✅ Mantendo posição (RR ${decision.currentRR.toFixed(2)}): ${decision.reason}`);
       }
     }
@@ -176,18 +199,10 @@ const SENSITIVITY_CONFIG = {
   },
 };
 
-// ✅ R:R Dinâmico baseado em tipo de sweep e confirmação
-const DYNAMIC_RR_MAP: Record<string, number> = {
-  'TOTAL_STRONG': 1.8,
-  'TOTAL_MODERATE': 2.0,
-  'TOTAL_WEAK': 2.2,
-  'PARTIAL_STRONG': 2.2,
-  'PARTIAL_MODERATE': 2.5,
-  'PARTIAL_WEAK': 2.8,
-  'NEAR_STRONG': 2.8,
-  'NEAR_MODERATE': 3.0,
-  'NEAR_WEAK': 3.5,
-};
+// ✅ REGRA OBRIGATÓRIA: Risk/Reward SEMPRE 1:3.0
+// ⚠️ NÃO usar valores variáveis como 1.8, 2.5, ou qualquer outro que não seja 3.0
+// ⚠️ NÃO calcular RR dinamicamente após arredondamento
+const FIXED_RR = 3.0; // SEMPRE 1:3.0 em TODAS as estratégias
 
 // ✅ Session time ranges in UTC - 7 sessões de mercado detalhadas
 const SESSIONS = {
@@ -945,9 +960,12 @@ async function processUserTradingCycle(
     };
   }
 
-  // Monitor existing positions regardless of limit
+  // ✅ FASE 3: MONITORAMENTO CONTÍNUO E INCONDICIONAL
+  // Sempre monitorar posições, independente de sincronização
+  await monitorActivePositionsAdvanced(supabase, userId);
+  
+  // Só depois fazer sincronização se houver posições
   if (syncedPositions && syncedPositions.length > 0) {
-    await monitorActivePositionsAdvanced(supabase, userId);
     
     // ✅ SINCRONIZAR AUTOMATICAMENTE com Binance a cada ciclo (modo real)
     if (!settings.paper_mode) {

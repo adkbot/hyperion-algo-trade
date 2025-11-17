@@ -242,7 +242,8 @@ export async function shouldClosePosition(position: ActivePosition): Promise<Clo
   
   // Ainda não atingiu RR 1:1 - manter posição
   if (currentRR < 1.0) {
-    console.log(`   └─ ✅ Abaixo de 1:1 RR - Manter posição\n`);
+    // ✅ FASE 4: Log resumido fora da zona
+    console.log(`   └─ 🟡 ${position.asset}: RR ${currentRR.toFixed(2)}:1 - Abaixo de 1:1, aguardando breakeven\n`);
     return {
       shouldClose: false,
       reason: 'RR ainda abaixo de 1:1 - aguardando',
@@ -251,22 +252,26 @@ export async function shouldClosePosition(position: ActivePosition): Promise<Clo
     };
   }
   
+  // ✅ FASE 2: ZONA DE PROTEÇÃO EXPANDIDA (1.0-1.8 RR = 60% do caminho)
   // Já passou da zona de proteção - deixar correr até meta
-  if (currentRR > 1.5) {
-    console.log(`   └─ 🚀 Acima de 1.5:1 RR - Deixar correr até meta (3:1)\n`);
+  if (currentRR > 1.8) {
+    // ✅ FASE 4: Log resumido fora da zona
+    console.log(`   └─ 🚀 ${position.asset}: RR ${currentRR.toFixed(2)}:1 - Acima de 1.8, deixar correr até meta (3:1)\n`);
     return {
       shouldClose: false,
-      reason: 'RR acima de 1.5:1 - mantendo até meta 3:1',
+      reason: 'RR acima de 1.8:1 - mantendo até meta 3:1',
       currentRR,
-      confidence: 0.8
+      confidence: 0.9
     };
   }
   
   // ═══════════════════════════════════════════════════════════════════════
-  // ZONA DE PROTEÇÃO: 1.0 - 1.5 RR
+  // ZONA DE PROTEÇÃO: 1.0 - 1.8 RR (60% do caminho até meta 3:1)
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`   ⚠️ ZONA DE PROTEÇÃO (1.0-1.5 RR) - Analisando momentum...\n`);
+  console.log(`\n🔍 ZONA DE PROTEÇÃO - Analisando ${position.asset}`);
+  console.log(`   RR Atual: ${currentRR.toFixed(2)}:1`);
+  console.log(`   ⚠️ Zona 1.0-1.8 RR - Monitoramento de momentum...\n`);
   
   // Buscar candles recentes
   const candles = await fetchRecentCandles(position.asset, 10);
@@ -285,6 +290,7 @@ export async function shouldClosePosition(position: ActivePosition): Promise<Clo
   const continuity = analyzeContinuity(candles, position.direction);
   const weakness = analyzeWeakness(candles, position.direction);
   
+  // ✅ FASE 4: Logs condicionais - só detalhados na zona de proteção
   console.log(`   📊 Continuidade:`);
   console.log(`      ├─ Velas fortes: ${continuity.strongCandles}/5`);
   console.log(`      ├─ Velas fracas: ${continuity.weakCandles}/5`);
@@ -311,6 +317,7 @@ export async function shouldClosePosition(position: ActivePosition): Promise<Clo
   
   // Continuidade forte - manter até meta
   console.log(`   ✅ MANTER POSIÇÃO - Momentum continua forte\n`);
+  
   return {
     shouldClose: false,
     reason: 'Momentum forte na zona de proteção - aguardando meta 3:1',
