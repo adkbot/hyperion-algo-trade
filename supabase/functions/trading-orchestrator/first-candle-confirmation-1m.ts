@@ -214,16 +214,16 @@ function calculateRiskLevels(
     // Stop abaixo do FVG 15m bottom
     stopLoss = fvg15mBottom * 0.998; // 0.2% abaixo
     
-    // Target: 2:1 ou 3:1
+    // Target: RR 3:1
     const risk = entryPrice - stopLoss;
-    takeProfit = entryPrice + (risk * 2.5); // R:R 2.5:1
+    takeProfit = entryPrice + (risk * 3);
   } else {
     // Stop acima do FVG 15m top
     stopLoss = fvg15mTop * 1.002; // 0.2% acima
     
-    // Target: 2:1 ou 3:1
+    // Target: RR 3:1
     const risk = stopLoss - entryPrice;
-    takeProfit = entryPrice - (risk * 2.5); // R:R 2.5:1
+    takeProfit = entryPrice - (risk * 3);
   }
   
   const riskAmount = Math.abs(entryPrice - stopLoss);
