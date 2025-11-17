@@ -32,71 +32,34 @@ Deno.serve(async (req) => {
 
     console.log(`🎯 Atualizando daily goals para ${today}, user: ${user.id}`);
 
-    // Buscar daily_goals de hoje
-    const { data: existingGoal } = await supabaseClient
+    // Usar UPSERT para atualizar ou criar
+    const { data, error } = await supabaseClient
       .from('daily_goals')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('date', today)
+      .upsert({
+        user_id: user.id,
+        date: today,
+        target_operations: 4,
+        target_pnl_percent: 12.0,
+        max_losses: 2
+      }, {
+        onConflict: 'date,user_id',
+        ignoreDuplicates: false
+      })
+      .select()
       .single();
 
-    if (existingGoal) {
-      // Atualizar existente
-      const { data, error } = await supabaseClient
-        .from('daily_goals')
-        .update({
-          target_operations: 4,
-          target_pnl_percent: 12.0,
-          max_losses: 2
-        })
-        .eq('id', existingGoal.id)
-        .select()
-        .single();
+    if (error) throw error;
 
-      if (error) throw error;
+    console.log(`✅ Daily goals atualizados para ${today}:`, data);
 
-      console.log(`✅ Daily goals atualizados para ${today}:`, data);
-
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: 'Daily goals atualizados com sucesso',
-          data 
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    } else {
-      // Criar novo
-      const { data, error } = await supabaseClient
-        .from('daily_goals')
-        .insert({
-          user_id: user.id,
-          date: today,
-          target_operations: 4,
-          target_pnl_percent: 12.0,
-          max_losses: 2,
-          total_operations: 0,
-          wins: 0,
-          losses: 0,
-          total_pnl: 0,
-          completed: false
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      console.log(`✅ Daily goals criados para ${today}:`, data);
-
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: 'Daily goals criados com sucesso',
-          data 
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        message: 'Daily goals atualizados com sucesso',
+        data 
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
 
   } catch (error) {
     console.error('❌ Erro ao atualizar daily goals:', error);
