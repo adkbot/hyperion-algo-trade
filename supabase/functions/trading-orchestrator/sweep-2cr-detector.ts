@@ -165,10 +165,10 @@ export async function detect2CRAfterSweep(
         
         const risk = Math.abs(entryPrice - stopLoss);
         const takeProfit = intention === 'BULLISH'
-          ? entryPrice + (risk * 2.5) // R:R 1:2.5
-          : entryPrice - (risk * 2.5);
+          ? entryPrice + (risk * 3.0) // R:R 1:3.0 FIXO
+          : entryPrice - (risk * 3.0);
         
-        const riskReward = 2.5;
+        const riskReward = 3.0; // SEMPRE 3.0
         
         console.log(`\n💰 DIRECT ENTRY (MODO RELAXADO):`);
         console.log(`   ├─ Entry: ${entryPrice}`);

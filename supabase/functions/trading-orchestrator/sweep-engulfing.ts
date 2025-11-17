@@ -186,12 +186,12 @@ export async function detectEngulfingAfterSweep(
     entryPrice = nextCandle.close;
     stopLoss = Math.min(sweepCandle.low, nextCandle.low) * 0.9995; // Stop abaixo da mínima
     const risk = entryPrice - stopLoss;
-    takeProfit = entryPrice + (risk * 2.0); // R:R 1:2
+    takeProfit = entryPrice + (risk * 3.0); // R:R 1:3.0 FIXO
   } else {
     entryPrice = nextCandle.close;
     stopLoss = Math.max(sweepCandle.high, nextCandle.high) * 1.0005; // Stop acima da máxima
     const risk = stopLoss - entryPrice;
-    takeProfit = entryPrice - (risk * 2.0); // R:R 1:2
+    takeProfit = entryPrice - (risk * 3.0); // R:R 1:3.0 FIXO
   }
   
   const riskReward = Math.abs(takeProfit - entryPrice) / Math.abs(entryPrice - stopLoss);

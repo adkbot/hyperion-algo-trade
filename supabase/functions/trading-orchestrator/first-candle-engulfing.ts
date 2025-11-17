@@ -241,7 +241,8 @@ function calculateTradeParams(
   
   const stopDistance = Math.abs(entryPrice - stopLoss);
   const profitDistance = Math.abs(takeProfit - entryPrice);
-  const riskReward = profitDistance / stopDistance;
+  // ✅ SEMPRE 3.0 - não recalcular após arredondamento
+  const riskReward = 3.0;
   
   // ✅ VALIDAÇÃO DE SANIDADE
   if (direction === 'BUY' && stopLoss >= entryPrice) {

@@ -341,6 +341,42 @@ export type Database = {
         }
         Relationships: []
       }
+      protection_logs: {
+        Row: {
+          asset: string
+          confidence: number
+          created_at: string | null
+          decision: string
+          id: string
+          position_id: string | null
+          reason: string
+          rr_at_decision: number
+          user_id: string | null
+        }
+        Insert: {
+          asset: string
+          confidence: number
+          created_at?: string | null
+          decision: string
+          id?: string
+          position_id?: string | null
+          reason: string
+          rr_at_decision: number
+          user_id?: string | null
+        }
+        Update: {
+          asset?: string
+          confidence?: number
+          created_at?: string | null
+          decision?: string
+          id?: string
+          position_id?: string | null
+          reason?: string
+          rr_at_decision?: number
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       session_foundation: {
         Row: {
           created_at: string | null
