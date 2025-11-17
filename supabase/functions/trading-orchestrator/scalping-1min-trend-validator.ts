@@ -225,14 +225,15 @@ export function validateTrend(
     console.log(`   ${higherHighs ? '✅' : '❌'} Critério 3: Higher Highs (máximos ascendentes)`);
     detailedAnalysis.push(`Higher Highs: ${higherHighs ? 'Confirmado ✅' : 'Negado ❌'}`);
     
-    // CRITÉRIO 4: Volume crescente
+    // CRITÉRIO 4: Volume crescente ou estável (aceita INCREASING ou FLAT)
     const volumeTrend = analyzeVolumeTrend(recentCandles, 'BUY');
-    const criterion4 = volumeTrend === 'INCREASING';
-    console.log(`   ${criterion4 ? '✅' : '❌'} Critério 4: Volume crescente (${volumeTrend})`);
+    const criterion4 = volumeTrend === 'INCREASING' || volumeTrend === 'FLAT';
+    console.log(`   ${criterion4 ? '✅' : '❌'} Critério 4: Volume adequado (${volumeTrend})`);
     detailedAnalysis.push(`Volume: ${volumeTrend} ${criterion4 ? '✅' : '❌'}`);
     
-    // CRITÉRIO 5: Preço acima da MA10
-    const priceAboveMA = currentPrice > ma10;
+    // CRITÉRIO 5: Preço acima da MA10 (com tolerância de -0.2%)
+    const tolerance = 0.002; // 0.2%
+    const priceAboveMA = currentPrice > (ma10 * (1 - tolerance));
     const priceVsMA = priceAboveMA ? 'ABOVE' : 'BELOW';
     const maDistance = ((currentPrice - ma10) / ma10 * 100).toFixed(3);
     console.log(`   ${priceAboveMA ? '✅' : '❌'} Critério 5: Preço vs MA10`);
@@ -241,8 +242,10 @@ export function validateTrend(
     console.log(`      └─ Distância: ${maDistance}%`);
     detailedAnalysis.push(`Preço vs MA10: ${maDistance}% ${priceAboveMA ? '(acima) ✅' : '(abaixo) ❌'}`);
     
-    // DECISÃO FINAL
-    const isValid = criterion1 && higherLows && higherHighs && criterion4 && priceAboveMA;
+    // DECISÃO FINAL: Validar 3 de 5 critérios
+    const criteriaCount = [criterion1, higherLows, higherHighs, criterion4, priceAboveMA]
+      .filter(c => c).length;
+    const isValid = criteriaCount >= 3;
     const strength = (
       (criterion1 ? 20 : 0) +
       (higherLows ? 20 : 0) +
@@ -252,6 +255,7 @@ export function validateTrend(
     );
     
     console.log(`\n${isValid ? '✅ TENDÊNCIA BULLISH CONFIRMADA!' : '❌ TENDÊNCIA BULLISH NÃO CONFIRMADA'}`);
+    console.log(`   └─ Critérios atendidos: ${criteriaCount}/5 (mínimo: 3)`);
     console.log(`   └─ Força da tendência: ${strength}%`);
     console.log(`${'='.repeat(80)}\n`);
     
@@ -295,14 +299,15 @@ export function validateTrend(
     console.log(`   ${lowerLows ? '✅' : '❌'} Critério 3: Lower Lows (mínimos descendentes)`);
     detailedAnalysis.push(`Lower Lows: ${lowerLows ? 'Confirmado ✅' : 'Negado ❌'}`);
     
-    // CRITÉRIO 4: Volume (aceitamos qualquer tendência para bearish)
+    // CRITÉRIO 4: Volume decrescente ou estável (aceita DECREASING ou FLAT)
     const volumeTrend = analyzeVolumeTrend(recentCandles, 'SELL');
-    const criterion4 = volumeTrend !== 'DECREASING'; // Não queremos volume decrescente
+    const criterion4 = volumeTrend === 'DECREASING' || volumeTrend === 'FLAT';
     console.log(`   ${criterion4 ? '✅' : '❌'} Critério 4: Volume adequado (${volumeTrend})`);
     detailedAnalysis.push(`Volume: ${volumeTrend} ${criterion4 ? '✅' : '❌'}`);
     
-    // CRITÉRIO 5: Preço abaixo da MA10
-    const priceBelowMA = currentPrice < ma10;
+    // CRITÉRIO 5: Preço abaixo da MA10 (com tolerância de +0.2%)
+    const tolerance = 0.002; // 0.2%
+    const priceBelowMA = currentPrice < (ma10 * (1 + tolerance));
     const priceVsMA = priceBelowMA ? 'BELOW' : 'ABOVE';
     const maDistance = ((currentPrice - ma10) / ma10 * 100).toFixed(3);
     console.log(`   ${priceBelowMA ? '✅' : '❌'} Critério 5: Preço vs MA10`);
@@ -311,8 +316,10 @@ export function validateTrend(
     console.log(`      └─ Distância: ${maDistance}%`);
     detailedAnalysis.push(`Preço vs MA10: ${maDistance}% ${priceBelowMA ? '(abaixo) ✅' : '(acima) ❌'}`);
     
-    // DECISÃO FINAL
-    const isValid = criterion1 && lowerHighs && lowerLows && criterion4 && priceBelowMA;
+    // DECISÃO FINAL: Validar 3 de 5 critérios
+    const criteriaCount = [criterion1, lowerHighs, lowerLows, criterion4, priceBelowMA]
+      .filter(c => c).length;
+    const isValid = criteriaCount >= 3;
     const strength = (
       (criterion1 ? 20 : 0) +
       (lowerHighs ? 20 : 0) +
@@ -322,6 +329,7 @@ export function validateTrend(
     );
     
     console.log(`\n${isValid ? '✅ TENDÊNCIA BEARISH CONFIRMADA!' : '❌ TENDÊNCIA BEARISH NÃO CONFIRMADA'}`);
+    console.log(`   └─ Critérios atendidos: ${criteriaCount}/5 (mínimo: 3)`);
     console.log(`   └─ Força da tendência: ${strength}%`);
     console.log(`${'='.repeat(80)}\n`);
     
