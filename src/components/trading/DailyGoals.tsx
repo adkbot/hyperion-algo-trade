@@ -1,13 +1,16 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Target, TrendingUp, TrendingDown, Clock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Target, TrendingUp, TrendingDown, Clock, RefreshCw } from "lucide-react";
 import { useDailyGoals } from "@/hooks/useTradingData";
+import { useUpdateDailyGoals } from "@/hooks/useUpdateDailyGoals";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export const DailyGoals = () => {
   const { data: goals } = useDailyGoals();
+  const updateDailyGoals = useUpdateDailyGoals();
 
   // Buscar operações por sessão
   const { data: sessionTrades } = useQuery({
@@ -47,9 +50,21 @@ export const DailyGoals = () => {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">Operações por Sessão</CardTitle>
-          <Badge className={dailyStats.dailyProfit >= 0 ? "bg-profit" : "bg-loss"}>
-            {dailyStats.dailyProfit >= 0 ? '+' : ''}${dailyStats.dailyProfit.toFixed(2)}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => updateDailyGoals.mutate()}
+              disabled={updateDailyGoals.isPending}
+              className="h-8 w-8 p-0"
+              title="Atualizar metas"
+            >
+              <RefreshCw className={`h-4 w-4 ${updateDailyGoals.isPending ? 'animate-spin' : ''}`} />
+            </Button>
+            <Badge className={dailyStats.dailyProfit >= 0 ? "bg-profit" : "bg-loss"}>
+              {dailyStats.dailyProfit >= 0 ? '+' : ''}${dailyStats.dailyProfit.toFixed(2)}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
