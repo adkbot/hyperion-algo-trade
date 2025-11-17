@@ -1134,6 +1134,57 @@ async function processUserTradingCycle(
               userId,
               supabase
             });
+            
+            // 🔄 AUTO-SWITCH: Se ADK sem sinal há 3h, mudar para Scalping 1min
+            if (analysis?.notes?.includes('Considere ativar Scalping 1min')) {
+              console.log('\n🔄 AUTO-SWITCH DETECTADO: ADK sem sinal há 3h+');
+              console.log('📊 Mudando automaticamente para SCALPING_1MIN...');
+              
+              // Atualizar estratégia do usuário
+              const { error: updateError } = await supabase
+                .from('user_settings')
+                .update({ 
+                  trading_strategy: 'SCALPING_1MIN',
+                  updated_at: new Date().toISOString()
+                })
+                .eq('user_id', userId);
+              
+              if (updateError) {
+                console.error('❌ Erro ao atualizar estratégia:', updateError);
+              } else {
+                console.log('✅ Estratégia alterada: FIRST_CANDLE_ADK → SCALPING_1MIN');
+                
+                // Atualizar daily_goals para nova estratégia
+                const today = new Date().toISOString().split('T')[0];
+                const { error: goalsError } = await supabase
+                  .from('daily_goals')
+                  .upsert({
+                    user_id: userId,
+                    date: today,
+                    target_operations: 4,
+                    max_losses: 2,
+                    target_pnl_percent: 12.0,
+                    updated_at: new Date().toISOString()
+                  }, { onConflict: 'user_id,date' });
+                
+                if (goalsError) {
+                  console.error('❌ Erro ao atualizar daily_goals:', goalsError);
+                } else {
+                  console.log('✅ Daily goals atualizados para Scalping 1min (4 ops/dia, 12% target)');
+                }
+                
+                // Re-analisar com nova estratégia (mas só neste loop, próximo loop já vai usar a nova)
+                console.log(`🔄 Re-analisando ${pair} com SCALPING_1MIN...`);
+                const { analyzeScalping1Min } = await import('./scalping-1min-analyzer.ts');
+                analysis = await analyzeScalping1Min({
+                  candles: { '1m': candles['1m'], '5m': candles['5m'] },
+                  asset: pair,
+                  session: currentSession,
+                  userId,
+                  supabase
+                });
+              }
+            }
           } else if (selectedStrategy === 'SCALPING_1MIN') {
             // ESTRATÉGIA: Scalping 1 Minuto (FVG)
             const { analyzeScalping1Min } = await import('./scalping-1min-analyzer.ts');
