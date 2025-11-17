@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.clear-scalping-history]
 verify_jwt = false
+
+[functions.update-daily-goals]
+verify_jwt = false
