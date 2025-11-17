@@ -231,8 +231,8 @@ export function validateTrend(
     console.log(`   ${criterion4 ? '✅' : '❌'} Critério 4: Volume adequado (${volumeTrend})`);
     detailedAnalysis.push(`Volume: ${volumeTrend} ${criterion4 ? '✅' : '❌'}`);
     
-    // CRITÉRIO 5: Preço acima da MA10 (com tolerância de -0.2%)
-    const tolerance = 0.002; // 0.2%
+    // CRITÉRIO 5: Preço acima da MA10 (com tolerância de -0.5%)
+    const tolerance = 0.005; // 0.5% (FASE 2: Aumentado de 0.2% para 0.5%)
     const priceAboveMA = currentPrice > (ma10 * (1 - tolerance));
     const priceVsMA = priceAboveMA ? 'ABOVE' : 'BELOW';
     const maDistance = ((currentPrice - ma10) / ma10 * 100).toFixed(3);
@@ -242,10 +242,11 @@ export function validateTrend(
     console.log(`      └─ Distância: ${maDistance}%`);
     detailedAnalysis.push(`Preço vs MA10: ${maDistance}% ${priceAboveMA ? '(acima) ✅' : '(abaixo) ❌'}`);
     
-    // DECISÃO FINAL: Validar 3 de 5 critérios
+    // DECISÃO FINAL: Validar 2 de 5 critérios (FASE 2: Reduzido de 3 para 2)
     const criteriaCount = [criterion1, higherLows, higherHighs, criterion4, priceAboveMA]
       .filter(c => c).length;
-    const isValid = criteriaCount >= 3;
+    const requiredCriteria = 2; // FASE 2: Flexibilizado de 3 para 2
+    const isValid = criteriaCount >= requiredCriteria;
     const strength = (
       (criterion1 ? 20 : 0) +
       (higherLows ? 20 : 0) +
@@ -255,7 +256,7 @@ export function validateTrend(
     );
     
     console.log(`\n${isValid ? '✅ TENDÊNCIA BULLISH CONFIRMADA!' : '❌ TENDÊNCIA BULLISH NÃO CONFIRMADA'}`);
-    console.log(`   └─ Critérios atendidos: ${criteriaCount}/5 (mínimo: 3)`);
+    console.log(`   └─ Critérios atendidos: ${criteriaCount}/5 (mínimo: ${requiredCriteria})`);
     console.log(`   └─ Força da tendência: ${strength}%`);
     console.log(`${'='.repeat(80)}\n`);
     

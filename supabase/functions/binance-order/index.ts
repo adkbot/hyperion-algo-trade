@@ -499,6 +499,163 @@ serve(async (req) => {
       // Continuar com dados calculados como fallback
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🛡️ FASE 1: ENVIAR STOP LOSS E TAKE PROFIT PARA BINANCE (CRÍTICO!)
+    // ═══════════════════════════════════════════════════════════════════════════
+    console.log('\n🛡️ ENVIANDO ORDENS DE PROTEÇÃO PARA BINANCE...');
+    
+    let stopOrderId = null;
+    let takeProfitOrderId = null;
+
+    try {
+      // 1️⃣ ENVIAR STOP LOSS (STOP_MARKET)
+      console.log(`\n1️⃣ Criando STOP LOSS em ${finalStopLoss}...`);
+      
+      const stopSide = direction === 'BUY' ? 'SELL' : 'BUY'; // Oposto da entrada
+      const stopTimestamp = Date.now();
+      const stopParams = new URLSearchParams({
+        symbol: asset,
+        side: stopSide,
+        type: 'STOP_MARKET',
+        stopPrice: finalStopLoss.toString(),
+        closePosition: 'true', // Fecha posição completa
+        workingType: 'MARK_PRICE', // Usar mark price (mais confiável)
+        timestamp: stopTimestamp.toString(),
+      });
+
+      const stopEncoder = new TextEncoder();
+      const stopKey = await crypto.subtle.importKey(
+        'raw',
+        stopEncoder.encode(userApiSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const stopSignature = await crypto.subtle.sign(
+        'HMAC',
+        stopKey,
+        stopEncoder.encode(stopParams.toString())
+      );
+      const stopSignatureHex = Array.from(new Uint8Array(stopSignature))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      stopParams.append('signature', stopSignatureHex);
+
+      const stopResponse = await fetch(
+        `https://fapi.binance.com/fapi/v1/order?${stopParams}`,
+        { 
+          method: 'POST',
+          headers: { 'X-MBX-APIKEY': userApiKey }
+        }
+      );
+
+      if (stopResponse.ok) {
+        const stopResult = await stopResponse.json();
+        stopOrderId = stopResult.orderId;
+        console.log(`✅ Stop Loss criado: Order ID ${stopOrderId}`);
+      } else {
+        const stopError = await stopResponse.text();
+        console.error(`❌ ERRO CRÍTICO ao criar Stop Loss:`, stopError);
+        
+        // FECHAR POSIÇÃO IMEDIATAMENTE se stop loss falhar
+        console.log('🚨 FECHANDO POSIÇÃO POR SEGURANÇA...');
+        const closeTimestamp = Date.now();
+        const closeParams = new URLSearchParams({
+          symbol: asset,
+          side: stopSide,
+          type: 'MARKET',
+          quantity: formattedQuantity.toString(),
+          timestamp: closeTimestamp.toString(),
+        });
+        
+        const closeEncoder = new TextEncoder();
+        const closeKey = await crypto.subtle.importKey(
+          'raw',
+          closeEncoder.encode(userApiSecret),
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['sign']
+        );
+        const closeSignature = await crypto.subtle.sign(
+          'HMAC',
+          closeKey,
+          closeEncoder.encode(closeParams.toString())
+        );
+        const closeSignatureHex = Array.from(new Uint8Array(closeSignature))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        closeParams.append('signature', closeSignatureHex);
+        
+        await fetch(
+          `https://fapi.binance.com/fapi/v1/order?${closeParams}`,
+          { 
+            method: 'POST',
+            headers: { 'X-MBX-APIKEY': userApiKey }
+          }
+        );
+        
+        throw new Error('Stop Loss falhou - posição fechada por segurança');
+      }
+
+      // 2️⃣ ENVIAR TAKE PROFIT (TAKE_PROFIT_MARKET)
+      console.log(`\n2️⃣ Criando TAKE PROFIT em ${finalTakeProfit}...`);
+      
+      const tpTimestamp = Date.now();
+      const tpParams = new URLSearchParams({
+        symbol: asset,
+        side: stopSide,
+        type: 'TAKE_PROFIT_MARKET',
+        stopPrice: finalTakeProfit.toString(),
+        closePosition: 'true',
+        workingType: 'MARK_PRICE',
+        timestamp: tpTimestamp.toString(),
+      });
+
+      const tpEncoder = new TextEncoder();
+      const tpKey = await crypto.subtle.importKey(
+        'raw',
+        tpEncoder.encode(userApiSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const tpSignature = await crypto.subtle.sign(
+        'HMAC',
+        tpKey,
+        tpEncoder.encode(tpParams.toString())
+      );
+      const tpSignatureHex = Array.from(new Uint8Array(tpSignature))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      tpParams.append('signature', tpSignatureHex);
+
+      const tpResponse = await fetch(
+        `https://fapi.binance.com/fapi/v1/order?${tpParams}`,
+        { 
+          method: 'POST',
+          headers: { 'X-MBX-APIKEY': userApiKey }
+        }
+      );
+
+      if (tpResponse.ok) {
+        const tpResult = await tpResponse.json();
+        takeProfitOrderId = tpResult.orderId;
+        console.log(`✅ Take Profit criado: Order ID ${takeProfitOrderId}`);
+      } else {
+        const tpError = await tpResponse.text();
+        console.error(`⚠️ ERRO ao criar Take Profit (continuando apenas com stop):`, tpError);
+        // Continuar apenas com stop loss - não é crítico
+      }
+
+      console.log(`\n✅ ORDENS DE PROTEÇÃO CONFIGURADAS NA BINANCE:`);
+      console.log(`   ├─ 🛑 Stop Loss: ${finalStopLoss} (Order ID: ${stopOrderId})`);
+      console.log(`   └─ 🎯 Take Profit: ${finalTakeProfit} (Order ID: ${takeProfitOrderId || 'N/A'})`);
+      
+    } catch (protectionError: any) {
+      console.error('❌ ERRO CRÍTICO nas ordens de proteção:', protectionError);
+      throw new Error(`Falha ao configurar proteção: ${protectionError?.message || String(protectionError)}`);
+    }
+
     // ✅ Save to database COM DADOS REAIS DA BINANCE
     const { error: insertError } = await supabase
       .from('active_positions')
