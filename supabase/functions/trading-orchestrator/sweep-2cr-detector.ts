@@ -477,14 +477,14 @@ function calculateDirectEntry(
     const entry = confirmation2CR.candle2.close;
     const stop = confirmation2CR.resistanceLevel || Math.max(confirmation2CR.candle1.high, confirmation2CR.candle2.high);
     const risk = stop - entry;
-    const target = entry - (risk * 2); // R:R 1:2
+    const target = entry - (risk * 3); // R:R 3:1
     
     return {
       signal: 'SELL',
       entryPrice: entry,
       stopLoss: stop,
       takeProfit: Math.max(target, foundationLow), // Não ultrapassar foundation low
-      riskReward: 2,
+      riskReward: 3,
       confidence: 80,
       reason: '2CR Bearish confirmado - Entrada direta (sem 2CR oposto)'
     };
@@ -493,14 +493,14 @@ function calculateDirectEntry(
     const entry = confirmation2CR.candle2.close;
     const stop = confirmation2CR.supportLevel || Math.min(confirmation2CR.candle1.low, confirmation2CR.candle2.low);
     const risk = entry - stop;
-    const target = entry + (risk * 2); // R:R 1:2
+    const target = entry + (risk * 3); // R:R 3:1
     
     return {
       signal: 'BUY',
       entryPrice: entry,
       stopLoss: stop,
       takeProfit: Math.min(target, foundationHigh), // Não ultrapassar foundation high
-      riskReward: 2,
+      riskReward: 3,
       confidence: 80,
       reason: '2CR Bullish confirmado - Entrada direta (sem 2CR oposto)'
     };
@@ -524,14 +524,14 @@ function calculatePrecisionEntry(
     const stop = opposite2CR.supportLevel || Math.min(opposite2CR.candle1.low, opposite2CR.candle2.low);
     const stopWithBuffer = stop + (Math.abs(stop) * 0.001); // 0.1% buffer
     const risk = stopWithBuffer - entry;
-    const target = entry - (risk * 2); // R:R 1:2
+    const target = entry - (risk * 3); // R:R 3:1
     
     return {
       signal: 'SELL',
       entryPrice: entry,
       stopLoss: stopWithBuffer,
       takeProfit: target,
-      riskReward: 2,
+      riskReward: 3,
       confidence: 90, // Alta confiança (50/50 resolvido)
       reason: '2CR Bullish desrespeitado - Entrada de máxima precisão (cenário 50/50 resolvido)'
     };
@@ -541,14 +541,14 @@ function calculatePrecisionEntry(
     const stop = opposite2CR.resistanceLevel || Math.max(opposite2CR.candle1.high, opposite2CR.candle2.high);
     const stopWithBuffer = stop - (Math.abs(stop) * 0.001); // 0.1% buffer
     const risk = entry - stopWithBuffer;
-    const target = entry + (risk * 2); // R:R 1:2
+    const target = entry + (risk * 3); // R:R 3:1
     
     return {
       signal: 'BUY',
       entryPrice: entry,
       stopLoss: stopWithBuffer,
       takeProfit: target,
-      riskReward: 2,
+      riskReward: 3,
       confidence: 90, // Alta confiança (50/50 resolvido)
       reason: '2CR Bearish desrespeitado - Entrada de máxima precisão (cenário 50/50 resolvido)'
     };

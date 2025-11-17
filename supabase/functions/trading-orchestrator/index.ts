@@ -95,7 +95,7 @@ function calculateAdaptiveRisk(baseRisk: number, dailyGoals: any): number {
 }
 
 // ============================================
-// 🔵 FASE 4: MONITORAR POSIÇÕES ATIVAS (MOMENTUM AVANÇADO)
+// 🔵 TRAVA DE SEGURANÇA UNIVERSAL - RR 1:1
 // ============================================
 async function monitorActivePositionsAdvanced(supabase: any, userId: string): Promise<void> {
   const { data: positions } = await supabase
@@ -105,62 +105,35 @@ async function monitorActivePositionsAdvanced(supabase: any, userId: string): Pr
     
   if (!positions || positions.length === 0) return;
   
+  // Importar proteção universal
+  const { shouldClosePosition } = await import('./position-protection.ts');
+  
   for (const pos of positions) {
     if (!pos.current_price || !pos.entry_price) continue;
     
-    // Determinar qual analyzer usar baseado na estratégia
-    const strategy = (pos.agents as any)?.strategy || 'SCALPING_1MIN';
+    console.log(`📊 Verificando proteção de ${pos.asset}...`);
     
-    let analyzer;
-    if (strategy === 'FIRST_CANDLE_RULE') {
-      // Usar analyzer do First Candle
-      analyzer = await import('./first-candle-momentum-analyzer.ts');
-    } else {
-      // Usar analyzer padrão (SCALPING_1MIN)
-      analyzer = await import('./scalping-1min-momentum-analyzer.ts');
-    }
+    // Usar proteção universal para TODOS os sistemas
+    const decision = await shouldClosePosition(pos);
     
-    const { calculateCurrentRR, shouldClosePosition } = analyzer;
-    
-    // CALCULAR RR ATUAL
-    const rr = calculateCurrentRR(pos);
-    
-    console.log(`📊 Monitorando ${pos.asset} [${strategy}]: RR atual = ${rr.toFixed(2)}`);
-    
-    // ZONA DE PROTEÇÃO: 1.0 - 1.5 RR
-    if (rr >= 1.0 && rr <= 1.5) {
-      console.log(`🔍 ZONA DE PROTEÇÃO ATIVADA - Analisando momentum...`);
+    if (decision.shouldClose) {
+      console.log(`🚨 TRAVA RR 1:1 ATIVADA: ${decision.reason}`);
       
-      // Analisar se deve fechar (o analyzer cuida de buscar os candles)
-      const decision = await shouldClosePosition(pos);
+      // Chamar edge function para fechar posição
+      const { data: closeData, error: closeError } = await supabase.functions.invoke('binance-close-order', {
+        body: { user_id: userId, position_id: pos.id }
+      });
       
-      if (decision.shouldClose) {
-        console.log(`🚨 FECHAMENTO ANTECIPADO [${strategy}]: ${decision.reason}`);
-        
-        // Chamar edge function para fechar posição
-        const { data: closeData, error: closeError } = await supabase.functions.invoke('binance-close-order', {
-          body: { user_id: userId, position_id: pos.id }
-        });
-        
-        if (closeError) {
-          console.error(`❌ Erro ao fechar posição ${pos.asset}:`, closeError);
-        } else {
-          console.log(`✅ Posição ${pos.asset} fechada com lucro em RR ${rr.toFixed(2)}`);
-          console.log(`💰 P&L: $${pos.current_pnl?.toFixed(2) || 'N/A'}`);
-        }
+      if (closeError) {
+        console.error(`❌ Erro ao fechar posição ${pos.asset}:`, closeError);
       } else {
-        console.log(`✅ Mantendo posição: ${decision.reason}`);
+        console.log(`✅ Posição ${pos.asset} fechada - RR ${decision.currentRR.toFixed(2)}:1`);
+        console.log(`💰 P&L: $${pos.current_pnl?.toFixed(2) || 'N/A'}`);
       }
-    }
-    
-    // Se RR > 1.5, continuar até target 3:1 (sem intervenção)
-    if (rr > 1.5) {
-      console.log(`🎯 RR ${rr.toFixed(2)} - Mantendo até target 3:1`);
-    }
-    
-    // Se RR < 1.0, ainda não atingiu zona de proteção
-    if (rr < 1.0) {
-      console.log(`⏳ RR ${rr.toFixed(2)} - Aguardando zona de proteção (1.0+)`);
+    } else {
+      if (decision.currentRR >= 1.0) {
+        console.log(`✅ Mantendo posição (RR ${decision.currentRR.toFixed(2)}): ${decision.reason}`);
+      }
     }
   }
 }

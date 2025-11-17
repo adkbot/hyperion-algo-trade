@@ -149,10 +149,10 @@ export const useDailyGoals = () => {
           .insert({
             date: today,
             user_id: user.id,
-            // Scalping 1Min: 4 operações (1 por sessão), 2 max losses
-            // Sweep Liquidity: 45 operações, 15 max losses
-            target_operations: isScalping1Min ? 4 : 45,
-            max_losses: isScalping1Min ? 2 : 15,
+            // TODOS OS SISTEMAS: 4 ops (1 por sessão), 12% target (RR 3:1), 2 max losses
+            target_operations: 4,
+            max_losses: 2,
+            target_pnl_percent: 12,
           })
           .select()
           .single();
@@ -215,16 +215,16 @@ export const useUpdateSettings = () => {
       
       if (error) throw error;
       
-      // Se mudou a estratégia, atualizar o daily_goals de hoje
+      // Atualizar daily_goals: TODOS os sistemas usam 4 ops, 12% target, RR 3:1
       if (settings.trading_strategy) {
         const today = new Date().toISOString().split('T')[0];
-        const isScalping1Min = settings.trading_strategy === 'SCALPING_1MIN';
         
         await supabase
           .from("daily_goals")
           .update({
-            target_operations: isScalping1Min ? 4 : 45,
-            max_losses: isScalping1Min ? 2 : 15,
+            target_operations: 4,
+            max_losses: 2,
+            target_pnl_percent: 12,
           })
           .eq("user_id", user.id)
           .eq("date", today);
