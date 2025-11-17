@@ -100,7 +100,18 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('❌ Erro ao atualizar daily goals:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+    console.error('❌ Error type:', typeof error);
+    console.error('❌ Error details:', JSON.stringify(error, null, 2));
+    
+    let errorMessage = 'Erro desconhecido';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    } else if (typeof error === 'object' && error !== null) {
+      errorMessage = JSON.stringify(error);
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    }
+    
     return new Response(
       JSON.stringify({ success: false, error: errorMessage }),
       { 
