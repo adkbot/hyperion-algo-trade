@@ -366,8 +366,28 @@ function find2CRPattern(
   intention: 'BULLISH' | 'BEARISH'
 ): TwoCRPattern | null {
   
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🔍 FASE 3: LOGS DETALHADOS PARA DIAGNÓSTICO
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log(`\n🔍 BUSCANDO PADRÃO 2CR:`);
+  console.log(`├─ Intenção: ${intention}`);
+  console.log(`├─ Velas disponíveis: ${candles.length}`);
+  console.log(`└─ Após timestamp: ${startAfterCandle.timestamp}`);
+  
   const startIndex = candles.findIndex(c => c.timestamp === startAfterCandle.timestamp);
-  if (startIndex === -1 || startIndex >= candles.length - 2) return null;
+  
+  if (startIndex === -1) {
+    console.log(`❌ Vela de referência não encontrada no array`);
+    return null;
+  }
+  
+  if (startIndex >= candles.length - 2) {
+    console.log(`❌ Não há velas suficientes após a referência (index: ${startIndex}/${candles.length})`);
+    return null;
+  }
+  
+  console.log(`✅ Vela de referência encontrada no index ${startIndex}`);
+  console.log(`📊 Analisando próximas ${Math.min(20, candles.length - startIndex - 1)} velas...\n`);
   
   // Buscar nas próximas 20 velas após o sweep
   const maxLookAhead = Math.min(startIndex + 20, candles.length - 1);
@@ -387,6 +407,11 @@ function find2CRPattern(
       const candle2Confirms = candle2.close < candle1.low || candle2.high < candle1.high;
       
       if (candle1HasRejection && candle2Confirms) {
+        console.log(`\n✅ PADRÃO 2CR ${intention} ENCONTRADO!`);
+        console.log(`├─ Candle 1 index: ${i}`);
+        console.log(`├─ Candle 2 index: ${i + 1}`);
+        console.log(`└─ Resistance Level: ${candle1.high}\n`);
+        
         return {
           detected: true,
           candle1,
@@ -404,6 +429,11 @@ function find2CRPattern(
       const candle2Confirms = candle2.close > candle1.high || candle2.low > candle1.low;
       
       if (candle1HasRejection && candle2Confirms) {
+        console.log(`\n✅ PADRÃO 2CR ${intention} ENCONTRADO!`);
+        console.log(`├─ Candle 1 index: ${i}`);
+        console.log(`├─ Candle 2 index: ${i + 1}`);
+        console.log(`└─ Support Level: ${Math.min(candle1.low, candle2.low)}\n`);
+        
         return {
           detected: true,
           candle1,
@@ -414,6 +444,8 @@ function find2CRPattern(
       }
     }
   }
+  
+  console.log(`❌ Nenhum padrão 2CR ${intention} encontrado nas ${maxLookAhead - startIndex - 1} velas analisadas\n`);
   
   return null;
 }

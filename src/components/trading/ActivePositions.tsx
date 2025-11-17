@@ -1,18 +1,47 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, ArrowUp, TrendingUp, RefreshCw } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ArrowDown, ArrowUp, TrendingUp, RefreshCw, AlertTriangle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useActivePositions } from "@/hooks/useTradingData";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ClosePositionButton } from "./ClosePositionButton";
 
 export const ActivePositions = () => {
   const { data: positions } = useActivePositions();
   const { toast } = useToast();
   const [syncing, setSyncing] = useState(false);
+  const [binancePositions, setBinancePositions] = useState<any[]>([]);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🔍 FASE 5: BUSCAR POSIÇÕES DA BINANCE PARA COMPARAÇÃO
+  // ═══════════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    const fetchBinancePositions = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data, error } = await supabase.functions.invoke('sync-binance-positions', {
+          body: { user_id: user.id, dry_run: true }
+        });
+
+        if (!error && data?.positions) {
+          setBinancePositions(data.positions);
+        }
+      } catch (error) {
+        console.error('Erro ao buscar posições da Binance:', error);
+      }
+    };
+
+    fetchBinancePositions();
+    const interval = setInterval(fetchBinancePositions, 30000); // Atualizar a cada 30s
+
+    return () => clearInterval(interval);
+  }, []);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -81,6 +110,14 @@ export const ActivePositions = () => {
     };
   }) || [];
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🚨 FASE 5: DETECTAR POSIÇÕES NÃO MONITORADAS
+  // ═══════════════════════════════════════════════════════════════════════════
+  const unmatchedPositions = binancePositions.filter(bp => 
+    !positions?.some(ap => ap.asset === bp.symbol) && 
+    Math.abs(parseFloat(bp.positionAmt)) > 0
+  );
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -107,6 +144,43 @@ export const ActivePositions = () => {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* 🚨 ALERTA DE POSIÇÕES NÃO MONITORADAS (FASE 5) */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {unmatchedPositions.length > 0 && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle className="font-semibold">⚠️ Posições não monitoradas</AlertTitle>
+            <AlertDescription>
+              <div className="mt-2 space-y-1">
+                <p className="text-sm">
+                  {unmatchedPositions.length} posição(ões) aberta(s) manualmente na Binance 
+                  <strong className="text-destructive-foreground"> sem proteção de stop loss</strong>.
+                </p>
+                <div className="flex flex-col gap-1 mt-2 text-xs">
+                  {unmatchedPositions.map((pos, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-destructive/10 rounded px-2 py-1">
+                      <span className="font-mono">{pos.symbol}</span>
+                      <span className={parseFloat(pos.unRealizedProfit) >= 0 ? 'text-success' : 'text-destructive'}>
+                        ${parseFloat(pos.unRealizedProfit).toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  onClick={handleSync}
+                  disabled={syncing}
+                  className="mt-3 w-full"
+                >
+                  {syncing ? 'Sincronizando...' : 'Sincronizar e Proteger Agora'}
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {activePositions.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             Nenhuma posição ativa no momento
