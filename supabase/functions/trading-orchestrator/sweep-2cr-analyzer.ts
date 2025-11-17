@@ -143,10 +143,21 @@ export async function analyzeSweepWith2CR({
   console.log(`   └─ Timestamp: ${new Date(sweep.sweepCandle.timestamp).toISOString()}\n`);
   
   // ═══════════════════════════════════════════════════════════════════════
-  // 3. APLICAR LÓGICA 2CR COMPLETA
+  // 3. APLICAR LÓGICA 2CR (COM MODO RELAXADO)
   // ═══════════════════════════════════════════════════════════════════════
   
   console.log(`3️⃣ APLICANDO ESTRATÉGIA 2CR...`);
+  
+  // 🔍 Verificar se sweep foi há mais de 2h (modo relaxado ativa)
+  const sweepTimestamp = sweep.sweepCandle.timestamp;
+  const timeSinceSweep = Date.now() - sweepTimestamp;
+  const twoHoursInMs = 2 * 60 * 60 * 1000;
+  const relaxedMode = timeSinceSweep > twoHoursInMs;
+  
+  if (relaxedMode) {
+    console.log(`\n⚡ MODO RELAXADO ATIVADO (sweep há ${Math.round(timeSinceSweep / (60 * 60 * 1000))}h)`);
+    console.log(`   └─ Tentando Direct Entry com confirmação de 1 vela...\n`);
+  }
   
   const result = await detect2CRAfterSweep(
     candles['1m'],
@@ -154,7 +165,8 @@ export async function analyzeSweepWith2CR({
     sweep.direction!,
     foundation.high,
     foundation.low,
-    asset
+    asset,
+    relaxedMode // Passar flag para detector
   );
   
   // Retornar resultado no formato esperado pelo orchestrator (interface AnalysisResult)

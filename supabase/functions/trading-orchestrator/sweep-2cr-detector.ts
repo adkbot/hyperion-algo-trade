@@ -83,7 +83,8 @@ export async function detect2CRAfterSweep(
   sweepDirection: 'BUY' | 'SELL', // BUY = Sweep HIGH, SELL = Sweep LOW
   foundationHigh: number,
   foundationLow: number,
-  asset: string
+  asset: string,
+  relaxedMode: boolean = false // NOVO: Modo relaxado para direct entry
 ): Promise<DetectionResult> {
   
   console.log(`\n🔍 ═══════════════════════════════════════════════════════════════`);
@@ -118,10 +119,94 @@ export async function detect2CRAfterSweep(
   }
   
   // ═══════════════════════════════════════════════════════════════════════
+  // MODO RELAXADO: DIRECT ENTRY COM 1 VELA DE CONFIRMAÇÃO
+  // ═══════════════════════════════════════════════════════════════════════
+  
+  if (relaxedMode) {
+    console.log(`\n⚡ MODO RELAXADO: Buscando confirmação simples após sweep...`);
+    
+    // Pegar próximas 5 velas após sweep para análise
+    const candlesAfterSweep = candles1m.filter(c => c.timestamp > sweepCandle.timestamp).slice(0, 5);
+    
+    if (candlesAfterSweep.length >= 1) {
+      const confirmationCandle = candlesAfterSweep[0];
+      
+      // Calcular volume médio
+      const recentVolumes = candles1m.slice(-20).map(c => c.volume);
+      const avgVolume = recentVolumes.reduce((a, b) => a + b, 0) / recentVolumes.length;
+      const bodySize = Math.abs(confirmationCandle.close - confirmationCandle.open);
+      const candleRange = confirmationCandle.high - confirmationCandle.low;
+      const bodyRatio = bodySize / candleRange;
+      
+      // Critérios simples:
+      // 1. Volume 1.5x maior que média
+      // 2. Corpo > 60% da vela (vela expressiva)
+      // 3. Reversão na direção esperada
+      const isExpressive = confirmationCandle.volume > avgVolume * 1.5 && bodyRatio > 0.6;
+      const confirmsIntention = intention === 'BULLISH' 
+        ? confirmationCandle.close > confirmationCandle.open // Vela verde
+        : confirmationCandle.close < confirmationCandle.open; // Vela vermelha
+      
+      console.log(`   ├─ Vela confirmação: ${confirmsIntention ? '✅' : '❌'}`);
+      console.log(`   ├─ Volume: ${(confirmationCandle.volume / avgVolume).toFixed(2)}x (${isExpressive ? '✅' : '❌'})`);
+      console.log(`   └─ Corpo: ${(bodyRatio * 100).toFixed(1)}% (${bodyRatio > 0.6 ? '✅' : '❌'})`);
+      
+      if (isExpressive && confirmsIntention) {
+        console.log(`\n✅ CONFIRMAÇÃO RELAXADA ENCONTRADA!`);
+        
+        // Calcular entrada direta
+        const entryPrice = intention === 'BULLISH' 
+          ? confirmationCandle.close 
+          : confirmationCandle.close;
+        
+        const stopLoss = intention === 'BULLISH'
+          ? confirmationCandle.low - (confirmationCandle.low * 0.001) // 0.1% abaixo do low
+          : confirmationCandle.high + (confirmationCandle.high * 0.001); // 0.1% acima do high
+        
+        const risk = Math.abs(entryPrice - stopLoss);
+        const takeProfit = intention === 'BULLISH'
+          ? entryPrice + (risk * 2.5) // R:R 1:2.5
+          : entryPrice - (risk * 2.5);
+        
+        const riskReward = 2.5;
+        
+        console.log(`\n💰 DIRECT ENTRY (MODO RELAXADO):`);
+        console.log(`   ├─ Entry: ${entryPrice}`);
+        console.log(`   ├─ Stop Loss: ${stopLoss}`);
+        console.log(`   ├─ Take Profit: ${takeProfit}`);
+        console.log(`   └─ R:R: 1:${riskReward}`);
+        
+        return {
+          signal: intention === 'BULLISH' ? 'BUY' : 'SELL',
+          entryPrice,
+          stopLoss,
+          takeProfit,
+          riskReward,
+          confidence: 75, // Confiança moderada
+          reason: `Direct Entry (Modo Relaxado): Sweep ${sweepDirection} + confirmação de 1 vela expressiva`,
+          twocrData: {
+            firstArray: intention === 'BULLISH' ? 'DISCOUNT' : 'PREMIUM',
+            firstArrayDisrespected: true,
+            confirmationArray: null,
+            confirmationArrayRespected: false,
+            confirmation2CR: null,
+            opposite2CR: null,
+            opposite2CRDisrespected: false,
+            entryCandle: confirmationCandle,
+            scenario: 'DIRECT_ENTRY'
+          }
+        };
+      }
+    }
+    
+    console.log(`   └─ ❌ Confirmação relaxada não encontrada, voltando para lógica 2CR normal...`);
+  }
+  
+  // ═══════════════════════════════════════════════════════════════════════
   // PASSO 2: PROCURAR CONFIRMAÇÃO (2CR na direção da intenção)
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`2️⃣ PROCURANDO CONFIRMAÇÃO 2CR (${intention})...`);
+  console.log(`\n2️⃣ PROCURANDO CONFIRMAÇÃO 2CR (${intention})...`);
   
   const confirmation2CR = find2CRPattern(
     candles1m,
