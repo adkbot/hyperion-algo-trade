@@ -1197,6 +1197,35 @@ async function processUserTradingCycle(
             });
           } else {
             // ESTRATÉGIA PADRÃO: SWEEP DE LIQUIDEZ + 2CR (TWO CANDLE REVERSAL)
+            
+            // 🎯 AUTO-UPDATE DAILY GOALS para SWEEP_LIQUIDITY
+            const today = new Date().toISOString().split('T')[0];
+            const { data: existingGoals } = await supabase
+              .from('daily_goals')
+              .select('target_operations, target_pnl_percent')
+              .eq('user_id', userId)
+              .eq('date', today)
+              .single();
+            
+            // Atualizar se goals ainda estão com valores de ADK (45 ops) ou Scalping (4 ops)
+            if (existingGoals && (existingGoals.target_operations === 45 || existingGoals.target_operations === 4)) {
+              console.log('🔄 Atualizando daily_goals para SWEEP_LIQUIDITY...');
+              const { error: goalsError } = await supabase
+                .from('daily_goals')
+                .update({
+                  target_operations: 4, // 3-5 operações (média 4)
+                  max_losses: 2,
+                  target_pnl_percent: 10.0, // 10% target
+                  updated_at: new Date().toISOString()
+                })
+                .eq('user_id', userId)
+                .eq('date', today);
+              
+              if (!goalsError) {
+                console.log('✅ Daily goals atualizados: 4 ops/dia, 10% target, 2 max losses');
+              }
+            }
+            
             const { analyzeSweepWith2CR } = await import('./sweep-2cr-analyzer.ts');
             analysis = await analyzeSweepWith2CR({
               candles: { '1m': candles['1m'], '5m': candles['5m'] },
