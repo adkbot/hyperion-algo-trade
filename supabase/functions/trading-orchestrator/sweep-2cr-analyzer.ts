@@ -148,11 +148,10 @@ export async function analyzeSweepWith2CR({
   
   console.log(`3️⃣ APLICANDO ESTRATÉGIA 2CR...`);
   
-  // 🔍 Verificar se sweep foi há mais de 2h (modo relaxado ativa)
+  // 🔍 MODO RELAXADO SEMPRE ATIVO (entrada imediata após sweep)
   const sweepTimestamp = sweep.sweepCandle.timestamp;
   const timeSinceSweep = Date.now() - sweepTimestamp;
-  const twoHoursInMs = 2 * 60 * 60 * 1000;
-  const relaxedMode = timeSinceSweep > twoHoursInMs;
+  const relaxedMode = true; // ✅ SEMPRE ATIVO - entrada direta após sweep + confirmação
   
   if (relaxedMode) {
     console.log(`\n⚡ MODO RELAXADO ATIVADO (sweep há ${Math.round(timeSinceSweep / (60 * 60 * 1000))}h)`);
