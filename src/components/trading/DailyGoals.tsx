@@ -2,15 +2,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { Target, TrendingUp, TrendingDown, Clock, RefreshCw } from "lucide-react";
+import { Target, TrendingUp, TrendingDown, Clock, RefreshCw, Trash2 } from "lucide-react";
 import { useDailyGoals } from "@/hooks/useTradingData";
 import { useUpdateDailyGoals } from "@/hooks/useUpdateDailyGoals";
+import { useDatabaseCleanup } from "@/hooks/useDatabaseCleanup";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export const DailyGoals = () => {
   const { data: goals } = useDailyGoals();
   const updateDailyGoals = useUpdateDailyGoals();
+  const databaseCleanup = useDatabaseCleanup();
 
   // Buscar operações por sessão
   const { data: sessionTrades } = useQuery({
@@ -51,6 +53,16 @@ export const DailyGoals = () => {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">Operações por Sessão</CardTitle>
           <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => databaseCleanup.mutate()}
+              disabled={databaseCleanup.isPending}
+              className="h-8 w-8 p-0"
+              title="Limpar banco de dados"
+            >
+              <Trash2 className={`h-4 w-4 ${databaseCleanup.isPending ? 'animate-spin' : ''}`} />
+            </Button>
             <Button 
               variant="ghost" 
               size="sm"
