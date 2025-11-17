@@ -305,9 +305,9 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
   // ==========================================
   console.log(`\n📍 PASSO 5: Validando tamanho do FVG...`);
   const fvgSize = (fvg.fvgTop - fvg.fvgBottom) / fvg.fvgBottom;
-  const MIN_FVG_SIZE = 0.002; // 0.2%
+  const MIN_FVG_SIZE = 0.001; // 0.1% (REDUZIDO de 0.2%)
   
-  console.log(`   ├─ Tamanho do FVG: ${(fvgSize * 100).toFixed(3)}% (mínimo: 0.2%)`);
+  console.log(`   ├─ Tamanho do FVG: ${(fvgSize * 100).toFixed(3)}% (mínimo: 0.1%)`);
   
   if (fvgSize < MIN_FVG_SIZE) {
     console.log(`   └─ ❌ FVG muito pequeno - Operação REJEITADA`);
@@ -320,7 +320,7 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
       event_type: 'FVG_TOO_SMALL',
       signal: 'STAY_OUT',
       direction: fvg.direction,
-      notes: `FVG muito pequeno: ${(fvgSize * 100).toFixed(3)}% (requer >= 0.2%)`,
+      notes: `FVG muito pequeno: ${(fvgSize * 100).toFixed(3)}% (requer >= 0.1%)`,
       timestamp: new Date().toISOString(),
       market_data: {
         foundation: { high: foundation.high, low: foundation.low },
@@ -336,7 +336,7 @@ export async function analyzeScalping1Min(params: AnalysisParams): Promise<Analy
       takeProfit: 0,
       riskReward: 0,
       confidence: 0,
-      notes: `⏸️ FVG muito pequeno (${(fvgSize * 100).toFixed(3)}%) - Requer >= 0.2%`,
+      notes: `⏸️ FVG muito pequeno (${(fvgSize * 100).toFixed(3)}%) - Requer >= 0.1%`,
       foundation,
       fvg,
       trendValidation,
