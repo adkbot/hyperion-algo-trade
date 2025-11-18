@@ -41,6 +41,15 @@ export interface AnalysisResult {
     sweep1m?: SweepResult;
     bos1m?: any;
     ifvg?: IFVGResult;
+    analysisDetails?: {
+      rejection_reason?: string;
+      trend_strength?: string;
+      market_phase?: string;
+      total_fvgs?: number;
+      non_mitigated_fvgs?: number;
+      quality_threshold?: number;
+      [key: string]: any;
+    };
   };
 }
 
@@ -89,7 +98,14 @@ export async function analyzeFVGStrategy(
       takeProfit: 0,
       riskReward: 0,
       notes: 'Tendência neutra no 15m. Aguardando definição de direção.',
-      marketData: { trend15m },
+      marketData: { 
+        trend15m,
+        analysisDetails: {
+          rejection_reason: 'NEUTRAL_TREND',
+          trend_strength: 'low',
+          market_phase: 'consolidation'
+        }
+      },
     };
   }
   
@@ -118,7 +134,15 @@ export async function analyzeFVGStrategy(
       takeProfit: 0,
       riskReward: 0,
       notes: 'Nenhum FVG de alta qualidade detectado no 15m.',
-      marketData: { trend15m },
+      marketData: { 
+        trend15m,
+        analysisDetails: {
+          rejection_reason: 'NO_QUALITY_FVG',
+          total_fvgs: allFVGs15m.length,
+          non_mitigated_fvgs: nonMitigatedFVGs.length,
+          quality_threshold: 3
+        }
+      },
     };
   }
   

@@ -13,6 +13,8 @@ import { SessionStatePanel } from "@/components/trading/SessionStatePanel";
 import { SystemStatusPanel } from "@/components/trading/SystemStatusPanel";
 import { ADKPanel } from "@/components/trading/ADKPanel";
 import { FoundationDiagnostic } from "@/components/trading/FoundationDiagnostic";
+import { StrategyStatusPanel } from "@/components/trading/StrategyStatusPanel";
+import { MarketAnalysisSummary } from "@/components/trading/MarketAnalysisSummary";
 import { useUserSettings } from "@/hooks/useTradingData";
 import { useTradingOrchestrator } from "@/hooks/useTradingOrchestrator";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
@@ -59,8 +61,10 @@ const Index = () => {
           <div className="lg:col-span-1 space-y-2 sm:space-y-3">
             <StatsPanel />
             <DailyGoals />
+            <StrategyStatusPanel />
             <ActivePositions />
             <SystemStatusPanel />
+            <MarketAnalysisSummary />
             <ADKPanel />
             <FoundationDiagnostic />
             <SessionStatePanel />
