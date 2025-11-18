@@ -1132,11 +1132,12 @@ async function processUserTradingCycle(
           
           let analysis;
           
-          if (selectedStrategy === 'FIRST_CANDLE_RULE') {
-            // ESTRATÉGIA: First Candle Rule (Breakout → Reteste → Engulfing)
-            const { analyzeFirstCandleRule } = await import('./first-candle-analyzer.ts');
-            analysis = await analyzeFirstCandleRule({
-              candles: { '1m': candles['1m'], '5m': candles['5m'] },
+          if (selectedStrategy === 'FVG_MULTI_TF') {
+            // 📈 NOVA ESTRATÉGIA: FVG Multi-Timeframe (15m → 1m)
+            const { analyzeFVGStrategy } = await import('./fvg-strategy-analyzer.ts');
+            analysis = await analyzeFVGStrategy({
+              candles15m: candles['15m'],
+              candles1m: candles['1m'],
               asset: pair,
               userId,
               supabase

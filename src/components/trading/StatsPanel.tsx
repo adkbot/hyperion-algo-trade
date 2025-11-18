@@ -102,9 +102,10 @@ export const StatsPanel = () => {
             <div className="space-y-2">
               {strategyStats.map((stat: any) => {
                 const strategyConfig = {
-                  FIRST_CANDLE_RULE: { icon: '🎯', color: 'text-green-500', name: 'First Candle' },
+                  FVG_MULTI_TF: { icon: '📈', color: 'text-purple-500', name: 'FVG Multi-TF' },
                   SCALPING_1MIN: { icon: '⚡', color: 'text-orange-500', name: 'Scalping 1min' },
                   SWEEP_LIQUIDITY: { icon: '🌊', color: 'text-blue-500', name: 'Sweep Liq.' },
+                  FIRST_CANDLE_ADK: { icon: '🔷', color: 'text-cyan-500', name: 'ADK' },
                   UNKNOWN: { icon: '❓', color: 'text-gray-500', name: 'Desconhecida' },
                 };
                 const config = strategyConfig[stat.strategy as keyof typeof strategyConfig] || strategyConfig.UNKNOWN;

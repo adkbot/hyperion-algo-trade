@@ -29,7 +29,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
   const [apiSecret, setApiSecret] = useState("");
   const [leverage, setLeverage] = useState(20);
   const [profitTarget, setProfitTarget] = useState(100);
-  const [tradingStrategy, setTradingStrategy] = useState<'SWEEP_LIQUIDITY' | 'SCALPING_1MIN' | 'FIRST_CANDLE_RULE' | 'FIRST_CANDLE_ADK'>('SWEEP_LIQUIDITY');
+  const [tradingStrategy, setTradingStrategy] = useState<'SWEEP_LIQUIDITY' | 'SCALPING_1MIN' | 'FVG_MULTI_TF' | 'FIRST_CANDLE_ADK'>('SWEEP_LIQUIDITY');
 
   useEffect(() => {
     if (settings) {
@@ -41,7 +41,7 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
       setApiSecret(settings.api_secret || "");
       setLeverage(settings.leverage || 20);
       setProfitTarget(settings.profit_target_percent || 100);
-      setTradingStrategy(settings.trading_strategy as 'SWEEP_LIQUIDITY' | 'SCALPING_1MIN' | 'FIRST_CANDLE_RULE' | 'FIRST_CANDLE_ADK' || 'SWEEP_LIQUIDITY');
+      setTradingStrategy(settings.trading_strategy as 'SWEEP_LIQUIDITY' | 'SCALPING_1MIN' | 'FVG_MULTI_TF' | 'FIRST_CANDLE_ADK' || 'SWEEP_LIQUIDITY');
     }
   }, [settings]);
 
@@ -204,19 +204,19 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
             <select
               id="tradingStrategy"
               value={tradingStrategy}
-              onChange={(e) => setTradingStrategy(e.target.value as 'SWEEP_LIQUIDITY' | 'SCALPING_1MIN' | 'FIRST_CANDLE_RULE' | 'FIRST_CANDLE_ADK')}
+              onChange={(e) => setTradingStrategy(e.target.value as 'SWEEP_LIQUIDITY' | 'SCALPING_1MIN' | 'FVG_MULTI_TF' | 'FIRST_CANDLE_ADK')}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <option value="SWEEP_LIQUIDITY">Sweep de Liquidez + IA</option>
               <option value="SCALPING_1MIN">Scalping 1 Minuto (Mecânico)</option>
-              <option value="FIRST_CANDLE_RULE">First Candle Rule (Preciso)</option>
+              <option value="FVG_MULTI_TF">📈 FVG Multi-Timeframe (15m/1m)</option>
               <option value="FIRST_CANDLE_ADK">📊 First Candle ADK (Multi-TF)</option>
             </select>
             <p className="text-xs text-muted-foreground">
               {tradingStrategy === 'FIRST_CANDLE_ADK'
                 ? '🎯 ADK: Foundation 15m (dia) → Sweep 15m → FVG 15m → Retest 50% → Confirmação 1m. R:R 2.5:1. Alta precisão multi-timeframe.'
-                : tradingStrategy === 'FIRST_CANDLE_RULE'
-                ? '🎯 First Candle: Breakout → Reteste OBRIGATÓRIO → Engulfing IMEDIATO. RR 3:1. 1 trade por ciclo.'
+                : tradingStrategy === 'FVG_MULTI_TF'
+                ? '📈 FVG Multi-TF: Análise 15m (tendência + FVG qualidade) → Execução 1m (Liquidity Sweep + BOS/MSS + Entrada CE). RR ≥2:1.'
                 : tradingStrategy === 'SCALPING_1MIN' 
                 ? '🎯 Mecânica 100% FVG + engolfo. R:R fixo 3:1. Máximo 1 trade por sessão.'
                 : '📊 Sweep de liquidez + confirmação M1 + validação IA.'}
