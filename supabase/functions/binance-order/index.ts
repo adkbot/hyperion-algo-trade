@@ -57,8 +57,27 @@ serve(async (req) => {
     }
     
     // Atualizar valores corrigidos
-    const finalStopLoss = correctedStopLoss;
-    const finalTakeProfit = correctedTakeProfit;
+    // 🔧 Função para arredondar preço conforme tick size
+    function roundPrice(price: number, tickSize: number): number {
+      return Math.round(price / tickSize) * tickSize;
+    }
+    
+    // Tick sizes conhecidos (BTCUSDT = 0.1, ETHUSDT = 0.01)
+    const tickSizes: { [key: string]: number } = {
+      'BTCUSDT': 0.1,
+      'ETHUSDT': 0.01,
+      'BNBUSDT': 0.01,
+      'SOLUSDT': 0.001,
+      'ADAUSDT': 0.0001,
+      'DOTUSDT': 0.001,
+      'MATICUSDT': 0.0001,
+      'AVAXUSDT': 0.001
+    };
+    
+    const tickSize = tickSizes[asset] || 0.01; // Default 0.01
+    
+    const finalStopLoss = roundPrice(correctedStopLoss, tickSize);
+    const finalTakeProfit = roundPrice(correctedTakeProfit, tickSize);
     
     // Calcular distâncias
     const stopDistance = Math.abs(price - finalStopLoss);
