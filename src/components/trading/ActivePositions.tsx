@@ -87,6 +87,16 @@ export const ActivePositions = () => {
     return `${minutes}m ${seconds}s`;
   };
 
+  // ✅ Função para formatar preços com casas decimais adequadas
+  const formatPrice = (price: number) => {
+    if (price < 1) {
+      // Para preços < 1, mostrar até 8 casas decimais (removendo zeros à direita)
+      return `$${price.toFixed(8).replace(/\.?0+$/, '')}`;
+    }
+    // Para preços >= 1, usar 2 casas decimais
+    return `$${price.toFixed(2)}`;
+  };
+
   const activePositions = positions?.map((pos) => {
     const progressPercent = calculateProgress(
       pos.entry_price,
@@ -207,15 +217,15 @@ export const ActivePositions = () => {
               <div className="grid grid-cols-3 gap-2 text-sm">
                 <div>
                   <span className="text-muted-foreground">Entrada:</span>
-                  <div className="font-mono font-medium">${position.entry.toLocaleString()}</div>
+                  <div className="font-mono font-medium">{formatPrice(position.entry)}</div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Atual:</span>
-                  <div className="font-mono font-medium">${position.current.toLocaleString()}</div>
+                  <div className="font-mono font-medium">{formatPrice(position.current)}</div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Alvo:</span>
-                  <div className="font-mono font-medium">${position.target.toLocaleString()}</div>
+                  <div className="font-mono font-medium">{formatPrice(position.target)}</div>
                 </div>
               </div>
 
