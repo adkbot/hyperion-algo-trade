@@ -655,12 +655,35 @@ serve(async (req) => {
     // ═══════════════════════════════════════════════════════════════════════════
     console.log('\n🛡️ ENVIANDO ORDENS DE PROTEÇÃO PARA BINANCE...');
     
+    // 🔧 PASSO 1: BUSCAR PRECISÃO DE PREÇO DO SÍMBOLO
+    console.log('\n🔧 Buscando precisão de preço para formatação...');
+    const priceFilterResponse = await fetch(
+      `https://fapi.binance.com/fapi/v1/exchangeInfo?symbol=${asset}`,
+      { headers: { 'X-MBX-APIKEY': userApiKey } }
+    );
+    const priceFilterData = await priceFilterResponse.json();
+    const priceSymbolInfo = priceFilterData.symbols[0]; // ✅ Renomeado para evitar conflito
+    const pricePrecision = priceSymbolInfo.pricePrecision;
+    
+    console.log(`\n🔧 FORMATANDO PREÇOS DE PROTEÇÃO:`);
+    console.log(`├─ Stop Loss original: $${finalStopLoss}`);
+    console.log(`├─ Take Profit original: $${finalTakeProfit}`);
+    console.log(`└─ Precisão de preço: ${pricePrecision} decimais`);
+    
+    // ✅ FORMATAR COM PRECISÃO CORRETA
+    const formattedStopLoss = parseFloat(finalStopLoss.toFixed(pricePrecision));
+    const formattedTakeProfit = parseFloat(finalTakeProfit.toFixed(pricePrecision));
+    
+    console.log(`\n✅ PREÇOS FORMATADOS:`);
+    console.log(`├─ Stop Loss: $${formattedStopLoss}`);
+    console.log(`└─ Take Profit: $${formattedTakeProfit}`);
+    
     let stopOrderId = null;
     let takeProfitOrderId = null;
 
     try {
       // 1️⃣ ENVIAR STOP LOSS (STOP_MARKET)
-      console.log(`\n1️⃣ Criando STOP LOSS em ${finalStopLoss}...`);
+      console.log(`\n1️⃣ Criando STOP LOSS em ${formattedStopLoss}...`);
       
       const stopSide = direction === 'BUY' ? 'SELL' : 'BUY'; // Oposto da entrada
       const stopTimestamp = Date.now();
@@ -668,9 +691,9 @@ serve(async (req) => {
         symbol: asset,
         side: stopSide,
         type: 'STOP_MARKET',
-        stopPrice: finalStopLoss.toString(),
-        closePosition: 'true', // Fecha posição completa
-        workingType: 'MARK_PRICE', // Usar mark price (mais confiável)
+        stopPrice: formattedStopLoss.toString(), // ✅ Usar valor formatado
+        closePosition: 'true',
+        workingType: 'MARK_PRICE',
         timestamp: stopTimestamp.toString(),
       });
 
@@ -744,8 +767,54 @@ serve(async (req) => {
           );
           
           if (!currentPosition) {
-            console.error('❌ POSIÇÃO JÁ FOI FECHADA - NÃO salvar no DB');
-            throw new Error('Posição foi fechada imediatamente após criação - possivelmente stop loss acionado');
+            // 🔍 VERIFICAR SE FOI FECHADA OU SE NEM ABRIU
+            console.log('⚠️ Posição não encontrada - verificando histórico de trades...');
+            
+            const tradesTimestamp = Date.now();
+            const tradesParams = new URLSearchParams({
+              symbol: asset,
+              limit: '10',
+              timestamp: tradesTimestamp.toString(),
+            });
+            
+            const tradesEncoder = new TextEncoder();
+            const tradesKey = await crypto.subtle.importKey(
+              'raw',
+              tradesEncoder.encode(userApiSecret),
+              { name: 'HMAC', hash: 'SHA-256' },
+              false,
+              ['sign']
+            );
+            const tradesSignature = await crypto.subtle.sign(
+              'HMAC',
+              tradesKey,
+              tradesEncoder.encode(tradesParams.toString())
+            );
+            const tradesSignatureHex = Array.from(new Uint8Array(tradesSignature))
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            tradesParams.append('signature', tradesSignatureHex);
+            
+            const tradesResponse = await fetch(
+              `https://fapi.binance.com/fapi/v1/userTrades?${tradesParams}`,
+              { headers: { 'X-MBX-APIKEY': userApiKey } }
+            );
+            
+            if (tradesResponse.ok) {
+              const trades = await tradesResponse.json();
+              const recentTrade = trades.find((t: any) => t.orderId === binanceResult.orderId); // ✅ Usar binanceResult.orderId
+              
+              if (recentTrade) {
+                console.log('✅ Posição foi EXECUTADA mas já FECHADA - Permitir salvar no DB como histórico');
+                // NÃO lançar erro, permitir salvar
+              } else {
+                console.error('❌ Ordem NEM FOI EXECUTADA - possivelmente rejeitada');
+                throw new Error('Ordem rejeitada pela Binance');
+              }
+            } else {
+              console.warn('⚠️ Não foi possível verificar trades - assumindo posição fechada rapidamente');
+              // Permitir salvar mesmo assim
+            }
           }
           
           console.log('✅ Posição confirmada ativa na Binance após Stop Loss');
@@ -753,47 +822,144 @@ serve(async (req) => {
           console.warn('⚠️ Não foi possível verificar posição, continuando...');
         }
       } else {
-        const stopError = await stopResponse.text();
-        console.error(`❌ ERRO CRÍTICO ao criar Stop Loss:`, stopError);
+        const stopErrorText = await stopResponse.text();
+        const stopError = JSON.parse(stopErrorText);
+        console.error(`❌ ERRO ao criar Stop Loss:`, stopError);
         
-        // FECHAR POSIÇÃO IMEDIATAMENTE se stop loss falhar
-        console.log('🚨 FECHANDO POSIÇÃO POR SEGURANÇA...');
-        const closeTimestamp = Date.now();
-        const closeParams = new URLSearchParams({
-          symbol: asset,
-          side: stopSide,
-          type: 'MARKET',
-          quantity: formattedQuantity.toString(),
-          timestamp: closeTimestamp.toString(),
-        });
-        
-        const closeEncoder = new TextEncoder();
-        const closeKey = await crypto.subtle.importKey(
-          'raw',
-          closeEncoder.encode(userApiSecret),
-          { name: 'HMAC', hash: 'SHA-256' },
-          false,
-          ['sign']
-        );
-        const closeSignature = await crypto.subtle.sign(
-          'HMAC',
-          closeKey,
-          closeEncoder.encode(closeParams.toString())
-        );
-        const closeSignatureHex = Array.from(new Uint8Array(closeSignature))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
-        closeParams.append('signature', closeSignatureHex);
-        
-        await fetch(
-          `https://fapi.binance.com/fapi/v1/order?${closeParams}`,
-          { 
-            method: 'POST',
-            headers: { 'X-MBX-APIKEY': userApiKey }
+        // 🔄 SE FOR ERRO DE PRECISÃO, RETENTAR COM ARREDONDAMENTO
+        if (stopError.code === -1111) {
+          console.log('🔄 Erro de precisão detectado - Retentando com arredondamento para 2 decimais...');
+          
+          const roundedStopLoss = parseFloat(formattedStopLoss.toFixed(2));
+          console.log(`   Stop Loss arredondado: ${roundedStopLoss}`);
+          
+          const retryStopTimestamp = Date.now();
+          const retryStopParams = new URLSearchParams({
+            symbol: asset,
+            side: stopSide,
+            type: 'STOP_MARKET',
+            stopPrice: roundedStopLoss.toString(),
+            closePosition: 'true',
+            workingType: 'MARK_PRICE',
+            timestamp: retryStopTimestamp.toString(),
+          });
+          
+          const retryStopEncoder = new TextEncoder();
+          const retryStopKey = await crypto.subtle.importKey(
+            'raw',
+            retryStopEncoder.encode(userApiSecret),
+            { name: 'HMAC', hash: 'SHA-256' },
+            false,
+            ['sign']
+          );
+          const retryStopSignature = await crypto.subtle.sign(
+            'HMAC',
+            retryStopKey,
+            retryStopEncoder.encode(retryStopParams.toString())
+          );
+          const retryStopSignatureHex = Array.from(new Uint8Array(retryStopSignature))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+          retryStopParams.append('signature', retryStopSignatureHex);
+          
+          const retryStopResponse = await fetch(
+            `https://fapi.binance.com/fapi/v1/order?${retryStopParams}`,
+            { 
+              method: 'POST',
+              headers: { 'X-MBX-APIKEY': userApiKey }
+            }
+          );
+          
+          if (!retryStopResponse.ok) {
+            const retryError = await retryStopResponse.text();
+            console.error('❌ RETRY FALHOU:', retryError);
+            console.log('🚨 FECHANDO POSIÇÃO POR SEGURANÇA...');
+            
+            const closeTimestamp = Date.now();
+            const closeParams = new URLSearchParams({
+              symbol: asset,
+              side: stopSide,
+              type: 'MARKET',
+              quantity: formattedQuantity.toString(),
+              timestamp: closeTimestamp.toString(),
+            });
+            
+            const closeEncoder = new TextEncoder();
+            const closeKey = await crypto.subtle.importKey(
+              'raw',
+              closeEncoder.encode(userApiSecret),
+              { name: 'HMAC', hash: 'SHA-256' },
+              false,
+              ['sign']
+            );
+            const closeSignature = await crypto.subtle.sign(
+              'HMAC',
+              closeKey,
+              closeEncoder.encode(closeParams.toString())
+            );
+            const closeSignatureHex = Array.from(new Uint8Array(closeSignature))
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            closeParams.append('signature', closeSignatureHex);
+            
+            await fetch(
+              `https://fapi.binance.com/fapi/v1/order?${closeParams}`,
+              { 
+                method: 'POST',
+                headers: { 'X-MBX-APIKEY': userApiKey }
+              }
+            );
+            
+            throw new Error('Stop Loss falhou após retry - posição fechada por segurança');
+          } else {
+            const retryResult = await retryStopResponse.json();
+            stopOrderId = retryResult.orderId;
+            console.log(`✅ Stop Loss criado após retry: Order ID ${stopOrderId}`);
           }
-        );
-        
-        throw new Error('Stop Loss falhou - posição fechada por segurança');
+        } else if (stopError.code === -4045) {
+          // Erro de limite de stop orders - não fechar posição
+          console.error('⚠️ Limite de stop orders atingido - posição mantida SEM proteção');
+          console.error('   Execute "Cancelar Ordens Binance" e tente novamente');
+        } else {
+          // OUTRO TIPO DE ERRO - FECHAR POSIÇÃO
+          console.log('🚨 FECHANDO POSIÇÃO POR SEGURANÇA...');
+          const closeTimestamp = Date.now();
+          const closeParams = new URLSearchParams({
+            symbol: asset,
+            side: stopSide,
+            type: 'MARKET',
+            quantity: formattedQuantity.toString(),
+            timestamp: closeTimestamp.toString(),
+          });
+          
+          const closeEncoder = new TextEncoder();
+          const closeKey = await crypto.subtle.importKey(
+            'raw',
+            closeEncoder.encode(userApiSecret),
+            { name: 'HMAC', hash: 'SHA-256' },
+            false,
+            ['sign']
+          );
+          const closeSignature = await crypto.subtle.sign(
+            'HMAC',
+            closeKey,
+            closeEncoder.encode(closeParams.toString())
+          );
+          const closeSignatureHex = Array.from(new Uint8Array(closeSignature))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+          closeParams.append('signature', closeSignatureHex);
+          
+          await fetch(
+            `https://fapi.binance.com/fapi/v1/order?${closeParams}`,
+            { 
+              method: 'POST',
+              headers: { 'X-MBX-APIKEY': userApiKey }
+            }
+          );
+          
+          throw new Error(`Stop Loss falhou (${stopError.code}) - posição fechada por segurança`);
+        }
       }
 
       // 2️⃣ ENVIAR TAKE PROFIT (TAKE_PROFIT_MARKET) - COM VALIDAÇÃO
@@ -823,7 +989,7 @@ serve(async (req) => {
           symbol: asset,
           side: stopSide,
           type: 'TAKE_PROFIT_MARKET',
-          stopPrice: finalTakeProfit.toString(),
+          stopPrice: formattedTakeProfit.toString(), // ✅ Usar valor formatado
           closePosition: 'true',
           workingType: 'MARK_PRICE',
           timestamp: tpTimestamp.toString(),
