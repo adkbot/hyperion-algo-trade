@@ -8,7 +8,6 @@ import { useEffect, useRef } from "react";
 
 export const AlertPanel = () => {
   const { toast } = useToast();
-  const processedEngulfingIds = useRef<Set<string>>(new Set());
 
   // Fetch real-time signals from session_history (incluindo First Candle events)
   const { data: signals } = useQuery({
@@ -52,37 +51,9 @@ export const AlertPanel = () => {
     },
   });
 
-  // Processar alertas - incluir First Candle events
+  // Processar alertas de trading
   const allAlerts = signals?.map((signal: any) => {
-    // First Candle Rule events
-    if (signal.event_type) {
-      const eventConfig = {
-        FOUNDATION_DETECTED: { icon: '🏗️', message: 'Foundation detectada', color: 'text-blue-500 border-blue-500 bg-blue-500/10' },
-        BREAKOUT: { icon: '⚡', message: 'Breakout confirmado', color: 'text-orange-500 border-orange-500 bg-orange-500/10' },
-        RETEST: { icon: '👀', message: 'Aguardando reteste', color: 'text-yellow-500 border-yellow-500 bg-yellow-500/10' },
-        ENGULFING: { icon: '🚀', message: 'ENTRADA CONFIRMADA!', color: 'text-green-500 border-green-500 bg-green-500/10' },
-      };
-      const config = eventConfig[signal.event_type as keyof typeof eventConfig];
-      
-      if (config) {
-        return {
-          type: signal.event_type === 'ENGULFING' ? 'entry' : 'prepare',
-          asset: signal.pair,
-          direction: signal.direction?.toLowerCase() || 'n/a',
-          message: `${config.icon} ${config.message} - ${signal.notes}`,
-          rr: 'N/A',
-          session: signal.session,
-          icon: signal.event_type === 'ENGULFING' ? TrendingUp : Clock,
-          color: config.color,
-          confidence: signal.confidence_score || 0,
-          timestamp: signal.timestamp,
-          signalId: signal.id,
-          eventType: signal.event_type,
-        };
-      }
-    }
-    
-    // Regular trading signals
+    // Trading signals regulares
     if (signal.signal && signal.signal !== 'STAY_OUT') {
       const isLong = signal.signal === 'LONG' || signal.signal === 'BUY';
       const isEntry = signal.confidence_score && signal.confidence_score >= 0.8;
@@ -126,36 +97,6 @@ export const AlertPanel = () => {
         .slice(0, 2) // Máximo 2 por ativo
     )
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-  // Disparar toast APENAS para eventos ENGULFING que resultaram em posição ativa
-  useEffect(() => {
-    if (!alerts || alerts.length === 0) return;
-    
-    alerts.forEach(async (alert: any) => {
-      if (alert.eventType === 'ENGULFING' && alert.signalId && !processedEngulfingIds.current.has(alert.signalId)) {
-        
-        // ✅ VALIDAÇÃO: Verificar se realmente existe uma posição ativa
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        
-        const { data: activePosition } = await supabase
-          .from('active_positions')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('asset', alert.asset)
-          .maybeSingle();
-        
-        // Só mostrar toast se houver posição ativa de fato
-        if (activePosition) {
-          processedEngulfingIds.current.add(alert.signalId);
-          toast({
-            title: `🚀 First Candle Rule - ${alert.asset}`,
-            description: `Sequência completa! Entrada ${alert.direction} confirmada.`,
-          });
-        }
-      }
-    });
-  }, [alerts, toast]);
 
   const handleEntryClick = (alert: any) => {
     if (!settings || settings.balance <= 0) {
