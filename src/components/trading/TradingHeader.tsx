@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Play, Pause, Square, Settings, LogOut, Zap, Trash2, XCircle } from "lucide-react";
 import { useState } from "react";
 import { SettingsModal } from "./SettingsModal";
@@ -40,15 +41,38 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
               <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-success bg-clip-text text-transparent">
                 HFT Crypto Bot
               </h1>
-              <div className="flex items-center gap-2 text-sm">
-                <div className={`h-2 w-2 rounded-full ${
-                  botStatus === "running" ? "bg-success animate-pulse" :
-                  botStatus === "paused" ? "bg-warning" : "bg-muted"
-                }`} />
-                <span className="text-muted-foreground">
-                  {botStatus === "running" ? "Executando" :
-                   botStatus === "paused" ? "Pausado" : "Parado"}
-                </span>
+              <div className="flex items-center gap-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <div className={`h-2 w-2 rounded-full ${
+                    botStatus === "running" ? "bg-success animate-pulse" :
+                    botStatus === "paused" ? "bg-warning" : "bg-muted"
+                  }`} />
+                  <span className="text-muted-foreground">
+                    {botStatus === "running" ? "Executando" :
+                     botStatus === "paused" ? "Pausado" : "Parado"}
+                  </span>
+                </div>
+                
+                {/* Strategy Badge */}
+                {settings?.trading_strategy && (
+                  <Badge 
+                    variant="outline" 
+                    className={`text-xs ${
+                      settings.trading_strategy === 'FVG_MULTI_TF' ? 'bg-blue-500/10 text-blue-500 border-blue-500/30' :
+                      settings.trading_strategy === 'SCALPING_1MIN' ? 'bg-green-500/10 text-green-500 border-green-500/30' :
+                      settings.trading_strategy === 'SWEEP_LIQUIDITY' ? 'bg-purple-500/10 text-purple-500 border-purple-500/30' :
+                      'bg-primary/10 text-primary border-primary/30'
+                    }`}
+                  >
+                    📊 {
+                      settings.trading_strategy === 'FVG_MULTI_TF' ? 'FVG Multi-TF' :
+                      settings.trading_strategy === 'SCALPING_1MIN' ? 'Scalping 1m' :
+                      settings.trading_strategy === 'SWEEP_LIQUIDITY' ? 'Sweep 2CR' :
+                      settings.trading_strategy === 'ADK' ? 'ADK' :
+                      settings.trading_strategy
+                    }
+                  </Badge>
+                )}
               </div>
             </div>
             

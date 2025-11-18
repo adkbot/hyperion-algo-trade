@@ -35,6 +35,30 @@ export const AlertPanel = () => {
     refetchInterval: 3000, // Refresh every 3 seconds
   });
 
+  // Fetch recent STAY_OUT signals for market status
+  const { data: stayOutSignals } = useQuery({
+    queryKey: ['stay-out-signals'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+      
+      const today = new Date().toISOString().split('T')[0];
+      
+      const { data, error } = await supabase
+        .from('session_history')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('signal', 'STAY_OUT')
+        .gte('timestamp', `${today}T00:00:00Z`)
+        .order('timestamp', { ascending: false })
+        .limit(3);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: 5000,
+  });
+
   // Fetch user settings for balance check
   const { data: settings } = useQuery({
     queryKey: ['user-settings-alert'],
@@ -114,41 +138,90 @@ export const AlertPanel = () => {
     });
   };
 
+  // Format relative time
+  const formatRelativeTime = (timestamp: string) => {
+    const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
+    if (seconds < 60) return `há ${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `há ${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    return `há ${hours}h`;
+  };
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {alerts.length === 0 ? (
-        <Alert className="border-muted">
-          <Clock className="h-5 w-5" />
-          <AlertDescription className="ml-2">
-            Aguardando sinais do Orchestrator... Nenhum sinal ativo no momento.
+        <Alert className="bg-secondary/50 border-border">
+          <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+          <AlertDescription className="text-muted-foreground text-sm">
+            Aguardando sinais de trading...
           </AlertDescription>
         </Alert>
       ) : (
-        alerts.map((alert, index) => {
-          const Icon = alert.icon;
-          const DirectionIcon = alert.direction === "buy" ? ArrowUp : ArrowDown;
-          return (
-            <Alert 
-              key={index} 
-              className={`${alert.color} border-2 cursor-pointer hover:opacity-80 transition-opacity`}
-              onClick={() => alert.type === "entry" && handleEntryClick(alert)}
-            >
-              <Icon className="h-5 w-5" />
-              <AlertDescription className="ml-2 flex items-center gap-2 flex-wrap">
-                <span className="font-bold">{alert.asset}</span>
-                <div className={`flex items-center gap-1 ${alert.direction === "buy" ? "text-profit" : "text-loss"}`}>
-                  <DirectionIcon className="h-4 w-4" />
-                  <span className="text-xs font-medium uppercase">{alert.direction}</span>
+        alerts.map((alert, index) => (
+          <Alert 
+            key={index} 
+            className={`cursor-pointer transition-all hover:shadow-md ${alert.color}`}
+            onClick={() => alert.type === "entry" && handleEntryClick(alert)}
+          >
+            <alert.icon className="h-4 w-4" />
+            <AlertDescription>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">
+                    {alert.asset}
+                  </Badge>
+                  <Badge variant="secondary" className="text-xs">
+                    {alert.session}
+                  </Badge>
                 </div>
-                <span>-</span>
-                <span className="text-sm">{alert.message}</span>
-                <Badge variant="outline" className="ml-auto">R:R {alert.rr}</Badge>
-                <Badge variant="secondary">{alert.session}</Badge>
-              </AlertDescription>
-            </Alert>
-          );
-        })
+                {alert.direction === "buy" ? (
+                  <ArrowUp className="h-3 w-3 text-green-500" />
+                ) : (
+                  <ArrowDown className="h-3 w-3 text-red-500" />
+                )}
+              </div>
+              
+              <p className="text-sm font-medium mb-1">{alert.message}</p>
+              
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>RR: {alert.rr}</span>
+                <span>Confiança: {(alert.confidence * 100).toFixed(0)}%</span>
+              </div>
+            </AlertDescription>
+          </Alert>
+        ))
       )}
+
+      {/* Market Status Section - Show recent STAY_OUT signals */}
+      {stayOutSignals && stayOutSignals.length > 0 && (
+        <div className="pt-2 border-t border-border/50">
+          <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            Status de Mercado
+          </p>
+          <div className="space-y-1">
+            {stayOutSignals.slice(0, 3).map((signal: any, idx: number) => (
+              <div 
+                key={idx}
+                className="flex items-center justify-between text-xs p-2 rounded bg-muted/30"
+              >
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <span className="font-medium text-foreground">{signal.pair}</span>
+                  <span className="text-muted-foreground truncate">
+                    {signal.notes || 'Aguardando...'}
+                  </span>
+                </div>
+                <span className="text-muted-foreground ml-2 flex-shrink-0">
+                  {formatRelativeTime(signal.timestamp)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Insufficient Balance Warning */}
       {settings && settings.balance <= 0 && (
         <Alert className="border-destructive bg-destructive/10">
           <AlertTriangle className="h-5 w-5 text-destructive" />
