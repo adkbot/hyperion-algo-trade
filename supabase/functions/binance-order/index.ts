@@ -388,24 +388,61 @@ serve(async (req) => {
       console.log(`✅ Notional OK - Nenhum ajuste necessário`);
     }
     
-    // ✅ CRÍTICO: Formatar quantidade com precisão EXATA da Binance
-    // Regras de precisão:
-    // - Pares com "1000" (1000PEPE, 1000FLOKI, etc): 0 decimais (inteiros)
-    // - Pares padrão (BTC, ETH, etc): 3 decimais
-    // - Altcoins (DOGE, SHIB, etc): 0 decimais (inteiros)
-    let formattedQuantity: number;
+    // ✅ BUSCAR PRECISÃO EXATA DA BINANCE PARA O SÍMBOLO
+    console.log('\n🔍 Buscando informações de precisão da Binance...');
+    const exchangeInfoResponse = await fetch(
+      `https://fapi.binance.com/fapi/v1/exchangeInfo?symbol=${asset}`,
+      {
+        headers: {
+          'X-MBX-APIKEY': userApiKey,
+        }
+      }
+    );
     
-    if (asset.includes('1000') || asset.includes('DOGE') || asset.includes('SHIB') || 
-        asset.includes('PEPE') || asset.includes('FLOKI') || asset.includes('BONK')) {
-      // Quantidade inteira (sem decimais)
-      formattedQuantity = Math.floor(calculatedQuantity);
-    } else if (asset.includes('BTC') || asset.includes('ETH')) {
-      // Alta precisão: 3 decimais
-      formattedQuantity = parseFloat(calculatedQuantity.toFixed(3));
-    } else {
-      // Padrão: 0 decimais (inteiros) para maioria das altcoins
-      formattedQuantity = Math.floor(calculatedQuantity);
+    if (!exchangeInfoResponse.ok) {
+      throw new Error(`❌ Erro ao buscar informações do símbolo: ${exchangeInfoResponse.status}`);
     }
+    
+    const exchangeInfo = await exchangeInfoResponse.json();
+    const symbolInfo = exchangeInfo.symbols[0];
+    const quantityPrecision = symbolInfo.quantityPrecision;
+    
+    console.log(`✅ Precisão encontrada para ${asset}: ${quantityPrecision} decimais`);
+    
+    // Formatar quantity com a precisão correta
+    const formattedQuantity = parseFloat(calculatedQuantity.toFixed(quantityPrecision));
+    
+    console.log(`\n💰 FORMATAÇÃO DE QUANTITY:`);
+    console.log(`├─ Quantity calculada: ${calculatedQuantity}`);
+    console.log(`├─ Precisão do símbolo: ${quantityPrecision}`);
+    console.log(`└─ Quantity formatada: ${formattedQuantity}`);
+    
+    // ✅ VALIDAR NOTIONAL FINAL ANTES DE ENVIAR
+    const finalNotional = formattedQuantity * currentBinancePrice;
+    
+    console.log(`\n💵 VALIDAÇÃO DE NOTIONAL FINAL:`);
+    console.log(`├─ Quantity formatada: ${formattedQuantity}`);
+    console.log(`├─ Preço atual: $${currentBinancePrice}`);
+    console.log(`├─ Notional calculado: $${finalNotional.toFixed(2)}`);
+    console.log(`└─ Mínimo requerido: $100`);
+    
+    if (finalNotional < 100) {
+      throw new Error(
+        `❌ Notional muito baixo: $${finalNotional.toFixed(2)} (mínimo $100). ` +
+        `Aumente o capital ou escolha outro ativo.`
+      );
+    }
+    
+    console.log('✅ Notional OK - Prosseguindo com a ordem');
+    
+    if (finalNotional < 100) {
+      throw new Error(
+        `❌ Notional muito baixo: $${finalNotional.toFixed(2)} (mínimo $100). ` +
+        `Aumente o capital ou escolha outro ativo.`
+      );
+    }
+    
+    console.log('✅ Notional OK - Prosseguindo com a ordem');
     
     console.log('\n================================================================================');
     console.log('📡 ORDEM FINAL ENVIADA À BINANCE');
@@ -415,7 +452,7 @@ serve(async (req) => {
     console.log(`💰 Quantity original: ${quantity}`);
     console.log(`💰 Quantity calculada: ${calculatedQuantity}`);
     console.log(`💰 Quantity formatada: ${formattedQuantity}`);
-    console.log(`💵 Notional final: $${(formattedQuantity * price).toFixed(2)}`);
+    console.log(`💵 Notional final: $${finalNotional.toFixed(2)}`);
     console.log(`💵 Type: MARKET`);
     console.log(`📍 Stop Loss: $${finalStopLoss}`);
     console.log(`🎯 Take Profit: $${finalTakeProfit}`);
