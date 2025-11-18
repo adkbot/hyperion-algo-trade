@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Play, Pause, Square, Settings, LogOut, Zap, Trash2 } from "lucide-react";
+import { Play, Pause, Square, Settings, LogOut, Zap, Trash2, XCircle } from "lucide-react";
 import { useState } from "react";
 import { SettingsModal } from "./SettingsModal";
 import { ClearHistoryButton } from "./ClearHistoryButton";
@@ -7,6 +7,7 @@ import { ResetDayButton } from "./ResetDayButton";
 import { useUserSettings, useUpdateBotStatus } from "@/hooks/useTradingData";
 import { useSetupScalping1Min } from "@/hooks/useSetupScalping1Min";
 import { useClearScalpingHistory } from "@/hooks/useClearScalpingHistory";
+import { useCancelAllOrders } from "@/hooks/useCancelAllOrders";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface TradingHeaderProps {
@@ -20,6 +21,7 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
   const updateBotStatus = useUpdateBotStatus();
   const setupScalping = useSetupScalping1Min();
   const clearHistory = useClearScalpingHistory();
+  const cancelAllOrders = useCancelAllOrders();
   const { signOut, user } = useAuth();
 
   const handleStatusChange = (status: "stopped" | "running" | "paused") => {
@@ -51,6 +53,16 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
             </div>
             
             <div className="flex items-center gap-2">
+              <Button
+                onClick={() => cancelAllOrders.mutate(undefined)}
+                disabled={cancelAllOrders.isPending}
+                variant="outline"
+                className="border-destructive text-destructive hover:bg-destructive/10"
+              >
+                <XCircle className="h-4 w-4 mr-2" />
+                {cancelAllOrders.isPending ? "Cancelando..." : "❌ Cancelar Ordens Binance"}
+              </Button>
+              
               {!isScalping1Min && (
                 <Button
                   onClick={() => setupScalping.mutate()}
