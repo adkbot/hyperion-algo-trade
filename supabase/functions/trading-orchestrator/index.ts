@@ -273,10 +273,25 @@ serve(async (req) => {
     console.log(`🤖 MULTI-USER BOT - Processing ${activeUsers.length} active user(s)...`);
     
     // Detect current session and cycle phase
-    const currentSession = detectCurrentSession();
-    const cyclePhase = getCyclePhase(currentSession);
+    const currentSessionRaw = detectCurrentSession();
+    const cyclePhase = getCyclePhase(currentSessionRaw);
     
-    console.log(`📊 Current Session: ${currentSession}, Phase: ${cyclePhase}`);
+    // 🔄 Mapear sessões para valores aceitos pelo DB constraint
+    const sessionMapping: { [key: string]: string } = {
+      'WELLINGTON': 'OCEANIA',
+      'SYDNEY': 'OCEANIA',
+      'TOKYO': 'ASIA',
+      'SINGAPORE': 'ASIA',
+      'HONGKONG': 'ASIA',
+      'FRANKFURT': 'LONDON',
+      'LONDON': 'LONDON',
+      'NEW_YORK': 'NY',
+      'NY': 'NY'
+    };
+    
+    const currentSession = sessionMapping[currentSessionRaw] || currentSessionRaw;
+    
+    console.log(`📊 Current Session: ${currentSessionRaw} → ${currentSession}, Phase: ${cyclePhase}`);
     console.log(`🤖 AI Agents: ✅ ENABLED (3 agents active)`);
     console.log('='.repeat(80));
 
