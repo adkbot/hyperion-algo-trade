@@ -54,29 +54,37 @@ function calculateRiskLevels(
   let takeProfit: number;
 
   if (direction === 'BUY') {
-    // BUY: Stop abaixo do FVG com margem de 0.2% (equilíbrio perfeito)
-    stopLoss = fvgBottom * 0.998;  // ✅ AJUSTADO PARA 0.2% (era 0.5%)
-    const riskDistance = entryPrice - stopLoss;
-    // Adicionar 0.2% de buffer de segurança
-    takeProfit = entryPrice + (riskDistance * 3.0 * 1.002);
+    // Stop ABAIXO do FVG com margem de 0.2%
+    const stopBuffer = fvgBottom * 0.002; // 0.2% do preço
+    stopLoss = fvgBottom - stopBuffer;    // SUBTRAIR buffer
     
-    console.log(`📊 BUY Risk Levels (0.2% buffer):
+    const riskDistance = entryPrice - stopLoss;
+    const targetBuffer = entryPrice * 0.002; // 0.2% do entry
+    takeProfit = entryPrice + (riskDistance * 3.0) + targetBuffer;
+    
+    console.log(`📊 BUY Risk Levels (0.2% buffer CORRETO):
+      FVG Bottom: $${fvgBottom.toFixed(2)}
+      Buffer: $${stopBuffer.toFixed(2)} (0.2%)
+      Stop: $${stopLoss.toFixed(2)} (ABAIXO - ${fvgBottom.toFixed(2)} - ${stopBuffer.toFixed(2)})
       Entry: $${entryPrice.toFixed(2)}
-      Stop: $${stopLoss.toFixed(2)} (ABAIXO - Buffer 0.2%)
-      TP: $${takeProfit.toFixed(2)} (ACIMA) - Buffer 0.2%
+      TP: $${takeProfit.toFixed(2)} (ACIMA)
       Risk Distance: $${riskDistance.toFixed(2)}
       Reward Distance: $${(riskDistance * 3.0).toFixed(2)}
     `);
   } else {
-    // SELL: Stop acima do FVG com margem de 0.2% (equilíbrio perfeito)
-    stopLoss = fvgTop * 1.002;  // ✅ AJUSTADO PARA 0.2% (era 0.5%)
-    const riskDistance = stopLoss - entryPrice;
-    // Adicionar 0.2% de buffer de segurança PARA BAIXO
-    takeProfit = entryPrice - (riskDistance * 3.0 * 1.002);
+    // Stop ACIMA do FVG com margem de 0.2%
+    const stopBuffer = fvgTop * 0.002; // 0.2% do preço
+    stopLoss = fvgTop + stopBuffer;    // ADICIONAR buffer
     
-    console.log(`📊 SELL Risk Levels (0.2% buffer):
+    const riskDistance = stopLoss - entryPrice;
+    const targetBuffer = entryPrice * 0.002; // 0.2% do entry
+    takeProfit = entryPrice - (riskDistance * 3.0) - targetBuffer;
+    
+    console.log(`📊 SELL Risk Levels (0.2% buffer CORRETO):
+      FVG Top: $${fvgTop.toFixed(2)}
+      Buffer: $${stopBuffer.toFixed(2)} (0.2%)
+      Stop: $${stopLoss.toFixed(2)} (ACIMA - ${fvgTop.toFixed(2)} + ${stopBuffer.toFixed(2)})
       Entry: $${entryPrice.toFixed(2)}
-      Stop: $${stopLoss.toFixed(2)} (ACIMA - Buffer 0.2%)
       TP: $${takeProfit.toFixed(2)} (ABAIXO)
       Risk Distance: $${riskDistance.toFixed(2)}
       Reward Distance: $${(riskDistance * 3.0).toFixed(2)}
