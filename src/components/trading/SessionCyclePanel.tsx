@@ -89,45 +89,6 @@ export const SessionCyclePanel = () => {
       </CardHeader>
 
       <CardContent className="space-y-3">
-        {/* First Candle Rule Status */}
-        {(latestFoundation || latestBreakout || latestRetest || latestEngulfing) && (
-          <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-sm font-semibold text-primary">🎯 First Candle Rule</span>
-            </div>
-            <div className="space-y-1.5 text-xs">
-              {latestFoundation && (
-                <div className="flex items-center gap-2">
-                  <span className="text-green-500">🏗️</span>
-                  <span className="text-muted-foreground">
-                    Foundation: H {((latestFoundation as any).event_data as any)?.high?.toFixed(2) || 'N/A'} | L {((latestFoundation as any).event_data as any)?.low?.toFixed(2) || 'N/A'}
-                  </span>
-                </div>
-              )}
-              {latestBreakout && (
-                <div className="flex items-center gap-2">
-                  <span className="text-orange-500">⚡</span>
-                  <span className="text-muted-foreground">
-                    Breakout {(latestBreakout as any).direction} @ {((latestBreakout as any).event_data as any)?.price?.toFixed(2) || 'N/A'}
-                  </span>
-                </div>
-              )}
-              {latestRetest && (
-                <div className="flex items-center gap-2">
-                  <span className="text-blue-500">👀</span>
-                  <span className="text-muted-foreground">Aguardando reteste confirmado...</span>
-                </div>
-              )}
-              {latestEngulfing && (
-                <div className="flex items-center gap-2">
-                  <span className="text-green-500">🚀</span>
-                  <span className="font-semibold text-green-500">ENTRADA CONFIRMADA!</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Current Session */}
         <div className="p-3 rounded-lg bg-secondary/50 border border-border">
           <div className="flex items-center justify-between mb-2">
