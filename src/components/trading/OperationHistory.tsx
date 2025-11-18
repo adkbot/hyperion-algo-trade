@@ -25,9 +25,10 @@ export const OperationHistory = () => {
 
   const getStrategyBadge = (strategy: string) => {
     const config = {
-      FIRST_CANDLE_RULE: { icon: '🎯', color: 'bg-green-500/10 text-green-500 border-green-500/20', name: 'First Candle' },
+      FVG_MULTI_TF: { icon: '📈', color: 'bg-purple-500/10 text-purple-500 border-purple-500/20', name: 'FVG Multi-TF' },
       SCALPING_1MIN: { icon: '⚡', color: 'bg-orange-500/10 text-orange-500 border-orange-500/20', name: 'Scalping' },
       SWEEP_LIQUIDITY: { icon: '🌊', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', name: 'Sweep' },
+      FIRST_CANDLE_ADK: { icon: '🔷', color: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20', name: 'ADK' },
       UNKNOWN: { icon: '❓', color: 'bg-gray-500/10 text-gray-500 border-gray-500/20', name: 'N/A' },
     };
     const c = config[strategy as keyof typeof config] || config.UNKNOWN;
