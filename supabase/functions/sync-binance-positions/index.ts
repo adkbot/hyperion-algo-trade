@@ -6,6 +6,23 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// ✅ Obter tickSize para cada ativo
+function getTickSize(symbol: string): number {
+  const tickSizes: Record<string, number> = {
+    'BTCUSDT': 0.01,
+    'ETHUSDT': 0.01,
+    'BNBUSDT': 0.01,
+    'SOLUSDT': 0.001,
+    'ADAUSDT': 0.0001,
+    'XRPUSDT': 0.0001,
+    'DOGEUSDT': 0.00001,
+    'SHIBUSDT': 0.00000001,
+    'BANANAS31USDT': 0.00001, // ✅ 5 casas decimais
+  };
+  
+  return tickSizes[symbol] || 0.00001; // Padrão: 5 casas
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -138,16 +155,24 @@ serve(async (req) => {
           console.log(`✅ Atualizado: ${symbol} - P&L: $${unrealizedPnl.toFixed(2)}`);
         }
       } else {
-        // ✅ Adicionar nova posição ao banco (estimando SL/TP)
+        // ✅ Adicionar nova posição ao banco com RR 3.0 FIXO
+        const tickSize = getTickSize(symbol);
+        
         const stopLoss = direction === 'BUY' 
           ? entryPrice * 0.995  // -0.5% para LONG
           : entryPrice * 1.005; // +0.5% para SHORT
         
-        const takeProfit = direction === 'BUY'
-          ? entryPrice * 1.015  // +1.5% para LONG
-          : entryPrice * 0.985; // -1.5% para SHORT
+        const risk = Math.abs(entryPrice - stopLoss);
+        
+        // ✅ SEMPRE usar RR 3.0
+        let takeProfit = direction === 'BUY'
+          ? entryPrice + (risk * 3.0)  // RR 3:1 FIXO
+          : entryPrice - (risk * 3.0);
+        
+        // Arredondar para tickSize
+        takeProfit = Math.round(takeProfit / tickSize) * tickSize;
 
-        const riskReward = Math.abs((takeProfit - entryPrice) / (stopLoss - entryPrice));
+        const riskReward = 3.0; // SEMPRE 3.0
         const projectedProfit = direction === 'BUY'
           ? (takeProfit - entryPrice) * Math.abs(positionAmt)
           : (entryPrice - takeProfit) * Math.abs(positionAmt);
