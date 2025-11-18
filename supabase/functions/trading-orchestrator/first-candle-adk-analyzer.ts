@@ -57,12 +57,13 @@ function calculateRiskLevels(
     // BUY: Stop abaixo do FVG, TP acima
     stopLoss = fvgBottom - (fvgBottom * 0.001);
     const riskDistance = entryPrice - stopLoss;
-    takeProfit = entryPrice + (riskDistance * 3.0);
+    // Adicionar 0.2% de buffer de segurança
+    takeProfit = entryPrice + (riskDistance * 3.0 * 1.002);
     
     console.log(`📊 BUY Risk Levels:
       Entry: $${entryPrice.toFixed(2)}
       Stop: $${stopLoss.toFixed(2)} (ABAIXO)
-      TP: $${takeProfit.toFixed(2)} (ACIMA)
+      TP: $${takeProfit.toFixed(2)} (ACIMA) - Buffer 0.2%
       Risk Distance: $${riskDistance.toFixed(2)}
       Reward Distance: $${(riskDistance * 3.0).toFixed(2)}
     `);
@@ -70,7 +71,8 @@ function calculateRiskLevels(
     // SELL: Stop acima do FVG, TP abaixo
     stopLoss = fvgTop + (fvgTop * 0.001);
     const riskDistance = stopLoss - entryPrice;
-    takeProfit = entryPrice - (riskDistance * 3.0);
+    // Adicionar 0.2% de buffer de segurança PARA BAIXO
+    takeProfit = entryPrice - (riskDistance * 3.0 * 1.002);
     
     console.log(`📊 SELL Risk Levels:
       Entry: $${entryPrice.toFixed(2)}
