@@ -1,24 +1,26 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║         SCALPING 1MIN - VALIDAÇÃO RIGOROSA DE TENDÊNCIA CONFIRMADA       ║
+ * ║         SCALPING 1MIN - VALIDAÇÃO AJUSTADA DE TENDÊNCIA (1/5)            ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  * 
- * Este módulo implementa validação EXTREMAMENTE RIGOROSA de tendência antes
+ * Este módulo implementa validação BALANCEADA de tendência antes
  * de permitir entrada em operações.
  * 
- * CRITÉRIOS PARA TENDÊNCIA BULLISH CONFIRMADA:
+ * CRITÉRIOS PARA TENDÊNCIA BULLISH CONFIRMADA (MÍNIMO 1 DE 5):
  * ✅ Pelo menos 3 das últimas 5 velas fecharam verde (close > open)
  * ✅ Sequência de mínimos ascendentes (higher lows)
  * ✅ Sequência de máximos ascendentes (higher highs)
  * ✅ Volume médio crescente nas velas verdes
  * ✅ Preço atual acima da média móvel simples de 10 períodos
  * 
- * CRITÉRIOS PARA TENDÊNCIA BEARISH CONFIRMADA:
+ * CRITÉRIOS PARA TENDÊNCIA BEARISH CONFIRMADA (MÍNIMO 1 DE 5):
  * ✅ Pelo menos 3 das últimas 5 velas fecharam vermelhas (close < open)
  * ✅ Sequência de máximos descendentes (lower highs)
  * ✅ Sequência de mínimos descendentes (lower lows)
  * ✅ Volume médio decrescente ou flat nas velas vermelhas
  * ✅ Preço atual abaixo da média móvel simples de 10 períodos
+ * 
+ * ⚠️ AJUSTE: Reduzido de 2/5 para 1/5 critérios para permitir mais setups válidos
  */
 
 interface Candle {
@@ -242,10 +244,10 @@ export function validateTrend(
     console.log(`      └─ Distância: ${maDistance}%`);
     detailedAnalysis.push(`Preço vs MA10: ${maDistance}% ${priceAboveMA ? '(acima) ✅' : '(abaixo) ❌'}`);
     
-    // DECISÃO FINAL: Validar 2 de 5 critérios (FASE 2: Reduzido de 3 para 2)
+    // DECISÃO FINAL: Validar PELO MENOS 1 de 5 critérios (FASE 1: Reduzido de 2 para 1)
     const criteriaCount = [criterion1, higherLows, higherHighs, criterion4, priceAboveMA]
       .filter(c => c).length;
-    const requiredCriteria = 2; // FASE 2: Flexibilizado de 3 para 2
+    const requiredCriteria = 1; // ⚠️ FASE 1: Flexibilizado de 2 para 1 critério
     const isValid = criteriaCount >= requiredCriteria;
     const strength = (
       (criterion1 ? 20 : 0) +
@@ -317,10 +319,11 @@ export function validateTrend(
     console.log(`      └─ Distância: ${maDistance}%`);
     detailedAnalysis.push(`Preço vs MA10: ${maDistance}% ${priceBelowMA ? '(abaixo) ✅' : '(acima) ❌'}`);
     
-    // DECISÃO FINAL: Validar 3 de 5 critérios
+    // DECISÃO FINAL: Validar PELO MENOS 1 de 5 critérios (FASE 1: Reduzido de 3 para 1)
     const criteriaCount = [criterion1, lowerHighs, lowerLows, criterion4, priceBelowMA]
       .filter(c => c).length;
-    const isValid = criteriaCount >= 3;
+    const requiredCriteria = 1; // ⚠️ FASE 1: Flexibilizado de 3 para 1 critério
+    const isValid = criteriaCount >= requiredCriteria;
     const strength = (
       (criterion1 ? 20 : 0) +
       (lowerHighs ? 20 : 0) +
@@ -330,7 +333,7 @@ export function validateTrend(
     );
     
     console.log(`\n${isValid ? '✅ TENDÊNCIA BEARISH CONFIRMADA!' : '❌ TENDÊNCIA BEARISH NÃO CONFIRMADA'}`);
-    console.log(`   └─ Critérios atendidos: ${criteriaCount}/5 (mínimo: 3)`);
+    console.log(`   └─ Critérios atendidos: ${criteriaCount}/5 (mínimo: ${requiredCriteria})`);
     console.log(`   └─ Força da tendência: ${strength}%`);
     console.log(`${'='.repeat(80)}\n`);
     

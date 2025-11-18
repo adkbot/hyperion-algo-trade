@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.update-daily-goals]
 verify_jwt = false
+
+[functions.reset-adk-state]
+verify_jwt = false
