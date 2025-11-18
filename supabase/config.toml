@@ -35,3 +35,9 @@ verify_jwt = false
 
 [functions.reset-adk-state]
 verify_jwt = false
+
+[functions.force-sync-positions]
+verify_jwt = false
+
+[functions.delete-ghost-position]
+verify_jwt = false

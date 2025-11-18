@@ -43,7 +43,7 @@ export interface ADKAnalysisResult {
   retest?: any;
 }
 
-// Helper para calcular níveis de risco (RR 3.0)
+// 💰 Helper para calcular níveis de risco (RR 3.0) - CORRIGIDO
 function calculateRiskLevels(
   direction: 'BUY' | 'SELL',
   entryPrice: number,
@@ -54,13 +54,31 @@ function calculateRiskLevels(
   let takeProfit: number;
 
   if (direction === 'BUY') {
+    // BUY: Stop abaixo do FVG, TP acima
     stopLoss = fvgBottom - (fvgBottom * 0.001);
     const riskDistance = entryPrice - stopLoss;
     takeProfit = entryPrice + (riskDistance * 3.0);
+    
+    console.log(`📊 BUY Risk Levels:
+      Entry: $${entryPrice.toFixed(2)}
+      Stop: $${stopLoss.toFixed(2)} (ABAIXO)
+      TP: $${takeProfit.toFixed(2)} (ACIMA)
+      Risk Distance: $${riskDistance.toFixed(2)}
+      Reward Distance: $${(riskDistance * 3.0).toFixed(2)}
+    `);
   } else {
+    // SELL: Stop acima do FVG, TP abaixo
     stopLoss = fvgTop + (fvgTop * 0.001);
     const riskDistance = stopLoss - entryPrice;
     takeProfit = entryPrice - (riskDistance * 3.0);
+    
+    console.log(`📊 SELL Risk Levels:
+      Entry: $${entryPrice.toFixed(2)}
+      Stop: $${stopLoss.toFixed(2)} (ACIMA)
+      TP: $${takeProfit.toFixed(2)} (ABAIXO)
+      Risk Distance: $${riskDistance.toFixed(2)}
+      Reward Distance: $${(riskDistance * 3.0).toFixed(2)}
+    `);
   }
 
   return {
