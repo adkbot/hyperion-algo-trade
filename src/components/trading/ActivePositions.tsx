@@ -2,19 +2,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowDown, ArrowUp, TrendingUp, RefreshCw, AlertTriangle } from "lucide-react";
+import { ArrowDown, ArrowUp, TrendingUp, RefreshCw, AlertTriangle, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useActivePositions } from "@/hooks/useTradingData";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { ClosePositionButton } from "./ClosePositionButton";
+import { useEmergencyClose } from "@/hooks/useEmergencyClose";
 
 export const ActivePositions = () => {
   const { data: positions } = useActivePositions();
   const { toast } = useToast();
   const [syncing, setSyncing] = useState(false);
   const [binancePositions, setBinancePositions] = useState<any[]>([]);
+  const emergencyClose = useEmergencyClose();
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 🔍 FASE 5: BUSCAR POSIÇÕES DA BINANCE PARA COMPARAÇÃO
@@ -149,10 +151,28 @@ export const ActivePositions = () => {
               size="sm"
               onClick={handleSync}
               disabled={syncing}
-              className="h-8 w-8 p-0"
+              className="h-8 px-3"
               title={syncing ? 'Sincronizando...' : 'Sincronizar'}
             >
-              <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 mr-1 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Sincronizando...' : 'Sincronizar'}
+            </Button>
+            <Button 
+              onClick={() => {
+                if (confirm('⚠️ ATENÇÃO: Isso vai FECHAR TODAS as posições na Binance e limpar o banco de dados. Continuar?')) {
+                  const userId = positions?.[0]?.user_id;
+                  if (userId) {
+                    emergencyClose.mutate(userId);
+                  }
+                }
+              }}
+              disabled={emergencyClose.isPending}
+              variant="destructive"
+              size="sm"
+              className="h-8 px-3"
+            >
+              <XCircle className="h-4 w-4 mr-1" />
+              {emergencyClose.isPending ? 'Fechando...' : 'Emergência'}
             </Button>
           </div>
         </div>

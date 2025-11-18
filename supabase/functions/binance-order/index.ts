@@ -76,8 +76,8 @@ serve(async (req) => {
     
     const tickSize = tickSizes[asset] || 0.01; // Default 0.01
     
-    const finalStopLoss = roundPrice(correctedStopLoss, tickSize);
-    const finalTakeProfit = roundPrice(correctedTakeProfit, tickSize);
+    let finalStopLoss = roundPrice(correctedStopLoss, tickSize);
+    let finalTakeProfit = roundPrice(correctedTakeProfit, tickSize);
     
     // Calcular distâncias
     const stopDistance = Math.abs(price - finalStopLoss);
@@ -255,6 +255,40 @@ serve(async (req) => {
     }
 
     console.log(`Using user API key: ${userApiKey.substring(0, 8)}...`);
+
+    // 🔥 VALIDAÇÃO DE PREÇO EM TEMPO REAL
+    console.log('\n💱 VALIDANDO PREÇO ATUAL DA BINANCE...');
+    const currentPriceResponse = await fetch(
+      `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${asset}`
+    );
+    const currentPriceData = await currentPriceResponse.json();
+    const currentBinancePrice = parseFloat(currentPriceData.price);
+    const priceDifference = Math.abs(((currentBinancePrice - price) / price) * 100);
+
+    console.log(`├─ Preço do sinal: $${price}`);
+    console.log(`├─ Preço atual Binance: $${currentBinancePrice}`);
+    console.log(`└─ Diferença: ${priceDifference.toFixed(2)}%`);
+
+    // Se a diferença for > 0.5%, RECALCULAR stop/tp
+    if (priceDifference > 0.5) {
+      console.log('⚠️ Preço mudou significativamente! Recalculando níveis...');
+      
+      const stopDistance = Math.abs(price - finalStopLoss);
+      const newStopLoss = direction === 'BUY' 
+        ? currentBinancePrice - stopDistance 
+        : currentBinancePrice + stopDistance;
+      const newTakeProfit = direction === 'BUY'
+        ? currentBinancePrice + (stopDistance * 3.0)
+        : currentBinancePrice - (stopDistance * 3.0);
+        
+      finalStopLoss = roundPrice(newStopLoss, tickSize);
+      finalTakeProfit = roundPrice(newTakeProfit, tickSize);
+      
+      console.log(`✅ Níveis atualizados:
+      ├─ Novo Entry: $${currentBinancePrice}
+      ├─ Novo Stop: $${finalStopLoss}
+      └─ Novo TP: $${finalTakeProfit}`);
+    }
 
     // 🔧 Configure leverage for the pair
     const leverage = settings.leverage || 20;

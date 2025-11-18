@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.delete-ghost-position]
 verify_jwt = false
+
+[functions.close-all-positions]
+verify_jwt = false
