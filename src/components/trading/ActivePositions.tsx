@@ -137,25 +137,26 @@ export const ActivePositions = () => {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <CardTitle className="text-base">Posições Ativas</CardTitle>
             <Badge variant="outline" className="border-success text-success text-xs">
               {activePositions.length}
             </Badge>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <ClosePositionButton />
             <Button
               variant="outline"
               size="sm"
               onClick={handleSync}
               disabled={syncing}
-              className="h-8 px-3"
+              className="h-8 px-2 text-xs"
               title={syncing ? 'Sincronizando...' : 'Sincronizar'}
             >
-              <RefreshCw className={`h-4 w-4 mr-1 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Sincronizando...' : 'Sincronizar'}
+              <RefreshCw className={`h-3 w-3 mr-1 ${syncing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{syncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+              <span className="sm:hidden">Sync</span>
             </Button>
             <Button 
               onClick={() => {
@@ -169,9 +170,9 @@ export const ActivePositions = () => {
               disabled={emergencyClose.isPending}
               variant="destructive"
               size="sm"
-              className="h-8 px-3"
+              className="h-8 px-2 text-xs whitespace-nowrap"
             >
-              <XCircle className="h-4 w-4 mr-1" />
+              <XCircle className="h-3 w-3 mr-1" />
               {emergencyClose.isPending ? 'Fechando...' : 'Emergência'}
             </Button>
           </div>
