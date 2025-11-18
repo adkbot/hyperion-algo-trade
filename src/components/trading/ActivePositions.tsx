@@ -49,7 +49,8 @@ export const ActivePositions = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Não autenticado");
 
-      const { data, error } = await supabase.functions.invoke('sync-binance-positions', {
+      // 🧹 FORÇA LIMPEZA DE POSIÇÕES FANTASMAS
+      const { data, error } = await supabase.functions.invoke('force-sync-positions', {
         body: { user_id: user.id }
       });
 
@@ -57,8 +58,11 @@ export const ActivePositions = () => {
 
       toast({
         title: "✅ Sincronização completa",
-        description: `${data.positions_count} posições sincronizadas (${data.added} novas, ${data.updated} atualizadas)`,
+        description: `${data.valid_positions} posições válidas, ${data.removed} posições fantasmas removidas`,
       });
+      
+      // Recarregar a página para atualizar a UI
+      window.location.reload();
     } catch (error: any) {
       toast({
         title: "❌ Erro na sincronização",
