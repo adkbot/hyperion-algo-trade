@@ -98,6 +98,16 @@ function calculateAdaptiveRisk(baseRisk: number, dailyGoals: any): number {
 // 🔵 TRAVA DE SEGURANÇA UNIVERSAL - RR 1:1
 // ============================================
 async function monitorActivePositionsAdvanced(supabase: any, userId: string): Promise<void> {
+  // 🔄 NOVA FEATURE: Sincronizar com Binance ANTES de verificar posições
+  // Remove automaticamente posições que foram fechadas na Binance
+  try {
+    await supabase.functions.invoke('sync-binance-positions', {
+      body: { user_id: userId }
+    });
+  } catch (syncError) {
+    console.error('⚠️ Erro ao sincronizar posições:', syncError);
+  }
+
   const { data: positions } = await supabase
     .from('active_positions')
     .select('*')
