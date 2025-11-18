@@ -39,52 +39,6 @@ export const SessionCyclePanel = () => {
     refetchInterval: 3000, // Refresh every 3 seconds
   });
 
-  // Fetch First Candle Rule status
-  const { data: firstCandleStatus } = useQuery({
-    queryKey: ['first-candle-status'],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Usuário não autenticado");
-      
-      const today = new Date().toISOString().split('T')[0];
-      
-      // Buscar foundation do dia
-      const { data: foundation } = await supabase
-        .from('session_foundation')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('date', today)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      
-      // Buscar eventos recentes (First Candle Rule)
-      const { data: events } = await supabase
-        .from('session_history')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('timestamp', `${today}T00:00:00Z`)
-        .order('timestamp', { ascending: false })
-        .limit(20);
-      
-      // Filter for First Candle events
-      const filteredEvents = (events || []).filter((e: any) => 
-        ['FOUNDATION_DETECTED', 'BREAKOUT', 'RETEST', 'ENGULFING'].includes(e.event_type)
-      );
-      
-      return { foundation, events: filteredEvents };
-    },
-    refetchInterval: 3000,
-  });
-
-  // Process First Candle events
-  const firstCandleEvents = {
-    foundation: firstCandleStatus?.events?.find((e: any) => e.event_type === 'FOUNDATION_DETECTED'),
-    breakout: firstCandleStatus?.events?.find((e: any) => e.event_type === 'BREAKOUT'),
-    retest: firstCandleStatus?.events?.find((e: any) => e.event_type === 'RETEST'),
-    engulfing: firstCandleStatus?.events?.find((e: any) => e.event_type === 'ENGULFING'),
-  };
-
   // Detect current session based on UTC time
   const getCurrentSession = () => {
     const now = new Date();
@@ -127,12 +81,6 @@ export const SessionCyclePanel = () => {
     if (signal === 'SHORT') return <Badge className="bg-red-600">SHORT</Badge>;
     return <Badge variant="outline">STAY OUT</Badge>;
   };
-
-  // Get latest First Candle events (with type assertions)
-  const latestFoundation = firstCandleStatus?.events?.find((e: any) => e.event_type === 'FOUNDATION_DETECTED');
-  const latestBreakout = firstCandleStatus?.events?.find((e: any) => e.event_type === 'BREAKOUT');
-  const latestRetest = firstCandleStatus?.events?.find((e: any) => e.event_type === 'RETEST');
-  const latestEngulfing = firstCandleStatus?.events?.find((e: any) => e.event_type === 'ENGULFING');
 
   return (
     <Card>
