@@ -487,6 +487,54 @@ serve(async (req) => {
 
     console.log(`✅ Ordem ${binanceResult.status} - Order ID: ${binanceResult.orderId}`);
 
+    // 🔍 VERIFICAÇÃO PÓS-CRIAÇÃO: Aguardar 2s e verificar se ordem ainda está ativa
+    console.log('⏳ Aguardando 2s para verificar status da ordem...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const orderCheckTimestamp = Date.now();
+    const orderCheckParams = new URLSearchParams({
+      symbol: asset,
+      orderId: binanceResult.orderId.toString(),
+      timestamp: orderCheckTimestamp.toString(),
+    });
+
+    const orderCheckEncoder = new TextEncoder();
+    const orderCheckKey = await crypto.subtle.importKey(
+      'raw',
+      orderCheckEncoder.encode(userApiSecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const orderCheckSignature = await crypto.subtle.sign(
+      'HMAC',
+      orderCheckKey,
+      orderCheckEncoder.encode(orderCheckParams.toString())
+    );
+    const orderCheckSignatureHex = Array.from(new Uint8Array(orderCheckSignature))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    orderCheckParams.append('signature', orderCheckSignatureHex);
+
+    const orderCheckResponse = await fetch(
+      `https://fapi.binance.com/fapi/v1/order?${orderCheckParams}`,
+      { headers: { 'X-MBX-APIKEY': userApiKey } }
+    );
+
+    if (orderCheckResponse.ok) {
+      const currentOrderStatus = await orderCheckResponse.json();
+      console.log(`📊 Status atual da ordem: ${currentOrderStatus.status}`);
+      
+      if (currentOrderStatus.status === 'CANCELED' || currentOrderStatus.status === 'EXPIRED') {
+        console.error(`❌ Ordem foi ${currentOrderStatus.status} - NÃO salvar no DB`);
+        throw new Error(`Ordem foi ${currentOrderStatus.status} após criação - possivelmente fechada imediatamente`);
+      }
+      
+      console.log('✅ Ordem confirmada ativa após 2 segundos');
+    } else {
+      console.warn('⚠️ Não foi possível verificar status da ordem, continuando...');
+    }
+
     // ✅ BUSCAR DADOS REAIS DA POSIÇÃO NA BINANCE
     let entryPriceReal = price;
     let currentPriceReal = price;
@@ -606,6 +654,54 @@ serve(async (req) => {
         const stopResult = await stopResponse.json();
         stopOrderId = stopResult.orderId;
         console.log(`✅ Stop Loss criado: Order ID ${stopOrderId}`);
+        
+        // 🔍 VERIFICAÇÃO PÓS-STOP-LOSS: Aguardar 1s e verificar se posição ainda existe
+        console.log('⏳ Aguardando 1s para verificar se posição ainda existe...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const verifyPosTimestamp = Date.now();
+        const verifyPosParams = new URLSearchParams({
+          timestamp: verifyPosTimestamp.toString(),
+        });
+        
+        const verifyPosEncoder = new TextEncoder();
+        const verifyPosKey = await crypto.subtle.importKey(
+          'raw',
+          verifyPosEncoder.encode(userApiSecret),
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['sign']
+        );
+        const verifyPosSignature = await crypto.subtle.sign(
+          'HMAC',
+          verifyPosKey,
+          verifyPosEncoder.encode(verifyPosParams.toString())
+        );
+        const verifyPosSignatureHex = Array.from(new Uint8Array(verifyPosSignature))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        verifyPosParams.append('signature', verifyPosSignatureHex);
+        
+        const verifyPosResponse = await fetch(
+          `https://fapi.binance.com/fapi/v2/positionRisk?${verifyPosParams}`,
+          { headers: { 'X-MBX-APIKEY': userApiKey } }
+        );
+        
+        if (verifyPosResponse.ok) {
+          const allPositions = await verifyPosResponse.json();
+          const currentPosition = allPositions.find((p: any) => 
+            p.symbol === asset && parseFloat(p.positionAmt) !== 0
+          );
+          
+          if (!currentPosition) {
+            console.error('❌ POSIÇÃO JÁ FOI FECHADA - NÃO salvar no DB');
+            throw new Error('Posição foi fechada imediatamente após criação - possivelmente stop loss acionado');
+          }
+          
+          console.log('✅ Posição confirmada ativa na Binance após Stop Loss');
+        } else {
+          console.warn('⚠️ Não foi possível verificar posição, continuando...');
+        }
       } else {
         const stopError = await stopResponse.text();
         console.error(`❌ ERRO CRÍTICO ao criar Stop Loss:`, stopError);
@@ -650,54 +746,74 @@ serve(async (req) => {
         throw new Error('Stop Loss falhou - posição fechada por segurança');
       }
 
-      // 2️⃣ ENVIAR TAKE PROFIT (TAKE_PROFIT_MARKET)
-      console.log(`\n2️⃣ Criando TAKE PROFIT em ${finalTakeProfit}...`);
+      // 2️⃣ ENVIAR TAKE PROFIT (TAKE_PROFIT_MARKET) - COM VALIDAÇÃO
+      console.log(`\n2️⃣ Validando e criando TAKE PROFIT em ${finalTakeProfit}...`);
       
-      const tpTimestamp = Date.now();
-      const tpParams = new URLSearchParams({
-        symbol: asset,
-        side: stopSide,
-        type: 'TAKE_PROFIT_MARKET',
-        stopPrice: finalTakeProfit.toString(),
-        closePosition: 'true',
-        workingType: 'MARK_PRICE',
-        timestamp: tpTimestamp.toString(),
-      });
-
-      const tpEncoder = new TextEncoder();
-      const tpKey = await crypto.subtle.importKey(
-        'raw',
-        tpEncoder.encode(userApiSecret),
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign']
+      // 🔍 VALIDAÇÃO: Buscar preço atual antes de criar TP
+      const tpValidationResponse = await fetch(
+        `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${asset}`
       );
-      const tpSignature = await crypto.subtle.sign(
-        'HMAC',
-        tpKey,
-        tpEncoder.encode(tpParams.toString())
-      );
-      const tpSignatureHex = Array.from(new Uint8Array(tpSignature))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-      tpParams.append('signature', tpSignatureHex);
-
-      const tpResponse = await fetch(
-        `https://fapi.binance.com/fapi/v1/order?${tpParams}`,
-        { 
-          method: 'POST',
-          headers: { 'X-MBX-APIKEY': userApiKey }
-        }
-      );
-
-      if (tpResponse.ok) {
-        const tpResult = await tpResponse.json();
-        takeProfitOrderId = tpResult.orderId;
-        console.log(`✅ Take Profit criado: Order ID ${takeProfitOrderId}`);
+      const tpValidationData = await tpValidationResponse.json();
+      const currentMarketPrice = parseFloat(tpValidationData.price);
+      
+      let canCreateTP = true;
+      if (direction === 'BUY' && finalTakeProfit <= currentMarketPrice) {
+        console.log(`⚠️ TP ($${finalTakeProfit}) já ultrapassado! Atual: $${currentMarketPrice}`);
+        canCreateTP = false;
+      } else if (direction === 'SELL' && finalTakeProfit >= currentMarketPrice) {
+        console.log(`⚠️ TP ($${finalTakeProfit}) já ultrapassado! Atual: $${currentMarketPrice}`);
+        canCreateTP = false;
+      }
+      
+      if (!canCreateTP) {
+        console.log('⏭️ Pulando TP - criando apenas Stop Loss');
       } else {
-        const tpError = await tpResponse.text();
-        console.error(`⚠️ ERRO ao criar Take Profit (continuando apenas com stop):`, tpError);
-        // Continuar apenas com stop loss - não é crítico
+        const tpTimestamp = Date.now();
+        const tpParams = new URLSearchParams({
+          symbol: asset,
+          side: stopSide,
+          type: 'TAKE_PROFIT_MARKET',
+          stopPrice: finalTakeProfit.toString(),
+          closePosition: 'true',
+          workingType: 'MARK_PRICE',
+          timestamp: tpTimestamp.toString(),
+        });
+
+        const tpEncoder = new TextEncoder();
+        const tpKey = await crypto.subtle.importKey(
+          'raw',
+          tpEncoder.encode(userApiSecret),
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['sign']
+        );
+        const tpSignature = await crypto.subtle.sign(
+          'HMAC',
+          tpKey,
+          tpEncoder.encode(tpParams.toString())
+        );
+        const tpSignatureHex = Array.from(new Uint8Array(tpSignature))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        tpParams.append('signature', tpSignatureHex);
+
+        const tpResponse = await fetch(
+          `https://fapi.binance.com/fapi/v1/order?${tpParams}`,
+          { 
+            method: 'POST',
+            headers: { 'X-MBX-APIKEY': userApiKey }
+          }
+        );
+
+        if (tpResponse.ok) {
+          const tpResult = await tpResponse.json();
+          takeProfitOrderId = tpResult.orderId;
+          console.log(`✅ Take Profit criado: Order ID ${takeProfitOrderId}`);
+        } else {
+          const tpError = await tpResponse.text();
+          console.error(`⚠️ ERRO ao criar Take Profit (continuando apenas com stop):`, tpError);
+          // Continuar apenas com stop loss - não é crítico
+        }
       }
 
       console.log(`\n✅ ORDENS DE PROTEÇÃO CONFIGURADAS NA BINANCE:`);
@@ -744,6 +860,32 @@ serve(async (req) => {
       // A ordem foi executada na Binance, precisamos garantir registro
     } else {
       console.log(`✅ Posição inserida em active_positions: ${asset} ${direction}`);
+      
+      // 🔄 SINCRONIZAÇÃO IMEDIATA: Chamar sync-binance-positions
+      try {
+        console.log('🔄 Iniciando sincronização imediata com Binance...');
+        const syncResponse = await fetch(
+          `${SUPABASE_URL}/functions/v1/sync-binance-positions`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ user_id })
+          }
+        );
+        
+        if (syncResponse.ok) {
+          const syncResult = await syncResponse.json();
+          console.log('✅ Sincronização imediata concluída:', syncResult);
+        } else {
+          const syncError = await syncResponse.text();
+          console.warn('⚠️ Falha na sincronização imediata (não crítico):', syncError);
+        }
+      } catch (syncError) {
+        console.warn('⚠️ Erro na sincronização imediata (não crítico):', syncError);
+      }
     }
 
     // ✅ Insert operation COM user_id e strategy - SÓ APÓS VALIDAÇÃO
