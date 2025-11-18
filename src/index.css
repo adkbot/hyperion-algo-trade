@@ -70,3 +70,37 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+/* Mobile Optimization */
+@media (max-width: 768px) {
+  /* Prevenir overflow horizontal */
+  body {
+    overflow-x: hidden;
+  }
+  
+  /* Melhorar scrolling em iOS */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Garantir que inputs não causem zoom em iOS */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+  
+  /* Melhorar área de toque para botões */
+  button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Fix para 100vh em mobile (iOS Safari) */
+.min-h-screen {
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+}
+
+html {
+  height: -webkit-fill-available;
+}
