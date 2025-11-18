@@ -55,6 +55,7 @@ const Index = () => {
           <div className="lg:col-span-2 space-y-2 sm:space-y-3">
             <TradingChart />
             <OperationHistory />
+            <MarketAnalysisSummary />
           </div>
           
           {/* Right Column (1/3) - Compact Stats and Controls */}
@@ -64,7 +65,6 @@ const Index = () => {
             <StrategyStatusPanel />
             <ActivePositions />
             <SystemStatusPanel />
-            <MarketAnalysisSummary />
             <ADKPanel />
             <FoundationDiagnostic />
             <SessionStatePanel />
