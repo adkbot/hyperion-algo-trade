@@ -47,7 +47,7 @@ serve(async (req) => {
         console.log(`   Invertendo: Stop ${stopLoss} ↔ TP ${takeProfit}`);
         [correctedStopLoss, correctedTakeProfit] = [takeProfit, stopLoss];
       }
-    } else if (direction === 'SELL') {
+    } else if (direction === 'SELL' || direction === 'SHORT') {
       // Para SELL: Stop DEVE estar ACIMA da entrada, TP ABAIXO
       if (stopLoss < price) {
         console.log('⚠️ INVERSÃO DETECTADA: Stop Loss está ABAIXO da entrada para SELL!');
@@ -165,9 +165,22 @@ serve(async (req) => {
           take_profit: finalTakeProfit,       // ✅ Usar valor corrigido
           risk_reward: riskReward,
           current_pnl: 0,
-          projected_profit: (direction === 'BUY' || direction === 'LONG')
-            ? (finalTakeProfit - price) * quantity
-            : (price - finalTakeProfit) * quantity,
+          projected_profit: (() => {
+            const stopDistance = Math.abs(price - finalStopLoss);
+            const tpDistance = Math.abs(finalTakeProfit - price);
+            const riskAmount = stopDistance * quantity * price;
+            const projectedGain = tpDistance * quantity * price;
+            
+            console.log(`\n📊 CÁLCULO DE PROJEÇÃO DE LUCRO (PAPER):`);
+            console.log(`├─ Quantity: ${quantity} contratos`);
+            console.log(`├─ Price: $${price}`);
+            console.log(`├─ Stop Distance: $${stopDistance.toFixed(2)}`);
+            console.log(`├─ TP Distance: $${tpDistance.toFixed(2)}`);
+            console.log(`├─ Risk Amount: $${riskAmount.toFixed(2)}`);
+            console.log(`└─ Projected Gain: $${projectedGain.toFixed(2)}`);
+            
+            return projectedGain;
+          })(),
           agents,
           session,
         });
