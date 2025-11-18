@@ -104,23 +104,35 @@ export const ActivePositions = () => {
   };
 
   const activePositions = positions?.map((pos) => {
+    const currentPrice = pos.current_price || pos.entry_price;
     const progressPercent = calculateProgress(
       pos.entry_price,
-      pos.current_price || pos.entry_price,
+      currentPrice,
       pos.take_profit,
       pos.direction
     );
 
+    // ✅ CALCULAR PROJECTED PROFIT EM TEMPO REAL
+    const tpDistance = Math.abs(pos.take_profit - currentPrice);
+    const entryDistance = Math.abs(currentPrice - pos.entry_price);
+    
+    // Estimar quantity baseado no P&L atual
+    const estimatedQuantity = entryDistance > 0 
+      ? Math.abs(pos.current_pnl || 0) / entryDistance 
+      : 0.001;
+    
+    const calculatedProjectedProfit = tpDistance * estimatedQuantity;
+
     return {
       asset: pos.asset,
-      type: pos.direction.toLowerCase(), // 'buy' or 'sell'
+      type: pos.direction.toLowerCase(),
       entry: pos.entry_price,
-      current: pos.current_price || pos.entry_price,
+      current: currentPrice,
       target: pos.take_profit,
       sl: pos.stop_loss,
       pnl: pos.current_pnl || 0,
       rr: `1:${pos.risk_reward.toFixed(1)}`,
-      projectedProfit: pos.projected_profit,
+      projectedProfit: calculatedProjectedProfit,
       progressPercent: Math.max(0, Math.min(100, progressPercent)),
       timeInPosition: calculateTimeInPosition(pos.opened_at),
     };
