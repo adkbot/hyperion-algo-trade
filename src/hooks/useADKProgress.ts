@@ -27,12 +27,6 @@ interface RetestData {
   touchedMidpoint: boolean;
 }
 
-interface Confirmation1mData {
-  confirmed: boolean;
-  sweepDetected: boolean;
-  fvgDetected: boolean;
-}
-
 interface EntrySignalData {
   signal: 'BUY' | 'SELL' | 'STAY_OUT';
   risk?: {
@@ -52,7 +46,6 @@ interface ADKState {
   foundation_data: FoundationData | null;
   fvg15m_data: FVG15mData | null;
   retest_data: RetestData | null;
-  confirmation1m_data: Confirmation1mData | null;
   entry_signal: EntrySignalData | null;
   next_action: string | null;
   updated_at: string;
@@ -104,18 +97,17 @@ export const useADKProgress = () => {
       return;
     }
     
-    // Detectar mudanças de fase - notificações intermediárias removidas
-    // Apenas o sinal de entrada final será notificado
-    
-    // Entry signal gerado - verificar mudança no sinal independente da fase
+    // Notificar apenas quando retest confirmado E sinal gerado (ADK 3-Step)
     const currentSignal = currentState.entry_signal?.signal;
     const prevSignal = prevState.entry_signal?.signal;
+    const retestReady = currentState.retest_data?.entryReady;
+    const prevRetestReady = prevState.retest_data?.entryReady;
     
-    if (currentSignal && currentSignal !== 'STAY_OUT' && 
-        (!prevSignal || prevSignal === 'STAY_OUT')) {
+    if (retestReady && currentSignal && currentSignal !== 'STAY_OUT' && 
+        (!prevRetestReady || !prevSignal || prevSignal === 'STAY_OUT')) {
       toast({
-        title: `🎯 SINAL DE ENTRADA: ${currentSignal}!`,
-        description: `Entry: $${currentState.entry_signal?.risk?.entry?.toFixed(2)} | SL: $${currentState.entry_signal?.risk?.stop?.toFixed(2)} | TP: $${currentState.entry_signal?.risk?.target?.toFixed(2)}`,
+        title: `🎯 ADK 3-STEP: ${currentSignal} APROVADO!`,
+        description: `Retest confirmado | Entry: $${currentState.entry_signal?.risk?.entry?.toFixed(2)} | SL: $${currentState.entry_signal?.risk?.stop?.toFixed(2)} | TP: $${currentState.entry_signal?.risk?.target?.toFixed(2)}`,
         duration: 10000,
       });
     }
