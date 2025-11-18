@@ -28,11 +28,6 @@ interface RetestData {
   touchedMidpoint: boolean;
 }
 
-interface Confirmation1mData {
-  confirmed: boolean;
-  sweepDetected: boolean;
-  fvgDetected: boolean;
-}
 
 interface EntrySignalData {
   signal: 'BUY' | 'SELL' | 'STAY_OUT';
@@ -53,7 +48,6 @@ interface ADKState {
   foundation_data: FoundationData | null;
   fvg15m_data: FVG15mData | null;
   retest_data: RetestData | null;
-  confirmation1m_data: Confirmation1mData | null;
   entry_signal: EntrySignalData | null;
   next_action: string | null;
   updated_at: string;
@@ -76,13 +70,12 @@ export const ADKPanel = () => {
       return [
         { name: "Foundation 15m", status: "pending", data: "Aguardando primeira vela do dia" },
         { name: "Sweep + FVG 15m", status: "waiting", data: "Aguardando Foundation" },
-        { name: "50% Retest", status: "waiting", data: "Aguardando FVG" },
-        { name: "Confirmação 1m", status: "waiting", data: "Aguardando Retest" },
-        { name: "Entry Signal", status: "waiting", data: "Aguardando Confirmação" }
+        { name: "50% Retest", status: "waiting", data: "Aguardando FVG" }
       ];
     }
 
     const state = adkStates[0];
+    const entryReady = state.retest_data?.entryReady && state.entry_signal?.signal && state.entry_signal.signal !== 'STAY_OUT';
     
     return [
       {
@@ -103,29 +96,15 @@ export const ADKPanel = () => {
       },
       {
         name: "50% Retest",
-        status: state.retest_data?.entryReady ? 'completed' 
+        status: entryReady ? 'completed' 
           : state.fvg15m_data?.fvgDetected ? 'pending' : 'waiting',
-        data: state.fvg15m_data?.fvgMidpoint
-          ? state.retest_data?.entryReady 
-            ? `✅ Confirmado em $${state.fvg15m_data.fvgMidpoint?.toFixed(2)}`
-            : `Aguardando toque em $${state.fvg15m_data.fvgMidpoint?.toFixed(2)}`
-          : 'Aguardando FVG'
-      },
-      {
-        name: "Confirmação 1m",
-        status: state.confirmation1m_data?.confirmed ? 'completed' 
-          : state.retest_data?.entryReady ? 'pending' : 'waiting',
-        data: state.confirmation1m_data?.confirmed 
-          ? '✅ Sweep + FVG 1m confirmados' 
-          : state.retest_data?.entryReady ? 'Aguardando confirmação' : 'Aguardando Retest'
-      },
-      {
-        name: "Entry Signal",
-        status: state.entry_signal?.signal !== 'STAY_OUT' && state.entry_signal?.signal 
-          ? 'completed' : 'waiting',
-        data: state.entry_signal?.signal !== 'STAY_OUT' && state.entry_signal?.signal
-          ? `${state.entry_signal.signal} @ $${state.entry_signal.risk?.entry?.toFixed(2)}`
-          : 'Aguardando confirmação'
+        data: entryReady && state.entry_signal?.risk
+          ? `✅ Entrada Aprovada | Entry: $${state.entry_signal.risk.entry?.toFixed(2)}, SL: $${state.entry_signal.risk.stop?.toFixed(2)}, TP: $${state.entry_signal.risk.target?.toFixed(2)}`
+          : state.fvg15m_data?.fvgMidpoint
+            ? state.retest_data?.touchedMidpoint 
+              ? `Midpoint confirmado em $${state.fvg15m_data.fvgMidpoint?.toFixed(2)}`
+              : `Aguardando toque em $${state.fvg15m_data.fvgMidpoint?.toFixed(2)}`
+            : 'Aguardando FVG'
       }
     ];
   }, [adkStates]);
