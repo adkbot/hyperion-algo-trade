@@ -56,6 +56,7 @@ const Index = () => {
             <TradingChart />
             <OperationHistory />
             <MarketAnalysisSummary />
+            <SessionCyclePanel />
           </div>
           
           {/* Right Column (1/3) - Compact Stats and Controls */}
@@ -68,7 +69,6 @@ const Index = () => {
             <ADKPanel />
             <FoundationDiagnostic />
             <SessionStatePanel />
-            <SessionCyclePanel />
             <AgentPanel />
             <DailyHistory />
           </div>
