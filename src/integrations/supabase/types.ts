@@ -194,6 +194,45 @@ export type Database = {
         }
         Relationships: []
       }
+      market_conditions: {
+        Row: {
+          analysis_data: Json | null
+          asset: string
+          condition_type: string
+          detected_at: string | null
+          expires_at: string | null
+          id: string
+          trend_direction: string | null
+          user_id: string
+          volatility_score: number | null
+          volume_profile: string | null
+        }
+        Insert: {
+          analysis_data?: Json | null
+          asset: string
+          condition_type: string
+          detected_at?: string | null
+          expires_at?: string | null
+          id?: string
+          trend_direction?: string | null
+          user_id: string
+          volatility_score?: number | null
+          volume_profile?: string | null
+        }
+        Update: {
+          analysis_data?: Json | null
+          asset?: string
+          condition_type?: string
+          detected_at?: string | null
+          expires_at?: string | null
+          id?: string
+          trend_direction?: string | null
+          user_id?: string
+          volatility_score?: number | null
+          volume_profile?: string | null
+        }
+        Relationships: []
+      }
       operations: {
         Row: {
           agents: Json | null
@@ -320,6 +359,69 @@ export type Database = {
         }
         Relationships: []
       }
+      performance_metrics: {
+        Row: {
+          avg_rr: number | null
+          best_strategy: string | null
+          date: string
+          id: string
+          losses: number | null
+          max_drawdown: number | null
+          signals_detected: number | null
+          signals_executed: number | null
+          signals_expired: number | null
+          signals_rejected: number | null
+          strategy_performance: Json | null
+          total_operations: number | null
+          total_pnl: number | null
+          updated_at: string | null
+          user_id: string
+          win_rate: number | null
+          wins: number | null
+          worst_strategy: string | null
+        }
+        Insert: {
+          avg_rr?: number | null
+          best_strategy?: string | null
+          date?: string
+          id?: string
+          losses?: number | null
+          max_drawdown?: number | null
+          signals_detected?: number | null
+          signals_executed?: number | null
+          signals_expired?: number | null
+          signals_rejected?: number | null
+          strategy_performance?: Json | null
+          total_operations?: number | null
+          total_pnl?: number | null
+          updated_at?: string | null
+          user_id: string
+          win_rate?: number | null
+          wins?: number | null
+          worst_strategy?: string | null
+        }
+        Update: {
+          avg_rr?: number | null
+          best_strategy?: string | null
+          date?: string
+          id?: string
+          losses?: number | null
+          max_drawdown?: number | null
+          signals_detected?: number | null
+          signals_executed?: number | null
+          signals_expired?: number | null
+          signals_rejected?: number | null
+          strategy_performance?: Json | null
+          total_operations?: number | null
+          total_pnl?: number | null
+          updated_at?: string | null
+          user_id?: string
+          win_rate?: number | null
+          wins?: number | null
+          worst_strategy?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string | null
@@ -374,6 +476,48 @@ export type Database = {
           reason?: string
           rr_at_decision?: number
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      risk_management_state: {
+        Row: {
+          consecutive_losses: number | null
+          consecutive_wins: number | null
+          cooldown_until: string | null
+          current_risk_multiplier: number | null
+          daily_drawdown_percent: number | null
+          id: string
+          last_5_ops_winrate: number | null
+          last_trade_at: string | null
+          mode: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          consecutive_losses?: number | null
+          consecutive_wins?: number | null
+          cooldown_until?: string | null
+          current_risk_multiplier?: number | null
+          daily_drawdown_percent?: number | null
+          id?: string
+          last_5_ops_winrate?: number | null
+          last_trade_at?: string | null
+          mode?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          consecutive_losses?: number | null
+          consecutive_wins?: number | null
+          cooldown_until?: string | null
+          current_risk_multiplier?: number | null
+          daily_drawdown_percent?: number | null
+          id?: string
+          last_5_ops_winrate?: number | null
+          last_trade_at?: string | null
+          mode?: string | null
+          updated_at?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -563,8 +707,102 @@ export type Database = {
         }
         Relationships: []
       }
+      strategy_config: {
+        Row: {
+          allowed_sessions: string[] | null
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          market_conditions: string[] | null
+          max_positions: number | null
+          min_confidence_score: number | null
+          preferred_pairs: string[] | null
+          priority: number | null
+          risk_per_trade_multiplier: number | null
+          strategy_name: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          allowed_sessions?: string[] | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          market_conditions?: string[] | null
+          max_positions?: number | null
+          min_confidence_score?: number | null
+          preferred_pairs?: string[] | null
+          priority?: number | null
+          risk_per_trade_multiplier?: number | null
+          strategy_name: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          allowed_sessions?: string[] | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          market_conditions?: string[] | null
+          max_positions?: number | null
+          min_confidence_score?: number | null
+          preferred_pairs?: string[] | null
+          priority?: number | null
+          risk_per_trade_multiplier?: number | null
+          strategy_name?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      system_alerts: {
+        Row: {
+          action_required: boolean | null
+          action_url: string | null
+          alert_type: string
+          category: string
+          created_at: string | null
+          id: string
+          is_read: boolean | null
+          message: string
+          metadata: Json | null
+          severity: number | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          action_required?: boolean | null
+          action_url?: string | null
+          alert_type: string
+          category: string
+          created_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message: string
+          metadata?: Json | null
+          severity?: number | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          action_required?: boolean | null
+          action_url?: string | null
+          alert_type?: string
+          category?: string
+          created_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message?: string
+          metadata?: Json | null
+          severity?: number | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_settings: {
         Row: {
+          active_strategies: string[] | null
           api_key: string | null
           api_secret: string | null
           balance: number
@@ -583,6 +821,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          active_strategies?: string[] | null
           api_key?: string | null
           api_secret?: string | null
           balance?: number
@@ -601,6 +840,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          active_strategies?: string[] | null
           api_key?: string | null
           api_secret?: string | null
           balance?: number

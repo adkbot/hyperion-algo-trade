@@ -327,3 +327,50 @@ export async function shouldClosePosition(position: ActivePosition): Promise<Clo
     weakness
   };
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * TRAILING STOP DINÂMICO
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Move stop loss para proteger lucros conforme posição evolui
+ * - RR 1:1 → Move SL para breakeven
+ * - RR 2:1 → Protege 50% do lucro
+ */
+export async function adjustStopLossDynamic(
+  position: ActivePosition,
+  currentPrice: number,
+  supabase: any
+): Promise<{ newStopLoss: number; action: string } | null> {
+  const currentRR = calculateCurrentRR({ ...position, current_price: currentPrice });
+  
+  // Breakeven em RR 1:1
+  if (currentRR >= 1.0 && currentRR < 1.5) {
+    const breakEvenSL = position.entry_price;
+    if (position.direction === 'BUY' && breakEvenSL > position.stop_loss) {
+      console.log(`🔒 BREAKEVEN atingido em RR ${currentRR.toFixed(2)} - Movendo SL para ${breakEvenSL}`);
+      return { newStopLoss: breakEvenSL, action: 'BREAKEVEN' };
+    } else if (position.direction === 'SELL' && breakEvenSL < position.stop_loss) {
+      console.log(`🔒 BREAKEVEN atingido em RR ${currentRR.toFixed(2)} - Movendo SL para ${breakEvenSL}`);
+      return { newStopLoss: breakEvenSL, action: 'BREAKEVEN' };
+    }
+  }
+  
+  // Proteção de 50% do lucro em RR 2:1
+  if (currentRR >= 2.0) {
+    const risk = Math.abs(position.entry_price - position.stop_loss);
+    const halfProfit = risk; // RR 1:1
+    const protectedSL = position.direction === 'BUY' 
+      ? position.entry_price + halfProfit
+      : position.entry_price - halfProfit;
+    
+    if (position.direction === 'BUY' && protectedSL > position.stop_loss) {
+      console.log(`💎 RR 2:1 atingido - Protegendo 50% do lucro (novo SL: ${protectedSL})`);
+      return { newStopLoss: protectedSL, action: 'PROTECT_50%' };
+    } else if (position.direction === 'SELL' && protectedSL < position.stop_loss) {
+      console.log(`💎 RR 2:1 atingido - Protegendo 50% do lucro (novo SL: ${protectedSL})`);
+      return { newStopLoss: protectedSL, action: 'PROTECT_50%' };
+    }
+  }
+  
+  return null;
+}

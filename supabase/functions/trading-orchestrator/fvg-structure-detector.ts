@@ -236,6 +236,7 @@ export function detectMSS(candles: Candle[], swingPoints?: SwingPoint[]): MSSRes
 
 /**
  * Identifica tendência atual baseado em múltiplos BOS
+ * AJUSTADO: Detecta tendências fracas também
  */
 export function identifyTrend(candles: Candle[]): 'BULLISH' | 'BEARISH' | 'NEUTRAL' {
   if (!candles || candles.length < 20) {
@@ -250,7 +251,7 @@ export function identifyTrend(candles: Candle[]): 'BULLISH' | 'BEARISH' | 'NEUTR
     return 'NEUTRAL';
   }
   
-  // Tendência de alta: Múltiplos highs e lows ascendentes
+  // Tendência de alta FORTE: Múltiplos highs e lows ascendentes
   const highsAscending = recentHighs.every((high, i) => 
     i === 0 || high.price > recentHighs[i - 1].price
   );
@@ -262,7 +263,7 @@ export function identifyTrend(candles: Candle[]): 'BULLISH' | 'BEARISH' | 'NEUTR
     return 'BULLISH';
   }
   
-  // Tendência de baixa: Múltiplos highs e lows descendentes
+  // Tendência de baixa FORTE: Múltiplos highs e lows descendentes
   const highsDescending = recentHighs.every((high, i) => 
     i === 0 || high.price < recentHighs[i - 1].price
   );
@@ -271,6 +272,25 @@ export function identifyTrend(candles: Candle[]): 'BULLISH' | 'BEARISH' | 'NEUTR
   );
   
   if (highsDescending && lowsDescending) {
+    return 'BEARISH';
+  }
+  
+  // AJUSTADO: Detectar tendências FRACAS também
+  // Tendência fraca de alta: Pelo menos 2 highs maiores
+  const weakBullish = recentHighs.length >= 2 && 
+    recentHighs[recentHighs.length - 1].price > recentHighs[0].price;
+  
+  if (weakBullish) {
+    console.log('📈 Tendência FRACA de alta detectada');
+    return 'BULLISH';
+  }
+  
+  // Tendência fraca de baixa: Pelo menos 2 lows menores
+  const weakBearish = recentLows.length >= 2 &&
+    recentLows[recentLows.length - 1].price < recentLows[0].price;
+  
+  if (weakBearish) {
+    console.log('📉 Tendência FRACA de baixa detectada');
     return 'BEARISH';
   }
   

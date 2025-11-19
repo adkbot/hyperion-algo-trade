@@ -95,11 +95,11 @@ export function isAtMarketExtreme(
   const position = (fvgMid - lowest) / range;
   
   if (fvg.type === 'BISI') {
-    // FVG de alta em zona de desconto (30% inferior)
-    return position <= 0.3;
+    // FVG de alta em zona de desconto (40% inferior - RELAXADO)
+    return position <= 0.4;
   } else {
-    // FVG de baixa em zona de premium (30% superior)
-    return position >= 0.7;
+    // FVG de baixa em zona de premium (40% superior - RELAXADO)
+    return position >= 0.6;
   }
 }
 
@@ -131,12 +131,13 @@ export function calculateQualityScore(
 }
 
 /**
- * Filtra apenas FVGs de alta qualidade (score >= 3)
+ * Filtra apenas FVGs de alta qualidade (score >= minScore)
+ * AJUSTADO: minScore padrão reduzido de 3 para 2
  */
 export function filterHighQualityFVGs(
   fvgs: FVGResult[],
   candles15m: Candle[],
-  minScore: number = 3
+  minScore: number = 2
 ): Array<{ fvg: FVGResult; score: QualityScore }> {
   const qualityFVGs: Array<{ fvg: FVGResult; score: QualityScore }> = [];
   
