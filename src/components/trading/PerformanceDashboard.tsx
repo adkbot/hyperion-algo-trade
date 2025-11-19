@@ -51,26 +51,26 @@ export const PerformanceDashboard = () => {
     : 0;
 
   return (
-    <Card className="p-4 bg-background/95 backdrop-blur border-border/50">
-      <div className="space-y-4">
+    <Card className="p-3 sm:p-4 bg-background/95 backdrop-blur border-border/50">
+      <div className="space-y-3 sm:space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-foreground">Performance Hoje</h3>
-          <Target className="h-4 w-4 text-primary" />
+          <h3 className="text-xs sm:text-sm font-semibold text-foreground">Performance Hoje</h3>
+          <Target className="h-3 w-3 sm:h-4 sm:w-4 text-primary" />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3">
           {/* Sinais */}
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Sinais Detectados</p>
-            <p className="text-2xl font-bold text-foreground">{metrics.signals_detected}</p>
+            <p className="text-xl sm:text-2xl font-bold text-foreground">{metrics.signals_detected}</p>
           </div>
 
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Taxa de Execução</p>
-            <div className="flex items-baseline gap-2">
-              <p className="text-2xl font-bold text-foreground">{executionRate.toFixed(0)}%</p>
+            <div className="flex items-baseline gap-1 sm:gap-2">
+              <p className="text-xl sm:text-2xl font-bold text-foreground">{executionRate.toFixed(0)}%</p>
               {expirationRate > 50 && (
-                <AlertCircle className="h-4 w-4 text-destructive" />
+                <AlertCircle className="h-3 w-3 sm:h-4 sm:w-4 text-destructive" />
               )}
             </div>
           </div>
@@ -78,8 +78,8 @@ export const PerformanceDashboard = () => {
           {/* Operações */}
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Win Rate</p>
-            <div className="flex items-baseline gap-2">
-              <p className="text-2xl font-bold text-foreground">
+            <div className="flex items-baseline gap-1 sm:gap-2">
+              <p className="text-xl sm:text-2xl font-bold text-foreground">
                 {metrics.total_operations > 0 ? (metrics.win_rate * 100).toFixed(0) : 0}%
               </p>
               {metrics.total_operations > 0 && (
@@ -93,15 +93,15 @@ export const PerformanceDashboard = () => {
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">P&L Hoje</p>
             <div className="flex items-baseline gap-1">
-              <p className={`text-2xl font-bold ${
+              <p className={`text-xl sm:text-2xl font-bold ${
                 metrics.total_pnl > 0 ? 'text-green-500' : 
                 metrics.total_pnl < 0 ? 'text-red-500' : 
                 'text-foreground'
               }`}>
                 ${metrics.total_pnl.toFixed(2)}
               </p>
-              {metrics.total_pnl > 0 && <TrendingUp className="h-4 w-4 text-green-500" />}
-              {metrics.total_pnl < 0 && <TrendingDown className="h-4 w-4 text-red-500" />}
+              {metrics.total_pnl > 0 && <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 text-green-500" />}
+              {metrics.total_pnl < 0 && <TrendingDown className="h-3 w-3 sm:h-4 sm:w-4 text-red-500" />}
             </div>
           </div>
         </div>

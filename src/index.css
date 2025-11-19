@@ -72,10 +72,15 @@ All colors MUST be HSL.
 }
 
 /* Mobile Optimization */
+* {
+  box-sizing: border-box;
+}
+
 @media (max-width: 768px) {
   /* Prevenir overflow horizontal */
   body {
     overflow-x: hidden;
+    max-width: 100vw;
   }
   
   /* Melhorar scrolling em iOS */
@@ -90,8 +95,48 @@ All colors MUST be HSL.
   
   /* Melhorar área de toque para botões */
   button {
-    min-height: 44px;
-    min-width: 44px;
+    min-height: 40px;
+    min-width: 40px;
+    padding: 0.5rem;
+  }
+  
+  /* Cards mais compactos em mobile */
+  .card {
+    padding: 0.75rem;
+  }
+  
+  /* Fonte menor em mobile para caber mais conteúdo */
+  .text-xs {
+    font-size: 0.7rem;
+  }
+  
+  .text-sm {
+    font-size: 0.8rem;
+  }
+}
+
+/* Tabelas responsivas com scroll horizontal suave */
+.table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.table-container::-webkit-scrollbar {
+  height: 6px;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 3px;
+}
+
+/* Modais responsivos */
+@media (max-width: 768px) {
+  [role="dialog"] {
+    max-width: 95vw !important;
+    max-height: 95vh !important;
+    margin: 0.5rem;
   }
 }
 

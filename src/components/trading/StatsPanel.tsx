@@ -66,31 +66,31 @@ export const StatsPanel = () => {
 
   return (
     <Card>
-      <CardHeader className="pb-3 flex flex-row items-center justify-between">
-        <CardTitle className="text-lg">Estatísticas em Tempo Real</CardTitle>
+      <CardHeader className="pb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+        <CardTitle className="text-base sm:text-lg">Estatísticas</CardTitle>
         <Button
           variant="outline"
           size="sm"
           onClick={() => syncBalance.mutate()}
           disabled={syncBalance.isPending}
-          className="gap-2"
+          className="gap-1 w-full sm:w-auto text-xs"
         >
-          <RefreshCw className={`h-4 w-4 ${syncBalance.isPending ? 'animate-spin' : ''}`} />
-          Sincronizar Saldo
+          <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 ${syncBalance.isPending ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">Sincronizar</span>
         </Button>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-2 sm:space-y-3">
         {stats.map((stat, index) => {
           const Icon = stat.icon;
           return (
-            <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50">
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg bg-card ${stat.color}`}>
-                  <Icon className="h-4 w-4" />
+            <div key={index} className="flex items-center justify-between p-2 sm:p-3 rounded-lg bg-secondary/50">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className={`p-1.5 sm:p-2 rounded-lg bg-card ${stat.color}`}>
+                  <Icon className="h-3 w-3 sm:h-4 sm:w-4" />
                 </div>
-                <span className="text-sm text-muted-foreground">{stat.label}</span>
+                <span className="text-xs sm:text-sm text-muted-foreground">{stat.label}</span>
               </div>
-              <span className={`font-mono font-bold ${stat.color}`}>{stat.value}</span>
+              <span className={`font-mono font-bold text-sm sm:text-base ${stat.color}`}>{stat.value}</span>
             </div>
           );
         })}

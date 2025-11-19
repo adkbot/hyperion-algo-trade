@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { ClosePositionButton } from "./ClosePositionButton";
 import { useEmergencyClose } from "@/hooks/useEmergencyClose";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export const ActivePositions = () => {
   const { data: positions } = useActivePositions();
@@ -17,6 +18,7 @@ export const ActivePositions = () => {
   const [syncing, setSyncing] = useState(false);
   const [binancePositions, setBinancePositions] = useState<any[]>([]);
   const emergencyClose = useEmergencyClose();
+  const isMobile = useIsMobile();
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 🔍 FASE 5: BUSCAR POSIÇÕES DA BINANCE PARA COMPARAÇÃO
