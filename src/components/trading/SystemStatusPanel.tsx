@@ -3,15 +3,17 @@ import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity, AlertCircle, CheckCircle2, Clock } from "lucide-react";
+import { memo } from "react";
 
-export const SystemStatusPanel = () => {
+export const SystemStatusPanel = memo(() => {
   const { data: settings } = useQuery({
     queryKey: ['system-status-settings'],
     queryFn: async () => {
       const { data } = await supabase.from('user_settings').select('*').single();
       return data;
     },
-    refetchInterval: 5000,
+    refetchInterval: 10000, // Refresh every 10 seconds
+    staleTime: 5000, // Consider data fresh for 5 seconds
   });
 
   const { data: lastExecution } = useQuery({
@@ -26,7 +28,8 @@ export const SystemStatusPanel = () => {
         .maybeSingle();
       return data;
     },
-    refetchInterval: 5000,
+    refetchInterval: 10000, // Refresh every 10 seconds
+    staleTime: 5000, // Consider data fresh for 5 seconds
   });
 
   const botRunning = settings?.bot_status === 'running';
@@ -129,4 +132,4 @@ export const SystemStatusPanel = () => {
       </CardContent>
     </Card>
   );
-};
+});

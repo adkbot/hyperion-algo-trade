@@ -1,9 +1,11 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card } from "@/components/ui/card";
 import { TrendingUp, TrendingDown, AlertCircle, Target } from "lucide-react";
+import { memo } from "react";
 
-export const PerformanceDashboard = () => {
+export const PerformanceDashboard = memo(() => {
   const { data: metrics } = useQuery({
     queryKey: ['performance-metrics'],
     queryFn: async () => {
@@ -37,7 +39,8 @@ export const PerformanceDashboard = () => {
 
       return data;
     },
-    refetchInterval: 10000
+    refetchInterval: 15000, // Refresh every 15 seconds
+    staleTime: 5000, // Consider data fresh for 5 seconds
   });
 
   if (!metrics) return null;
@@ -125,4 +128,4 @@ export const PerformanceDashboard = () => {
       </div>
     </Card>
   );
-};
+});
