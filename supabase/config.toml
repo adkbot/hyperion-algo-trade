@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.close-all-positions]
 verify_jwt = false
+
+[functions.auto-close-timeout-positions]
+verify_jwt = false

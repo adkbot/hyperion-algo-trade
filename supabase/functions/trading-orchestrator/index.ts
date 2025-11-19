@@ -643,6 +643,25 @@ async function processUserTradingCycle(
   const now = new Date();
   const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
 
+  // ⏰ PASSO 1: FECHAR POSIÇÕES COM TIMEOUT (3h30min)
+  console.log(`\n⏰ Verificando posições com timeout...`);
+  try {
+    const { data: timeoutResult, error: timeoutError } = await supabase.functions.invoke(
+      'auto-close-timeout-positions',
+      {
+        body: { user_id: userId }
+      }
+    );
+
+    if (timeoutError) {
+      console.error('❌ Erro ao verificar timeout:', timeoutError);
+    } else if (timeoutResult) {
+      console.log(`✅ Timeout check: ${timeoutResult.closed || 0} posições fechadas`);
+    }
+  } catch (timeoutErr) {
+    console.error('❌ Erro no auto-close-timeout:', timeoutErr);
+  }
+
   // ✅ LOGS DE DEBUG - CONFIGURAÇÃO DO USUÁRIO
   console.log(`
 🔍 DEBUG - CONFIGURAÇÃO DO USUÁRIO:
