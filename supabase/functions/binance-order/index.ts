@@ -17,12 +17,22 @@ serve(async (req) => {
   }
 
   try {
+    console.log('\n🚀 ========================================');
+    console.log('🚀 BINANCE-ORDER INICIADO');
+    console.log('🚀 ========================================');
+    
     // ✅ CRÍTICO: Receber user_id do body
-    const { user_id, asset, direction, quantity, price, stopLoss, takeProfit, agents, session, riskReward } = await req.json();
+    const body = await req.json();
+    console.log('📥 BODY RECEBIDO:', JSON.stringify(body, null, 2));
+    
+    const { user_id, asset, direction, quantity, price, stopLoss, takeProfit, agents, session, riskReward } = body;
 
     if (!user_id) {
+      console.error('❌ ERRO CRÍTICO: user_id não fornecido!');
       throw new Error('user_id is required');
     }
+    
+    console.log('✅ user_id validado:', user_id);
 
     console.log('\n================================================================================');
     console.log('📋 VALIDAÇÃO DE DIREÇÃO - INÍCIO DA ORDEM');
@@ -1123,8 +1133,47 @@ serve(async (req) => {
 
     if (opError) {
       console.error('❌ ERRO CRÍTICO ao inserir operation:', opError);
+      
+      // Log em agent_logs
+      await supabase
+        .from('agent_logs')
+        .insert({
+          user_id,
+          agent_name: 'BINANCE_ORDER',
+          asset,
+          status: 'error',
+          data: {
+            error: 'Failed to insert operation',
+            details: opError,
+            entry_price: entryPriceReal,
+            direction
+          }
+        });
+      
       // ⚠️ Ordem FOI executada na Binance, mas falhou ao registrar
       // NÃO reverter ordem, apenas logar erro grave
+    } else {
+      console.log('✅ Operation inserida com sucesso em operations');
+      
+      // Log de sucesso em agent_logs
+      await supabase
+        .from('agent_logs')
+        .insert({
+          user_id,
+          agent_name: 'BINANCE_ORDER',
+          asset,
+          status: 'success',
+          data: {
+            message: 'Order executed successfully',
+            entry_price: entryPriceReal,
+            current_price: currentPriceReal,
+            pnl: pnlReal,
+            direction,
+            stop_loss: finalStopLoss,
+            take_profit: finalTakeProfit,
+            session
+          }
+        });
     }
 
     // ✅ INCREMENTAR CONTADOR APENAS SE INSERÇÃO EM OPERATIONS FOI BEM-SUCEDIDA

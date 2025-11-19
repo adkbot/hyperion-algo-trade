@@ -124,73 +124,109 @@ serve(async (req) => {
           continue;
         }
 
-        // 6. Executar ordem na Binance (se não estiver em paper mode)
-        let binanceOrderId = null;
-        if (!settings.paper_mode && settings.api_key && settings.api_secret) {
-          try {
-            console.log(`📤 Executando ordem na Binance...`);
-            const { data: orderResult, error: orderError } = await supabaseAdmin.functions.invoke('binance-order', {
-              body: {
-                user_id: signal.user_id,
-                asset: signal.asset,
-                direction: signal.direction,
-                price: signal.entry_price,  // ✅ CORRIGIDO: price ao invés de entry_price
-                quantity: null,  // ✅ ADICIONADO: será calculado pelo binance-order
-                stopLoss: signal.stop_loss,  // ✅ CORRIGIDO: camelCase
-                takeProfit: signal.take_profit,  // ✅ CORRIGIDO: camelCase
-                riskReward: signal.risk_reward,  // ✅ CORRIGIDO: camelCase
-                session: signal.session,
-                agents: signal.agents
-              }
-            });
-
-            if (orderError) {
-              console.error('❌ Erro ao executar ordem:', orderError);
-              await supabaseAdmin
-                .from('pending_signals')
-                .update({ status: 'REJECTED', updated_at: now })
-                .eq('id', signal.id);
-              
-              rejected++;
-              continue;
+        // 6. Executar ordem via binance-order
+        console.log(`\n🎯 EXECUTANDO ORDEM VIA BINANCE-ORDER...`);
+        console.log(`├─ User: ${signal.user_id}`);
+        console.log(`├─ Asset: ${signal.asset}`);
+        console.log(`├─ Direction: ${signal.direction}`);
+        console.log(`├─ Entry: $${signal.entry_price}`);
+        console.log(`├─ Stop: $${signal.stop_loss}`);
+        console.log(`├─ TP: $${signal.take_profit}`);
+        console.log(`└─ Paper Mode: ${settings.paper_mode ? '📝 SIM' : '💰 NÃO (REAL)'}`);
+        
+        try {
+          const { data: orderResult, error: orderError } = await supabaseAdmin.functions.invoke('binance-order', {
+            body: {
+              user_id: signal.user_id,
+              asset: signal.asset,
+              direction: signal.direction,
+              price: signal.entry_price,
+              quantity: null,  // Será calculado pelo binance-order
+              stopLoss: signal.stop_loss,
+              takeProfit: signal.take_profit,
+              riskReward: signal.risk_reward,
+              session: signal.session,
+              agents: signal.agents
             }
+          });
 
-            binanceOrderId = orderResult?.orderId;
-            console.log(`✅ Ordem executada na Binance: ${binanceOrderId}`);
-          } catch (binanceError) {
-            console.error('❌ Erro Binance:', binanceError);
+          if (orderError) {
+            console.error('❌ Erro retornado pelo binance-order:', orderError);
+            
+            // Log do erro em agent_logs
+            await supabaseAdmin
+              .from('agent_logs')
+              .insert({
+                user_id: signal.user_id,
+                agent_name: 'SIGNAL_EXECUTOR',
+                asset: signal.asset,
+                status: 'error',
+                data: {
+                  error: orderError.message || 'Unknown error',
+                  signal_id: signal.id,
+                  entry_price: signal.entry_price
+                }
+              });
+            
+            await supabaseAdmin
+              .from('pending_signals')
+              .update({ status: 'REJECTED', updated_at: now })
+              .eq('id', signal.id);
+            
             rejected++;
             continue;
           }
-        } else {
-          console.log(`📝 Modo Paper - Simulando execução`);
-        }
 
-        // 7. Criar posição ativa
-        const { error: insertError } = await supabaseAdmin
-          .from('active_positions')
-          .insert({
-            user_id: signal.user_id,
-            asset: signal.asset,
-            direction: signal.direction,
-            entry_price: signal.entry_price,
-            stop_loss: signal.stop_loss,
-            take_profit: signal.take_profit,
-            risk_reward: signal.risk_reward,
-            session: signal.session,
-            agents: signal.agents,
-            current_price: currentPrice,
-            current_pnl: 0,
-            projected_profit: Math.abs(signal.take_profit - signal.entry_price) * (settings.balance * (settings.risk_per_trade || 0.06)) / Math.abs(signal.entry_price - signal.stop_loss)
-          });
+          if (!orderResult?.success) {
+            console.error('❌ binance-order retornou success=false:', orderResult);
+            
+            await supabaseAdmin
+              .from('agent_logs')
+              .insert({
+                user_id: signal.user_id,
+                agent_name: 'SIGNAL_EXECUTOR',
+                asset: signal.asset,
+                status: 'error',
+                data: {
+                  error: 'Order execution failed',
+                  result: orderResult,
+                  signal_id: signal.id
+                }
+              });
+            
+            await supabaseAdmin
+              .from('pending_signals')
+              .update({ status: 'REJECTED', updated_at: now })
+              .eq('id', signal.id);
+            
+            rejected++;
+            continue;
+          }
 
-        if (insertError) {
-          console.error('❌ Erro ao criar posição:', insertError);
+          console.log(`✅ binance-order executado com sucesso!`);
+          console.log(`   Result:`, JSON.stringify(orderResult, null, 2));
+          
+        } catch (binanceError: any) {
+          console.error('❌ Exceção ao chamar binance-order:', binanceError);
+          
+          await supabaseAdmin
+            .from('agent_logs')
+            .insert({
+              user_id: signal.user_id,
+              agent_name: 'SIGNAL_EXECUTOR',
+              asset: signal.asset,
+              status: 'error',
+              data: {
+                error: binanceError.message || 'Exception during order execution',
+                signal_id: signal.id
+              }
+            });
+          
           rejected++;
           continue;
         }
 
-        // 8. Atualizar status do sinal
+        // 7. Atualizar status do sinal
         await supabaseAdmin
           .from('pending_signals')
           .update({ 
@@ -200,7 +236,7 @@ serve(async (req) => {
           })
           .eq('id', signal.id);
 
-        // 9. Logar execução
+        // 8. Logar execução bem-sucedida
         await supabaseAdmin
           .from('agent_logs')
           .insert({
@@ -212,13 +248,18 @@ serve(async (req) => {
               signal_id: signal.id,
               entry_price: signal.entry_price,
               current_price: currentPrice,
-              binance_order_id: binanceOrderId,
               strategy: signal.strategy,
-              confidence: signal.confidence_score
+              confidence: signal.confidence_score,
+              paper_mode: settings.paper_mode
             }
           });
 
-        console.log(`✅ Sinal executado com sucesso!`);
+        console.log(`✅ Sinal ${signal.id} executado com sucesso!`);
+        console.log(`   ✅ active_positions: criado pelo binance-order`);
+        console.log(`   ✅ operations: criado pelo binance-order`);
+        console.log(`   ✅ pending_signals: marcado como EXECUTED`);
+        console.log(`   ✅ agent_logs: registrado\n`);
+        
         executed++;
 
       } catch (priceError) {
