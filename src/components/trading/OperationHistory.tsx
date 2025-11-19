@@ -4,9 +4,11 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useOperations } from "@/hooks/useTradingData";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export const OperationHistory = () => {
   const { data: operationsData } = useOperations();
+  const isMobile = useIsMobile();
 
   const operations = operationsData?.map((op: any) => ({
     id: op.id,
@@ -42,20 +44,20 @@ export const OperationHistory = () => {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">Histórico de Operações</CardTitle>
-          <div className="flex items-center gap-4 text-sm">
-            <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <CardTitle className="text-base sm:text-lg">Histórico</CardTitle>
+          <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+            <div className="flex items-center gap-1">
               <span className="text-muted-foreground">Wins:</span>
-              <Badge variant="outline" className="border-profit text-profit">{totalWins}</Badge>
+              <Badge variant="outline" className="border-profit text-profit text-xs">{totalWins}</Badge>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <span className="text-muted-foreground">Losses:</span>
-              <Badge variant="outline" className="border-loss text-loss">{totalLosses}</Badge>
+              <Badge variant="outline" className="border-loss text-loss text-xs">{totalLosses}</Badge>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">P&L Total:</span>
-              <Badge className={totalPnL >= 0 ? "bg-profit" : "bg-loss"}>
+            <div className="flex items-center gap-1">
+              <span className="text-muted-foreground">P&L:</span>
+              <Badge className={`${totalPnL >= 0 ? "bg-profit" : "bg-loss"} text-xs`}>
                 ${totalPnL.toFixed(2)}
               </Badge>
             </div>
@@ -63,7 +65,62 @@ export const OperationHistory = () => {
         </div>
       </CardHeader>
       <CardContent>
-        <Table>
+        {isMobile ? (
+          // MOBILE: Cards verticais
+          <div className="space-y-3">
+            {operations.map((op) => (
+              <Card key={op.id} className="p-3 bg-secondary/30">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-sm">{op.asset}</span>
+                    <Badge className={`text-xs ${op.status === "win" ? "bg-profit" : "bg-loss"}`}>
+                      {op.status === "win" ? "WIN" : "LOSS"}
+                    </Badge>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-muted-foreground">Tipo:</span>
+                      <div className={`flex items-center gap-1 mt-1 ${op.type === "buy" ? "text-profit" : "text-loss"}`}>
+                        {op.type === "buy" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                        <span className="font-medium uppercase">{op.type}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Horário:</span>
+                      <div className="font-mono mt-1">{op.time}</div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Entrada:</span>
+                      <div className="font-mono mt-1">${op.entry.toFixed(4)}</div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Saída:</span>
+                      <div className="font-mono mt-1">${op.exit.toFixed(4)}</div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">R:R:</span>
+                      <div className="font-medium mt-1">{op.rr}</div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Estratégia:</span>
+                      <div className="mt-1">{getStrategyBadge(op.strategy)}</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between pt-2 border-t border-border/50">
+                    <span className="text-xs text-muted-foreground">P&L</span>
+                    <span className={`font-bold text-sm ${op.pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
+                      {op.pnl >= 0 ? '+' : ''}${op.pnl.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          // DESKTOP: Tabela completa
+          <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Horário</TableHead>
@@ -122,6 +179,7 @@ export const OperationHistory = () => {
             ))}
           </TableBody>
         </Table>
+        )}
       </CardContent>
     </Card>
   );

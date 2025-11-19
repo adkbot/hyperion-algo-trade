@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Pause, Square, Settings, LogOut, Zap, Trash2, XCircle } from "lucide-react";
+import { Play, Pause, Square, Settings, LogOut, Zap, Trash2, XCircle, MoreVertical } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useState } from "react";
 import { SettingsModal } from "./SettingsModal";
 import { ClearHistoryButton } from "./ClearHistoryButton";
@@ -35,19 +36,19 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
   return (
     <>
       <header className="border-b border-border bg-card">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-success bg-clip-text text-transparent">
+        <div className="container mx-auto px-2 sm:px-4 py-2 sm:py-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+            <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto">
+              <h1 className="text-lg sm:text-2xl font-bold bg-gradient-to-r from-primary to-success bg-clip-text text-transparent">
                 HFT Crypto Bot
               </h1>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+                <div className="flex items-center gap-1 sm:gap-2">
                   <div className={`h-2 w-2 rounded-full ${
                     botStatus === "running" ? "bg-success animate-pulse" :
                     botStatus === "paused" ? "bg-warning" : "bg-muted"
                   }`} />
-                  <span className="text-muted-foreground">
+                  <span className="text-muted-foreground hidden sm:inline">
                     {botStatus === "running" ? "Executando" :
                      botStatus === "paused" ? "Pausado" : "Parado"}
                   </span>
@@ -64,10 +65,11 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
                       'bg-primary/10 text-primary border-primary/30'
                     }`}
                   >
-                    📊 {
-                      settings.trading_strategy === 'FVG_MULTI_TF' ? 'FVG Multi-TF' :
-                      settings.trading_strategy === 'SCALPING_1MIN' ? 'Scalping 1m' :
-                      settings.trading_strategy === 'SWEEP_LIQUIDITY' ? 'Sweep 2CR' :
+                    <span className="hidden sm:inline">📊 </span>
+                    {
+                      settings.trading_strategy === 'FVG_MULTI_TF' ? 'FVG' :
+                      settings.trading_strategy === 'SCALPING_1MIN' ? 'Scalp' :
+                      settings.trading_strategy === 'SWEEP_LIQUIDITY' ? 'Sweep' :
                       settings.trading_strategy === 'ADK' ? 'ADK' :
                       settings.trading_strategy
                     }
@@ -76,7 +78,7 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1 sm:gap-2 w-full sm:w-auto">
               <Button
                 onClick={() => cancelAllOrders.mutate(undefined)}
                 disabled={cancelAllOrders.isPending}

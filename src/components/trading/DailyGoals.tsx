@@ -50,49 +50,49 @@ export const DailyGoals = () => {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">Operações por Sessão</CardTitle>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <CardTitle className="text-base sm:text-lg">Operações por Sessão</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
             <Button 
               variant="ghost" 
               size="sm"
               onClick={() => databaseCleanup.mutate()}
               disabled={databaseCleanup.isPending}
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
               title="Limpar banco de dados"
             >
-              <Trash2 className={`h-4 w-4 ${databaseCleanup.isPending ? 'animate-spin' : ''}`} />
+              <Trash2 className={`h-3 w-3 sm:h-4 sm:w-4 ${databaseCleanup.isPending ? 'animate-spin' : ''}`} />
             </Button>
             <Button 
               variant="ghost" 
               size="sm"
               onClick={() => updateDailyGoals.mutate()}
               disabled={updateDailyGoals.isPending}
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
               title="Atualizar metas"
             >
-              <RefreshCw className={`h-4 w-4 ${updateDailyGoals.isPending ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 ${updateDailyGoals.isPending ? 'animate-spin' : ''}`} />
             </Button>
-            <Badge className={dailyStats.dailyProfit >= 0 ? "bg-profit" : "bg-loss"}>
+            <Badge className={`text-xs ${dailyStats.dailyProfit >= 0 ? "bg-profit" : "bg-loss"}`}>
               {dailyStats.dailyProfit >= 0 ? '+' : ''}${dailyStats.dailyProfit.toFixed(2)}
             </Badge>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3 sm:space-y-4">
         {/* Operações por Sessão */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center justify-between text-xs sm:text-sm">
             <div className="flex items-center gap-2">
-              <Target className="h-4 w-4 text-primary" />
+              <Target className="h-3 w-3 sm:h-4 sm:w-4 text-primary" />
               <span className="text-muted-foreground">Operações Hoje</span>
             </div>
             <span className="font-bold">
               {totalSessionOps} / {maxSessionsPerDay}
             </span>
           </div>
-          <Progress value={(totalSessionOps / maxSessionsPerDay) * 100} className="h-3" />
-          <div className="text-xs text-muted-foreground">
+          <Progress value={(totalSessionOps / maxSessionsPerDay) * 100} className="h-2 sm:h-3" />
+          <div className="text-xs text-muted-foreground space-y-0.5">
             <div>✓ {maxOperationsPerSession} operação por sessão</div>
             <div>✓ Máximo {maxSessionsPerDay} sessões/dia</div>
           </div>
