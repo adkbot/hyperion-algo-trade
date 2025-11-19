@@ -15,8 +15,10 @@ import { ADKPanel } from "@/components/trading/ADKPanel";
 import { FoundationDiagnostic } from "@/components/trading/FoundationDiagnostic";
 import { StrategyStatusPanel } from "@/components/trading/StrategyStatusPanel";
 import { MarketAnalysisSummary } from "@/components/trading/MarketAnalysisSummary";
+import { PerformanceDashboard } from "@/components/trading/PerformanceDashboard";
 import { useUserSettings } from "@/hooks/useTradingData";
 import { useTradingOrchestrator } from "@/hooks/useTradingOrchestrator";
+import { usePendingSignalsExecutor } from "@/hooks/usePendingSignalsExecutor";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { useSessionHistory } from "@/hooks/useSessionHistory";
 
@@ -32,6 +34,9 @@ const Index = () => {
 
   // Start orchestrator loop when bot is running
   useTradingOrchestrator(botStatus);
+  
+  // Execute pending signals when bot is running
+  usePendingSignalsExecutor(botStatus);
 
   useEffect(() => {
     if (settings) {
@@ -53,6 +58,7 @@ const Index = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-3 items-start">
           {/* Left Column (2/3) - Chart + History */}
           <div className="lg:col-span-2 space-y-2 sm:space-y-3">
+            <PerformanceDashboard />
             <TradingChart />
             <OperationHistory />
             <MarketAnalysisSummary />

@@ -89,24 +89,9 @@ export async function analyzeFVGStrategy(
   console.log(`   Tendência 15m: ${trend15m}`);
   
   if (trend15m === 'NEUTRAL') {
-    return {
-      signal: 'STAY_OUT',
-      direction: null,
-      confidence: 0,
-      entryPrice: 0,
-      stopLoss: 0,
-      takeProfit: 0,
-      riskReward: 0,
-      notes: 'Tendência neutra no 15m. Aguardando definição de direção.',
-      marketData: { 
-        trend15m,
-        analysisDetails: {
-          rejection_reason: 'NEUTRAL_TREND',
-          trend_strength: 'low',
-          market_phase: 'consolidation'
-        }
-      },
-    };
+    console.log('⚠️ Tendência neutra - Aplicando filtros relaxados');
+    // AJUSTADO: Continua análise em vez de retornar STAY_OUT imediatamente
+    // Permite operações em mercados laterais com FVGs de alta qualidade
   }
   
   // ============================================
@@ -121,7 +106,7 @@ export async function analyzeFVGStrategy(
   console.log(`   Total FVGs: ${allFVGs15m.length}`);
   console.log(`   Não-mitigados: ${nonMitigatedFVGs.length}`);
   
-  const qualityFVGs = filterHighQualityFVGs(nonMitigatedFVGs, candles15m, 3);
+  const qualityFVGs = filterHighQualityFVGs(nonMitigatedFVGs, candles15m, 2); // AJUSTADO: score mínimo 2
   console.log(`   Alta qualidade (score ≥3): ${qualityFVGs.length}`);
   
   if (qualityFVGs.length === 0) {
