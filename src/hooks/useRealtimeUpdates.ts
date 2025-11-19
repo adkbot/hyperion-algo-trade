@@ -1,9 +1,20 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 
 export const useRealtimeUpdates = () => {
   const queryClient = useQueryClient();
+  const timeoutRef = useRef<NodeJS.Timeout>();
+
+  const invalidateWithDebounce = (queryKey: string[]) => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    
+    timeoutRef.current = setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey });
+    }, 1000); // Group multiple invalidations within 1 second
+  };
 
   useEffect(() => {
     // Subscribe to active_positions changes
@@ -18,7 +29,7 @@ export const useRealtimeUpdates = () => {
         },
         () => {
           console.log('Active positions updated');
-          queryClient.invalidateQueries({ queryKey: ["active-positions"] });
+          invalidateWithDebounce(["active-positions"]);
         }
       )
       .subscribe();
@@ -35,7 +46,7 @@ export const useRealtimeUpdates = () => {
         },
         () => {
           console.log('Operations updated');
-          queryClient.invalidateQueries({ queryKey: ["operations"] });
+          invalidateWithDebounce(["operations"]);
         }
       )
       .subscribe();
@@ -52,8 +63,8 @@ export const useRealtimeUpdates = () => {
         },
         () => {
           console.log('Daily goals updated');
-          queryClient.invalidateQueries({ queryKey: ["daily-goals"] });
-          queryClient.invalidateQueries({ queryKey: ["daily-history"] });
+          invalidateWithDebounce(["daily-goals"]);
+          invalidateWithDebounce(["daily-history"]);
         }
       )
       .subscribe();
@@ -70,7 +81,7 @@ export const useRealtimeUpdates = () => {
         },
         () => {
           console.log('Agent logs updated');
-          queryClient.invalidateQueries({ queryKey: ["agent-logs"] });
+          invalidateWithDebounce(["agent-logs"]);
         }
       )
       .subscribe();
@@ -87,7 +98,7 @@ export const useRealtimeUpdates = () => {
         },
         () => {
           console.log('User settings updated');
-          queryClient.invalidateQueries({ queryKey: ["user-settings"] });
+          invalidateWithDebounce(["user-settings"]);
         }
       )
       .subscribe();
@@ -104,13 +115,16 @@ export const useRealtimeUpdates = () => {
         },
         () => {
           console.log('ADK progress updated');
-          queryClient.invalidateQueries({ queryKey: ["adk-progress"] });
+          invalidateWithDebounce(["adk-progress"]);
         }
       )
       .subscribe();
 
     // Cleanup subscriptions
     return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
       supabase.removeChannel(positionsChannel);
       supabase.removeChannel(operationsChannel);
       supabase.removeChannel(goalsChannel);

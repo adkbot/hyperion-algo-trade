@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { memo } from "react";
 
 const STRATEGY_NAMES: Record<string, string> = {
   FVG_MULTI_TF: "FVG Multi-Timeframe",
@@ -13,7 +14,7 @@ const STRATEGY_NAMES: Record<string, string> = {
   ADK: "ADK Strategy"
 };
 
-export const StrategyStatusPanel = () => {
+export const StrategyStatusPanel = memo(() => {
   // Fetch user settings to get active strategy
   const { data: settings } = useQuery({
     queryKey: ['user-settings-strategy'],
@@ -51,7 +52,8 @@ export const StrategyStatusPanel = () => {
       if (error) throw error;
       return data;
     },
-    refetchInterval: 3000,
+    refetchInterval: 10000, // Refresh every 10 seconds
+    staleTime: 5000, // Consider data fresh for 5 seconds
   });
 
   // Count today's analyses
@@ -72,7 +74,8 @@ export const StrategyStatusPanel = () => {
       if (error) throw error;
       return count || 0;
     },
-    refetchInterval: 5000,
+    refetchInterval: 15000, // Refresh every 15 seconds
+    staleTime: 5000, // Consider data fresh for 5 seconds
   });
 
   const strategyName = settings?.trading_strategy 
@@ -178,4 +181,4 @@ export const StrategyStatusPanel = () => {
       </CardContent>
     </Card>
   );
-};
+});

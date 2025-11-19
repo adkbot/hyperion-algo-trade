@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Play, Pause, Square, Settings, LogOut, Zap, Trash2, XCircle, MoreVertical } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { useState } from "react";
+import { useState, memo } from "react";
 import { SettingsModal } from "./SettingsModal";
 import { ClearHistoryButton } from "./ClearHistoryButton";
 import { ResetDayButton } from "./ResetDayButton";
@@ -17,7 +17,7 @@ interface TradingHeaderProps {
   setBotStatus: (status: "stopped" | "running" | "paused") => void;
 }
 
-export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) => {
+export const TradingHeader = memo(({ botStatus, setBotStatus }: TradingHeaderProps) => {
   const [showSettings, setShowSettings] = useState(false);
   const { data: settings } = useUserSettings();
   const updateBotStatus = useUpdateBotStatus();
@@ -189,4 +189,4 @@ export const TradingHeader = ({ botStatus, setBotStatus }: TradingHeaderProps) =
       <SettingsModal open={showSettings} onOpenChange={setShowSettings} />
     </>
   );
-};
+});

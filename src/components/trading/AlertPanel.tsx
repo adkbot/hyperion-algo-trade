@@ -4,9 +4,9 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, memo } from "react";
 
-export const AlertPanel = () => {
+export const AlertPanel = memo(() => {
   const { toast } = useToast();
 
   // Fetch real-time signals from session_history (incluindo First Candle events)
@@ -32,7 +32,8 @@ export const AlertPanel = () => {
       if (error) throw error;
       return data || [];
     },
-    refetchInterval: 3000, // Refresh every 3 seconds
+    refetchInterval: 10000, // Refresh every 10 seconds
+    staleTime: 5000, // Consider data fresh for 5 seconds
   });
 
   // Fetch recent STAY_OUT signals for market status
@@ -56,7 +57,8 @@ export const AlertPanel = () => {
       if (error) throw error;
       return data || [];
     },
-    refetchInterval: 5000,
+    refetchInterval: 15000, // Refresh every 15 seconds
+    staleTime: 5000, // Consider data fresh for 5 seconds
   });
 
   // Fetch user settings for balance check
@@ -232,4 +234,4 @@ export const AlertPanel = () => {
       )}
     </div>
   );
-};
+});
