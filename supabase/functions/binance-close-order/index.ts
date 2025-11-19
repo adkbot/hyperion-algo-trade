@@ -454,10 +454,10 @@ Deno.serve(async (req) => {
         
       console.log(`✅ daily_goals atualizado: ${newWins}W/${newLosses}L | Total: ${newTotalOps} ops | PnL: $${newTotalPnl.toFixed(2)}`);
     } else {
-      // Criar daily_goal se não existir
+      // ✅ CORRIGIDO: Usar UPSERT ao invés de INSERT para evitar duplicate key error
       await supabase
         .from('daily_goals')
-        .insert({
+        .upsert({
           user_id,
           date: today,
           total_operations: 1,
@@ -467,9 +467,12 @@ Deno.serve(async (req) => {
           target_operations: 45,
           max_losses: 15,
           completed: false
+        }, {
+          onConflict: 'date,user_id',
+          ignoreDuplicates: false
         });
         
-      console.log(`✅ daily_goals criado para hoje`);
+      console.log(`✅ daily_goals criado/atualizado para hoje`);
     }
 
     return new Response(

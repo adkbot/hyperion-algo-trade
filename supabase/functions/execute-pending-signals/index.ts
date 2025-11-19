@@ -134,12 +134,12 @@ serve(async (req) => {
                 user_id: signal.user_id,
                 asset: signal.asset,
                 direction: signal.direction,
-                entry_price: signal.entry_price,
-                stop_loss: signal.stop_loss,
-                take_profit: signal.take_profit,
-                risk_reward: signal.risk_reward,
+                price: signal.entry_price,  // ✅ CORRIGIDO: price ao invés de entry_price
+                quantity: null,  // ✅ ADICIONADO: será calculado pelo binance-order
+                stopLoss: signal.stop_loss,  // ✅ CORRIGIDO: camelCase
+                takeProfit: signal.take_profit,  // ✅ CORRIGIDO: camelCase
+                riskReward: signal.risk_reward,  // ✅ CORRIGIDO: camelCase
                 session: signal.session,
-                strategy: signal.strategy,
                 agents: signal.agents
               }
             });
