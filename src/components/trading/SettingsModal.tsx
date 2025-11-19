@@ -94,23 +94,40 @@ export const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
       return;
     }
 
-    updateSettings.mutate({
-      balance,
-      max_positions: maxPositions,
-      risk_per_trade: riskPerTrade,
-      paper_mode: paperMode,
-      api_key: apiKey || null,
-      api_secret: apiSecret || null,
-      leverage,
-      profit_target_percent: profitTarget,
-      trading_strategy: tradingStrategy,
-    });
-    onOpenChange(false);
+    updateSettings.mutate(
+      {
+        balance,
+        max_positions: maxPositions,
+        risk_per_trade: riskPerTrade,
+        paper_mode: paperMode,
+        api_key: apiKey || null,
+        api_secret: apiSecret || null,
+        leverage,
+        profit_target_percent: profitTarget,
+        trading_strategy: tradingStrategy,
+      },
+      {
+        onSuccess: () => {
+          // Only close modal after successful save
+          onOpenChange(false);
+        },
+      }
+    );
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px] max-h-[85vh] overflow-y-auto">
+      <DialogContent 
+        className="sm:max-w-[425px] max-h-[85vh] overflow-y-auto"
+        onPointerDownOutside={(event) => {
+          // Prevent modal from closing on accidental touches outside (especially on mobile)
+          event.preventDefault();
+        }}
+        onInteractOutside={(event) => {
+          // Prevent modal from closing on any interaction outside (scroll, touch, etc.)
+          event.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Configurações da API</DialogTitle>
         </DialogHeader>
