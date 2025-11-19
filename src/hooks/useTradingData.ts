@@ -92,7 +92,8 @@ export const useActivePositions = () => {
       if (error) throw error;
       return data;
     },
-    refetchInterval: 1000, // Refresh every 1 second (2x mais rápido!)
+    refetchInterval: 5000, // ✅ OTIMIZADO: 5s ao invés de 1s
+    staleTime: 3000, // ✅ ADICIONADO: evita refetch desnecessário
   });
 };
 
@@ -183,7 +184,8 @@ export const useAgentLogs = () => {
       if (error) throw error;
       return data;
     },
-    refetchInterval: 3000, // Refresh every 3 seconds
+    refetchInterval: 10000, // ✅ OTIMIZADO: 10s ao invés de 3s
+    staleTime: 5000, // ✅ ADICIONADO: evita refetch desnecessário
   });
 };
 
