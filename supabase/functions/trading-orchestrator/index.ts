@@ -502,7 +502,10 @@ async function savePendingSignal(
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutos
   
-  await supabase.from('pending_signals').insert({
+  // 🔵 CORREÇÃO 3 & 5: Log ANTES de criar sinal
+  console.log(`🔵 CRIANDO SINAL PENDING: ${asset} ${analysis.signal} | Entry: ${analysis.entryPrice || analysis.risk?.entry} | Strategy: ${strategy} | Session: ${session}`);
+  
+  const insertData = {
     user_id: userId,
     asset,
     strategy,
@@ -523,14 +526,38 @@ async function savePendingSignal(
     },
     status: 'PENDING',
     expires_at: expiresAt.toISOString(),
-  });
+  };
   
-  console.log(`✅ Sinal pendente salvo: ${asset} ${analysis.signal} @ ${analysis.entryPrice || analysis.risk?.entry}`);
+  const { data: insertedSignal, error: insertError } = await supabase
+    .from('pending_signals')
+    .insert(insertData)
+    .select()
+    .single();
+  
+  if (insertError) {
+    console.error(`❌ ERRO ao inserir sinal PENDING:`, insertError);
+    throw insertError;
+  }
+  
+  // 🔵 CORREÇÃO 3 & 5: Log detalhado APÓS insert
+  console.log(`✅ SINAL PENDING CRIADO COM SUCESSO:`, {
+    id: insertedSignal?.id,
+    asset,
+    direction: analysis.signal,
+    entry: analysis.entryPrice || analysis.risk?.entry,
+    status: insertedSignal?.status,
+    strategy,
+    confidence: analysis.confidence,
+    expires_at: expiresAt.toISOString()
+  });
 }
 
 /**
+ * 🔵 CORREÇÃO 1: Função desabilitada - edge function 'execute-pending-signals' agora executa
+ * 
  * Executar sinais pendentes ainda válidos
  */
+/*
 async function executePendingSignals(
   supabase: any,
   userId: string,
@@ -629,6 +656,7 @@ async function executePendingSignals(
     return 0;
   }
 }
+*/
 
 // ✅ NOVA FUNÇÃO: Processar ciclo de trading para um usuário específico
 async function processUserTradingCycle(
@@ -756,8 +784,12 @@ async function processUserTradingCycle(
   }
 
   // ==========================================
-  // 🚀 EXECUTAR PENDING SIGNALS PRIMEIRO
+  // 🚀 EXECUTAR PENDING SIGNALS PRIMEIRO - DESABILITADO
   // ==========================================
+  // 🔵 CORREÇÃO 1: Sistema unificado - edge function executa sinais
+  // A função execute-pending-signals agora é responsável por executar todos os sinais pendentes
+  // O trading-orchestrator apenas CRIA sinais como PENDING
+  /*
   console.log(`\n🔍 Verificando sinais pendentes...`);
   const executedSignals = await executePendingSignals(
     supabase,
@@ -769,6 +801,8 @@ async function processUserTradingCycle(
   if (executedSignals > 0) {
     console.log(`✅ ${executedSignals} sinal(is) pendente(s) executado(s)`);
   }
+  */
+  console.log(`\n🔵 Sistema de execução de sinais: Edge function 'execute-pending-signals' ativa`);
 
   // Check active positions DEPOIS de executar pending signals
   const { data: activePositions } = await supabase
