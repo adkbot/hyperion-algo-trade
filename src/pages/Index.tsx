@@ -19,6 +19,7 @@ import { PerformanceDashboard } from "@/components/trading/PerformanceDashboard"
 import { useUserSettings } from "@/hooks/useTradingData";
 import { useTradingOrchestrator } from "@/hooks/useTradingOrchestrator";
 import { usePendingSignalsExecutor } from "@/hooks/usePendingSignalsExecutor";
+import { useAutoClosePositions } from "@/hooks/useAutoClosePositions";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { useSessionHistory } from "@/hooks/useSessionHistory";
 
@@ -37,6 +38,9 @@ const Index = () => {
   
   // Execute pending signals when bot is running
   usePendingSignalsExecutor(botStatus);
+  
+  // Auto-close timeout positions (>3h30min) when bot is running
+  useAutoClosePositions(botStatus);
 
   useEffect(() => {
     if (settings) {
