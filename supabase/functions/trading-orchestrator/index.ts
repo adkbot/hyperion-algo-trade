@@ -500,10 +500,47 @@ async function savePendingSignal(
   session: string,
   analysis: any
 ): Promise<void> {
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutos
+  // 🔵 CORREÇÃO 2: Reduzir expiração para 2 minutos (cripto é muito volátil)
+  const expiresAt = new Date(Date.now() + 2 * 60 * 1000); // 2 minutos
   
-  // 🔵 CORREÇÃO 3 & 5: Log ANTES de criar sinal
-  console.log(`🔵 CRIANDO SINAL PENDING: ${asset} ${analysis.signal} | Entry: ${analysis.entryPrice || analysis.risk?.entry} | Strategy: ${strategy} | Session: ${session}`);
+  // 🔵 CORREÇÃO 3: Verificar se já existe sinal recente para este asset (cooldown de 3 min)
+  const { data: recentSignal } = await supabase
+    .from('pending_signals')
+    .select('id, created_at')
+    .eq('user_id', userId)
+    .eq('asset', asset)
+    .eq('status', 'PENDING')
+    .gte('created_at', new Date(Date.now() - 3 * 60 * 1000).toISOString())
+    .single();
+
+  if (recentSignal) {
+    const secondsAgo = Math.floor((Date.now() - new Date(recentSignal.created_at).getTime()) / 1000);
+    console.log(`⏳ COOLDOWN: Sinal recente existe para ${asset} (criado há ${secondsAgo}s) - aguardando 3 min`);
+    return;
+  }
+
+  // 🔵 CORREÇÃO 5: Validar preço ANTES de criar sinal
+  const tickerUrl = `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${asset}`;
+  const tickerResponse = await fetch(tickerUrl);
+  const tickerData = await tickerResponse.json();
+  const currentPrice = parseFloat(tickerData.price);
+  const entryPrice = analysis.entryPrice || analysis.risk?.entry;
+
+  if (!entryPrice) {
+    console.log(`⚠️ SINAL NÃO CRIADO: Entry price não definido`);
+    return;
+  }
+
+  const priceDiff = Math.abs(currentPrice - entryPrice) / entryPrice;
+
+  if (priceDiff > 0.03) { // 3% no momento da criação
+    console.log(`⚠️ SINAL NÃO CRIADO: Preço já desviou ${(priceDiff * 100).toFixed(2)}% (Entry: ${entryPrice}, Current: ${currentPrice})`);
+    return;
+  }
+
+  // 🔵 CORREÇÃO 6: Log detalhado ANTES de criar sinal (com timestamp)
+  const timestamp = new Date().toLocaleString('pt-BR');
+  console.log(`🔵 [${timestamp}] CRIANDO SINAL PENDING: ${asset} ${analysis.signal} | Entry: ${entryPrice} | Current: ${currentPrice} | Diff: ${(priceDiff * 100).toFixed(2)}% | Strategy: ${strategy} | Session: ${session}`);
   
   const insertData = {
     user_id: userId,
@@ -539,16 +576,20 @@ async function savePendingSignal(
     throw insertError;
   }
   
-  // 🔵 CORREÇÃO 3 & 5: Log detalhado APÓS insert
-  console.log(`✅ SINAL PENDING CRIADO COM SUCESSO:`, {
+  // 🔵 CORREÇÃO 6: Log detalhado APÓS insert (com timestamp e ID do sinal)
+  const createdAt = new Date().toLocaleString('pt-BR');
+  console.log(`✅ [${createdAt}] SINAL PENDING CRIADO COM SUCESSO:`, {
     id: insertedSignal?.id,
     asset,
     direction: analysis.signal,
-    entry: analysis.entryPrice || analysis.risk?.entry,
+    entry: entryPrice,
+    current_price: currentPrice,
+    price_deviation: `${(priceDiff * 100).toFixed(2)}%`,
     status: insertedSignal?.status,
     strategy,
     confidence: analysis.confidence,
-    expires_at: expiresAt.toISOString()
+    expires_at: expiresAt.toISOString(),
+    expires_in: '2 minutos'
   });
 }
 

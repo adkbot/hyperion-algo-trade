@@ -52,8 +52,28 @@ serve(async (req) => {
     let rejected = 0;
     let expired = 0;
 
+    // 🔵 CORREÇÃO 4: Função de retry com backoff exponencial
+    async function retryOperation<T>(
+      operation: () => Promise<T>,
+      maxRetries: number = 3,
+      baseDelay: number = 1000
+    ): Promise<T> {
+      for (let i = 0; i < maxRetries; i++) {
+        try {
+          return await operation();
+        } catch (error) {
+          if (i === maxRetries - 1) throw error;
+          const delay = baseDelay * Math.pow(2, i);
+          console.log(`⏳ Tentativa ${i + 1}/${maxRetries} falhou. Retry em ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+      throw new Error('Max retries exceeded');
+    }
+
     for (const signal of pendingSignals) {
-      console.log(`\n🔍 Processando sinal ${signal.id} (${signal.asset} ${signal.direction})`);
+      const signalCreatedAt = new Date(signal.created_at).toLocaleString('pt-BR');
+      console.log(`\n🔍 [${signalCreatedAt}] Processando sinal ${signal.id} (${signal.asset} ${signal.direction})`);
 
       // 1. Verificar se posição já existe para este asset
       const { data: existingPosition } = await supabaseAdmin
@@ -97,17 +117,17 @@ serve(async (req) => {
         const tickerData = await tickerResponse.json();
         const currentPrice = parseFloat(tickerData.price);
 
-        // 3. Validar se preço ainda está próximo do entry_price (±2.0% - ajustado para cripto)
+        // 🔵 CORREÇÃO 1: Aumentar tolerância para 5% (cripto é volátil)
         const priceDiff = Math.abs(currentPrice - signal.entry_price) / signal.entry_price;
         
         console.log(`📊 Validação de preço:`);
         console.log(`├─ Entry price: $${signal.entry_price}`);
         console.log(`├─ Current price: $${currentPrice}`);
         console.log(`├─ Diferença: ${(priceDiff * 100).toFixed(2)}%`);
-        console.log(`└─ Status: ${priceDiff > 0.02 ? '❌ REJEITADO (>2%)' : '✅ ACEITO (<2%)'}`);
+        console.log(`└─ Status: ${priceDiff > 0.05 ? '❌ REJEITADO (>5%)' : '✅ ACEITO (<5%)'}`);
         
-        if (priceDiff > 0.02) {
-          const reason = `Preço atual (${currentPrice}) fora da tolerância (±2%) do entry (${signal.entry_price})`;
+        if (priceDiff > 0.05) {
+          const reason = `Preço atual (${currentPrice}) fora da tolerância (±5%) do entry (${signal.entry_price})`;
           console.log(`❌ ${reason}`);
           
           // Log detalhado de rejeição
@@ -123,7 +143,7 @@ serve(async (req) => {
               entry_price: signal.entry_price,
               current_price: currentPrice,
               deviation_percent: (priceDiff * 100).toFixed(2),
-              tolerance_percent: 2.0
+              tolerance_percent: 5.0
             }
           });
           
@@ -198,8 +218,8 @@ serve(async (req) => {
           continue;
         }
 
-        // 6. Executar ordem via binance-order
-        console.log(`\n🎯 EXECUTANDO ORDEM VIA BINANCE-ORDER...`);
+        // 🔵 CORREÇÃO 4: Executar ordem com retry logic
+        console.log(`\n🎯 EXECUTANDO ORDEM VIA BINANCE-ORDER (COM RETRY)...`);
         console.log(`├─ User: ${signal.user_id}`);
         console.log(`├─ Asset: ${signal.asset}`);
         console.log(`├─ Direction: ${signal.direction}`);
@@ -209,23 +229,27 @@ serve(async (req) => {
         console.log(`└─ Paper Mode: ${settings.paper_mode ? '📝 SIM' : '💰 NÃO (REAL)'}`);
         
         try {
-          const { data: orderResult, error: orderError } = await supabaseAdmin.functions.invoke('binance-order', {
-            body: {
-              user_id: signal.user_id,
-              asset: signal.asset,
-              direction: signal.direction,
-              price: signal.entry_price,
-              quantity: null,  // Será calculado pelo binance-order
-              stopLoss: signal.stop_loss,
-              takeProfit: signal.take_profit,
-              riskReward: signal.risk_reward,
-              session: signal.session,
-              agents: signal.agents
-            }
-          });
+          const orderResult = await retryOperation(async () => {
+            const { data, error } = await supabaseAdmin.functions.invoke('binance-order', {
+              body: {
+                user_id: signal.user_id,
+                asset: signal.asset,
+                direction: signal.direction,
+                price: signal.entry_price,
+                quantity: null,  // Será calculado pelo binance-order
+                stopLoss: signal.stop_loss,
+                takeProfit: signal.take_profit,
+                riskReward: signal.risk_reward,
+                session: signal.session,
+                agents: signal.agents
+              }
+            });
+            if (error) throw error;
+            return data;
+          }, 3, 1000);
 
-          if (orderError) {
-            const reason = `Erro ao executar ordem: ${orderError.message || 'Erro desconhecido'}`;
+          if (!orderResult) {
+            const reason = `Erro ao executar ordem após 3 tentativas`;
             console.error(`❌ ${reason}`);
             
             // Log detalhado de erro
@@ -238,7 +262,7 @@ serve(async (req) => {
                 signal_id: signal.id,
                 reason: 'BINANCE_ORDER_ERROR',
                 details: reason,
-                error: orderError
+                retries: 3
               }
             });
             
