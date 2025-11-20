@@ -9,8 +9,10 @@ export const useAutoClosePositions = (botStatus: 'stopped' | 'running' | 'paused
   useEffect(() => {
     const checkTimeoutPositions = async () => {
       try {
+        // 🔵 CORREÇÃO 2: Adicionar body vazio para evitar erro de JSON parse
         const { data, error } = await supabase.functions.invoke('auto-close-timeout-positions', {
-          method: 'POST'
+          method: 'POST',
+          body: {}
         });
 
         if (error) {
