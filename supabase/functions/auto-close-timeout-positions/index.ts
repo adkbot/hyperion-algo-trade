@@ -72,7 +72,11 @@ serve(async (req) => {
       console.log(`├─ Entry: ${position.entry_price}`);
 
       // Verificar se ultrapassou o timeout
-      if (minutesOpen > TIMEOUT_MINUTES) {
+      console.log(`├─ Timeout configurado: ${TIMEOUT_MINUTES} min (3h30)`);
+      console.log(`├─ Tempo restante: ${Math.max(0, TIMEOUT_MINUTES - minutesOpen).toFixed(1)} min`);
+      console.log(`└─ Ação: ${minutesOpen >= TIMEOUT_MINUTES ? '🔴 FECHAR AGORA' : '🟢 MANTER'}`);
+      
+      if (minutesOpen >= TIMEOUT_MINUTES) {
         console.log(`└─ ⏰ TIMEOUT! Fechando automaticamente...`);
 
         try {
