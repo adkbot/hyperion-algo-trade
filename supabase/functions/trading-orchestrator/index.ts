@@ -1207,8 +1207,11 @@ async function processUserTradingCycle(
           
           let analysis;
           
-          if (selectedStrategy === 'FVG_MULTI_TF') {
-            // 📈 NOVA ESTRATÉGIA: FVG Multi-Timeframe (15m → 1m)
+if (selectedStrategy === 'FVG_MULTI_TF') {
+            // 📈 ESTRATÉGIA DUPLA: FVG Multi-Timeframe + FVG Simple (fallback)
+            console.log(`📊 Strategies: FVG_MULTI_TF (conservadora) + FVG_SIMPLE (fallback) para ${pair}`);
+            
+            // Tentar estratégia conservadora primeiro
             const { analyzeFVGStrategy } = await import('./fvg-strategy-analyzer.ts');
             analysis = await analyzeFVGStrategy({
               candles15m: candles['15m'],
@@ -1217,6 +1220,34 @@ async function processUserTradingCycle(
               userId,
               supabase
             });
+            
+            // Se não gerou sinal, tentar estratégia simplificada
+            if (analysis?.signal === 'STAY_OUT') {
+              console.log(`   ⚠️ FVG_MULTI_TF retornou STAY_OUT, tentando FVG_SIMPLE...`);
+              const { analyzeFVGSimple } = await import('./fvg-simple-analyzer.ts');
+              const simpleAnalysis = await analyzeFVGSimple(
+                candles['15m'],
+                candles['1m'],
+                pair
+              );
+              
+              // Se FVG_SIMPLE gerou sinal, usar ele
+              if (simpleAnalysis?.signal !== 'STAY_OUT') {
+                console.log(`   ✅ FVG_SIMPLE gerou sinal: ${simpleAnalysis.signal}`);
+                analysis = {
+                  ...simpleAnalysis,
+                  strategy: 'FVG_SIMPLE',
+                  risk: simpleAnalysis.stopLoss && simpleAnalysis.takeProfit ? {
+                    entry: simpleAnalysis.entryPrice,
+                    stopLoss: simpleAnalysis.stopLoss,
+                    takeProfit: simpleAnalysis.takeProfit,
+                    riskReward: 3.0
+                  } : undefined
+                };
+              } else {
+                console.log(`   ℹ️ FVG_SIMPLE também retornou STAY_OUT`);
+              }
+            }
           } else if (selectedStrategy === 'FIRST_CANDLE_ADK') {
             // 🎯 NOVA ESTRATÉGIA: First Candle ADK (15m Foundation + Multi-TF FVG)
             const { analyzeADKStrategy } = await import('./first-candle-adk-analyzer.ts');
