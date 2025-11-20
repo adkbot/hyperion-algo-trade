@@ -519,28 +519,10 @@ async function savePendingSignal(
     return;
   }
 
-  // 🔵 CORREÇÃO 5: Validar preço ANTES de criar sinal
-  const tickerUrl = `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${asset}`;
-  const tickerResponse = await fetch(tickerUrl);
-  const tickerData = await tickerResponse.json();
-  const currentPrice = parseFloat(tickerData.price);
-  const entryPrice = analysis.entryPrice || analysis.risk?.entry;
-
-  if (!entryPrice) {
-    console.log(`⚠️ SINAL NÃO CRIADO: Entry price não definido`);
-    return;
-  }
-
-  const priceDiff = Math.abs(currentPrice - entryPrice) / entryPrice;
-
-  if (priceDiff > 0.03) { // 3% no momento da criação
-    console.log(`⚠️ SINAL NÃO CRIADO: Preço já desviou ${(priceDiff * 100).toFixed(2)}% (Entry: ${entryPrice}, Current: ${currentPrice})`);
-    return;
-  }
-
-  // 🔵 CORREÇÃO 6: Log detalhado ANTES de criar sinal (com timestamp)
+  // 🔵 CORREÇÃO 6: Log detalhado ANTES de criar sinal (com timestamp e validação apenas na execução)
   const timestamp = new Date().toLocaleString('pt-BR');
-  console.log(`🔵 [${timestamp}] CRIANDO SINAL PENDING: ${asset} ${analysis.signal} | Entry: ${entryPrice} | Current: ${currentPrice} | Diff: ${(priceDiff * 100).toFixed(2)}% | Strategy: ${strategy} | Session: ${session}`);
+  const entryPrice = analysis.entryPrice || analysis.risk?.entry;
+  console.log(`🔵 [${timestamp}] CRIANDO SINAL PENDING: ${asset} ${analysis.signal} | Entry: ${entryPrice} | Strategy: ${strategy} | Session: ${session} | Tolerância 5% será validada na execução`);
   
   const insertData = {
     user_id: userId,
@@ -583,13 +565,12 @@ async function savePendingSignal(
     asset,
     direction: analysis.signal,
     entry: entryPrice,
-    current_price: currentPrice,
-    price_deviation: `${(priceDiff * 100).toFixed(2)}%`,
     status: insertedSignal?.status,
     strategy,
     confidence: analysis.confidence,
     expires_at: expiresAt.toISOString(),
-    expires_in: '2 minutos'
+    expires_in: '2 minutos',
+    note: 'Preço será validado (5%) na hora da execução'
   });
 }
 
