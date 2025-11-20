@@ -6,8 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const BINANCE_API_KEY = Deno.env.get('BINANCE_API_KEY');
-const BINANCE_API_SECRET = Deno.env.get('BINANCE_API_SECRET');
+// ⚠️ NÃO USAR KEYS GLOBAIS - Cada usuário tem suas próprias credenciais no DB
+// const BINANCE_API_KEY = Deno.env.get('BINANCE_API_KEY');
+// const BINANCE_API_SECRET = Deno.env.get('BINANCE_API_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
@@ -126,6 +127,21 @@ serve(async (req) => {
     console.log('================================================================================\n');
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    
+    // 📝 LOG INICIAL - Registrar início do processamento
+    await supabase.from('agent_logs').insert({
+      user_id,
+      agent_name: 'BINANCE_ORDER',
+      asset,
+      status: 'processing',
+      data: { 
+        direction, 
+        entry_price: price, 
+        stop_loss: finalStopLoss, 
+        take_profit: finalTakeProfit,
+        timestamp: new Date().toISOString()
+      }
+    });
 
     // ✅ CONTROLE: Verificar se já existe posição ativa para este ativo
     const { data: existingPosition, error: positionCheckError } = await supabase
@@ -218,6 +234,33 @@ serve(async (req) => {
 
       if (opError) {
         console.error('Error inserting operation:', opError);
+      }
+      
+      // 📝 LOG DE SUCESSO - PAPER MODE
+      await supabase.from('agent_logs').insert({
+        user_id,
+        agent_name: 'BINANCE_ORDER',
+        asset,
+        status: 'success',
+        data: { 
+          mode: 'PAPER',
+          entry_price: price,
+          stop_loss: finalStopLoss,
+          take_profit: finalTakeProfit,
+          quantity,
+          timestamp: new Date().toISOString()
+        }
+      });
+      
+      // 🔄 FORÇAR SINCRONIZAÇÃO COM BINANCE
+      console.log('🔄 Forçando sincronização com Binance (PAPER)...');
+      try {
+        await supabase.functions.invoke('sync-binance-positions', {
+          body: { user_id }
+        });
+        console.log('✅ Sincronização concluída');
+      } catch (syncError) {
+        console.warn('⚠️ Erro na sincronização (não crítico):', syncError);
       }
 
       // ✅ INCREMENTAR CONTADOR DA SESSÃO APÓS SUCESSO
@@ -1155,7 +1198,7 @@ serve(async (req) => {
     } else {
       console.log('✅ Operation inserida com sucesso em operations');
       
-      // Log de sucesso em agent_logs
+      // 📝 LOG DE SUCESSO - REAL MODE
       await supabase
         .from('agent_logs')
         .insert({
@@ -1164,14 +1207,18 @@ serve(async (req) => {
           asset,
           status: 'success',
           data: {
-            message: 'Order executed successfully',
+            mode: 'REAL',
+            message: 'Order executed successfully on Binance',
+            binance_order_id: binanceResult?.orderId || 'N/A',
             entry_price: entryPriceReal,
             current_price: currentPriceReal,
             pnl: pnlReal,
             direction,
             stop_loss: finalStopLoss,
             take_profit: finalTakeProfit,
-            session
+            actual_quantity: binanceResult?.executedQty || formattedQuantity,
+            session,
+            timestamp: new Date().toISOString()
           }
         });
     }

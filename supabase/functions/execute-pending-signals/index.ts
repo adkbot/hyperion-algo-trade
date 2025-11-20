@@ -81,9 +81,16 @@ serve(async (req) => {
         const tickerData = await tickerResponse.json();
         const currentPrice = parseFloat(tickerData.price);
 
-        // 3. Validar se preço ainda está próximo do entry_price (±0.5%)
+        // 3. Validar se preço ainda está próximo do entry_price (±2.0% - ajustado para cripto)
         const priceDiff = Math.abs(currentPrice - signal.entry_price) / signal.entry_price;
-        if (priceDiff > 0.005) {
+        
+        console.log(`📊 Validação de preço:`);
+        console.log(`├─ Entry price: $${signal.entry_price}`);
+        console.log(`├─ Current price: $${currentPrice}`);
+        console.log(`├─ Diferença: ${(priceDiff * 100).toFixed(2)}%`);
+        console.log(`└─ Status: ${priceDiff > 0.02 ? '❌ REJEITADO (>2%)' : '✅ ACEITO (<2%)'}`);
+        
+        if (priceDiff > 0.02) {
           console.log(`❌ Preço atual (${currentPrice}) muito distante do entry (${signal.entry_price})`);
           await supabaseAdmin
             .from('pending_signals')
