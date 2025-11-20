@@ -64,7 +64,23 @@ serve(async (req) => {
         .single();
 
       if (existingPosition) {
-        console.log(`❌ Já existe posição ativa em ${signal.asset}`);
+        const reason = `Posição ativa já existe em ${signal.asset}`;
+        console.log(`❌ ${reason}`);
+        
+        // Log detalhado de rejeição
+        await supabaseAdmin.from('agent_logs').insert({
+          agent_name: 'EXECUTE_PENDING_SIGNALS',
+          asset: signal.asset,
+          status: 'REJECTED',
+          user_id: signal.user_id,
+          data: {
+            signal_id: signal.id,
+            reason: 'ACTIVE_POSITION_EXISTS',
+            details: reason,
+            existing_position_id: existingPosition.id
+          }
+        });
+        
         await supabaseAdmin
           .from('pending_signals')
           .update({ status: 'REJECTED', updated_at: now })
@@ -91,7 +107,26 @@ serve(async (req) => {
         console.log(`└─ Status: ${priceDiff > 0.02 ? '❌ REJEITADO (>2%)' : '✅ ACEITO (<2%)'}`);
         
         if (priceDiff > 0.02) {
-          console.log(`❌ Preço atual (${currentPrice}) muito distante do entry (${signal.entry_price})`);
+          const reason = `Preço atual (${currentPrice}) fora da tolerância (±2%) do entry (${signal.entry_price})`;
+          console.log(`❌ ${reason}`);
+          
+          // Log detalhado de rejeição
+          await supabaseAdmin.from('agent_logs').insert({
+            agent_name: 'EXECUTE_PENDING_SIGNALS',
+            asset: signal.asset,
+            status: 'REJECTED',
+            user_id: signal.user_id,
+            data: {
+              signal_id: signal.id,
+              reason: 'PRICE_DEVIATION_TOO_HIGH',
+              details: reason,
+              entry_price: signal.entry_price,
+              current_price: currentPrice,
+              deviation_percent: (priceDiff * 100).toFixed(2),
+              tolerance_percent: 2.0
+            }
+          });
+          
           await supabaseAdmin
             .from('pending_signals')
             .update({ status: 'REJECTED', updated_at: now })
@@ -109,7 +144,22 @@ serve(async (req) => {
           .single();
 
         if (!settings) {
-          console.log(`❌ Configurações do usuário não encontradas`);
+          const reason = 'Configurações do usuário não encontradas';
+          console.log(`❌ ${reason}`);
+          
+          // Log detalhado de rejeição
+          await supabaseAdmin.from('agent_logs').insert({
+            agent_name: 'EXECUTE_PENDING_SIGNALS',
+            asset: signal.asset,
+            status: 'REJECTED',
+            user_id: signal.user_id,
+            data: {
+              signal_id: signal.id,
+              reason: 'USER_SETTINGS_NOT_FOUND',
+              details: reason
+            }
+          });
+          
           rejected++;
           continue;
         }
@@ -121,7 +171,24 @@ serve(async (req) => {
           .eq('user_id', signal.user_id);
 
         if (activePositions && activePositions.length >= (settings.max_positions || 3)) {
-          console.log(`❌ Limite de posições atingido (${activePositions.length}/${settings.max_positions})`);
+          const reason = `Limite de posições atingido (${activePositions.length}/${settings.max_positions})`;
+          console.log(`❌ ${reason}`);
+          
+          // Log detalhado de rejeição
+          await supabaseAdmin.from('agent_logs').insert({
+            agent_name: 'EXECUTE_PENDING_SIGNALS',
+            asset: signal.asset,
+            status: 'REJECTED',
+            user_id: signal.user_id,
+            data: {
+              signal_id: signal.id,
+              reason: 'MAX_POSITIONS_REACHED',
+              details: reason,
+              current_positions: activePositions.length,
+              max_positions: settings.max_positions || 3
+            }
+          });
+          
           await supabaseAdmin
             .from('pending_signals')
             .update({ status: 'REJECTED', updated_at: now })
@@ -158,22 +225,22 @@ serve(async (req) => {
           });
 
           if (orderError) {
-            console.error('❌ Erro retornado pelo binance-order:', orderError);
+            const reason = `Erro ao executar ordem: ${orderError.message || 'Erro desconhecido'}`;
+            console.error(`❌ ${reason}`);
             
-            // Log do erro em agent_logs
-            await supabaseAdmin
-              .from('agent_logs')
-              .insert({
-                user_id: signal.user_id,
-                agent_name: 'SIGNAL_EXECUTOR',
-                asset: signal.asset,
-                status: 'error',
-                data: {
-                  error: orderError.message || 'Unknown error',
-                  signal_id: signal.id,
-                  entry_price: signal.entry_price
-                }
-              });
+            // Log detalhado de erro
+            await supabaseAdmin.from('agent_logs').insert({
+              agent_name: 'EXECUTE_PENDING_SIGNALS',
+              asset: signal.asset,
+              status: 'ERROR',
+              user_id: signal.user_id,
+              data: {
+                signal_id: signal.id,
+                reason: 'BINANCE_ORDER_ERROR',
+                details: reason,
+                error: orderError
+              }
+            });
             
             await supabaseAdmin
               .from('pending_signals')
@@ -184,22 +251,24 @@ serve(async (req) => {
             continue;
           }
 
-          if (!orderResult?.success) {
-            console.error('❌ binance-order retornou success=false:', orderResult);
+          // ✅ CORREÇÃO CRÍTICA: Só marcar como EXECUTED se binance-order confirmou sucesso
+          if (!orderResult?.success || !orderResult?.operation_id) {
+            const reason = 'binance-order não retornou sucesso ou operation_id';
+            console.error(`❌ ${reason}`);
+            console.error('   orderResult:', orderResult);
             
-            await supabaseAdmin
-              .from('agent_logs')
-              .insert({
-                user_id: signal.user_id,
-                agent_name: 'SIGNAL_EXECUTOR',
-                asset: signal.asset,
-                status: 'error',
-                data: {
-                  error: 'Order execution failed',
-                  result: orderResult,
-                  signal_id: signal.id
-                }
-              });
+            await supabaseAdmin.from('agent_logs').insert({
+              agent_name: 'EXECUTE_PENDING_SIGNALS',
+              asset: signal.asset,
+              status: 'REJECTED',
+              user_id: signal.user_id,
+              data: {
+                signal_id: signal.id,
+                reason: 'ORDER_EXECUTION_FAILED',
+                details: reason,
+                order_result: orderResult
+              }
+            });
             
             await supabaseAdmin
               .from('pending_signals')
@@ -211,66 +280,85 @@ serve(async (req) => {
           }
 
           console.log(`✅ binance-order executado com sucesso!`);
+          console.log(`   operation_id: ${orderResult.operation_id}`);
           console.log(`   Result:`, JSON.stringify(orderResult, null, 2));
           
-        } catch (binanceError: any) {
-          console.error('❌ Exceção ao chamar binance-order:', binanceError);
-          
+          // 7. Atualizar status do sinal (só se chegou aqui = sucesso confirmado)
           await supabaseAdmin
-            .from('agent_logs')
-            .insert({
-              user_id: signal.user_id,
-              agent_name: 'SIGNAL_EXECUTOR',
-              asset: signal.asset,
-              status: 'error',
-              data: {
-                error: binanceError.message || 'Exception during order execution',
-                signal_id: signal.id
-              }
-            });
+            .from('pending_signals')
+            .update({ 
+              status: 'EXECUTED', 
+              executed_at: now,
+              updated_at: now 
+            })
+            .eq('id', signal.id);
+
+          // 8. Logar execução bem-sucedida
+          await supabaseAdmin.from('agent_logs').insert({
+            agent_name: 'EXECUTE_PENDING_SIGNALS',
+            asset: signal.asset,
+            status: 'SUCCESS',
+            user_id: signal.user_id,
+            data: {
+              signal_id: signal.id,
+              operation_id: orderResult.operation_id,
+              entry_price: signal.entry_price,
+              current_price: currentPrice,
+              strategy: signal.strategy,
+              confidence: signal.confidence_score,
+              paper_mode: settings.paper_mode,
+              order_result: orderResult
+            }
+          });
+
+          console.log(`✅ Sinal ${signal.id} executado com sucesso!`);
+          console.log(`   ✅ operation_id: ${orderResult.operation_id}`);
+          console.log(`   ✅ active_positions: criado pelo binance-order`);
+          console.log(`   ✅ operations: criado pelo binance-order`);
+          console.log(`   ✅ pending_signals: marcado como EXECUTED`);
+          console.log(`   ✅ agent_logs: registrado\n`);
+          
+          executed++;
+          
+        } catch (binanceError: any) {
+          const reason = `Exceção ao chamar binance-order: ${binanceError.message || 'Erro desconhecido'}`;
+          console.error(`❌ ${reason}`);
+          
+          await supabaseAdmin.from('agent_logs').insert({
+            agent_name: 'EXECUTE_PENDING_SIGNALS',
+            asset: signal.asset,
+            status: 'ERROR',
+            user_id: signal.user_id,
+            data: {
+              signal_id: signal.id,
+              reason: 'BINANCE_ORDER_EXCEPTION',
+              details: reason,
+              error: binanceError
+            }
+          });
           
           rejected++;
           continue;
         }
 
-        // 7. Atualizar status do sinal
-        await supabaseAdmin
-          .from('pending_signals')
-          .update({ 
-            status: 'EXECUTED', 
-            executed_at: now,
-            updated_at: now 
-          })
-          .eq('id', signal.id);
-
-        // 8. Logar execução bem-sucedida
-        await supabaseAdmin
-          .from('agent_logs')
-          .insert({
-            user_id: signal.user_id,
-            agent_name: 'SIGNAL_EXECUTOR',
-            asset: signal.asset,
-            status: 'success',
-            data: {
-              signal_id: signal.id,
-              entry_price: signal.entry_price,
-              current_price: currentPrice,
-              strategy: signal.strategy,
-              confidence: signal.confidence_score,
-              paper_mode: settings.paper_mode
-            }
-          });
-
-        console.log(`✅ Sinal ${signal.id} executado com sucesso!`);
-        console.log(`   ✅ active_positions: criado pelo binance-order`);
-        console.log(`   ✅ operations: criado pelo binance-order`);
-        console.log(`   ✅ pending_signals: marcado como EXECUTED`);
-        console.log(`   ✅ agent_logs: registrado\n`);
-        
-        executed++;
-
       } catch (priceError) {
+        const errorMessage = priceError instanceof Error ? priceError.message : 'Erro desconhecido';
         console.error(`❌ Erro ao buscar preço:`, priceError);
+        
+        // Log detalhado de erro
+        await supabaseAdmin.from('agent_logs').insert({
+          agent_name: 'EXECUTE_PENDING_SIGNALS',
+          asset: signal.asset,
+          status: 'ERROR',
+          user_id: signal.user_id,
+          data: {
+            signal_id: signal.id,
+            reason: 'PRICE_FETCH_ERROR',
+            details: `Erro ao buscar preço do mercado: ${errorMessage}`,
+            error: priceError
+          }
+        });
+        
         rejected++;
       }
     }
