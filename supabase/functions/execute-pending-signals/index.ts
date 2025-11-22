@@ -87,19 +87,20 @@ serve(async (req) => {
         const reason = `Posição ativa já existe em ${signal.asset}`;
         console.log(`❌ ${reason}`);
         
-        // Log detalhado de rejeição
-        await supabaseAdmin.from('agent_logs').insert({
-          agent_name: 'EXECUTE_PENDING_SIGNALS',
-          asset: signal.asset,
-          status: 'REJECTED',
-          user_id: signal.user_id,
-          data: {
-            signal_id: signal.id,
-            reason: 'ACTIVE_POSITION_EXISTS',
-            details: reason,
-            existing_position_id: existingPosition.id
-          }
-        });
+          // Log detalhado de rejeição com código amigável
+          await supabaseAdmin.from('agent_logs').insert({
+            agent_name: 'EXECUTE_PENDING_SIGNALS',
+            asset: signal.asset,
+            status: 'REJECTED',
+            user_id: signal.user_id,
+            data: {
+              signal_id: signal.id,
+              reason: 'ACTIVE_POSITION_EXISTS',
+              details: reason,
+              existing_position_id: existingPosition.id,
+              friendly_message: 'Já existe uma posição ativa neste ativo'
+            }
+          });
         
         await supabaseAdmin
           .from('pending_signals')
@@ -345,7 +346,23 @@ serve(async (req) => {
           executed++;
           
         } catch (binanceError: any) {
-          const reason = `Exceção ao chamar binance-order: ${binanceError.message || 'Erro desconhecido'}`;
+          const errorMsg = binanceError.message || 'Erro desconhecido';
+          let errorReason = 'BINANCE_ORDER_EXCEPTION';
+          let friendlyMessage = 'Erro ao executar ordem na Binance';
+
+          // Detectar erros específicos da Binance
+          if (errorMsg.includes('Invalid API-key') || errorMsg.includes('-2015')) {
+            errorReason = 'BINANCE_INVALID_API_KEY';
+            friendlyMessage = 'API Key inválida ou sem permissão. Verifique: Enable Futures, Enable Trading e IP Whitelist';
+          } else if (errorMsg.includes('IP') || errorMsg.includes('permissions')) {
+            errorReason = 'BINANCE_IP_NOT_ALLOWED';
+            friendlyMessage = 'IP não autorizado. Configure IP Whitelist como UNRESTRICTED na Binance';
+          } else if (errorMsg.includes('Futures')) {
+            errorReason = 'BINANCE_MISSING_FUTURES_PERMISSION';
+            friendlyMessage = 'Permissão "Enable Futures" não habilitada na Binance';
+          }
+
+          const reason = `${friendlyMessage}: ${errorMsg}`;
           console.error(`❌ ${reason}`);
           
           await supabaseAdmin.from('agent_logs').insert({
@@ -355,8 +372,9 @@ serve(async (req) => {
             user_id: signal.user_id,
             data: {
               signal_id: signal.id,
-              reason: 'BINANCE_ORDER_EXCEPTION',
+              reason: errorReason,
               details: reason,
+              friendly_message: friendlyMessage,
               error: binanceError
             }
           });
