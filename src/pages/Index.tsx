@@ -16,6 +16,8 @@ import { FoundationDiagnostic } from "@/components/trading/FoundationDiagnostic"
 import { StrategyStatusPanel } from "@/components/trading/StrategyStatusPanel";
 import { MarketAnalysisSummary } from "@/components/trading/MarketAnalysisSummary";
 import { PerformanceDashboard } from "@/components/trading/PerformanceDashboard";
+import { BinanceConnectionTest } from "@/components/trading/BinanceConnectionTest";
+import { SignalsDiagnosticPanel } from "@/components/trading/SignalsDiagnosticPanel";
 import { useUserSettings } from "@/hooks/useTradingData";
 import { useTradingOrchestrator } from "@/hooks/useTradingOrchestrator";
 import { usePendingSignalsExecutor } from "@/hooks/usePendingSignalsExecutor";
@@ -71,6 +73,8 @@ const Index = () => {
           
           {/* Right Column (1/3) - Compact Stats and Controls */}
           <div className="lg:col-span-1 space-y-2 sm:space-y-3">
+            <BinanceConnectionTest />
+            <SignalsDiagnosticPanel />
             <StatsPanel />
             <DailyGoals />
             <StrategyStatusPanel />
